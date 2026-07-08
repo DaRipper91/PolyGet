@@ -1,0 +1,78 @@
+"""Base package manager interface and discovery utilities."""
+
+import shutil
+from typing import Type, Any
+
+
+class PackageManager:
+    """Base class defining the interface for all package manager drivers."""
+
+    name: str = "Base"
+    category: str = "Base"
+
+    def is_available(self) -> bool:
+        """Check if the package manager's binary is available in the system PATH.
+
+        Returns:
+            bool: True if available, False otherwise.
+        """
+        raise NotImplementedError("Subclasses must implement is_available()")
+
+    async def check_updates(self) -> list[dict[str, Any]]:
+        """Asynchronously query the package manager for outdated packages.
+
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries representing available updates,
+                where each dict contains package details (e.g., name, current version,
+                new version).
+        """
+        raise NotImplementedError("Subclasses must implement check_updates()")
+
+    def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
+        """Get the command to perform the package upgrades.
+
+        Args:
+            packages (list[str]): Optional list of specific packages to upgrade.
+
+        Returns:
+            list[str]: The command and its arguments as a list of strings.
+        """
+        raise NotImplementedError("Subclasses must implement get_upgrade_command()")
+
+    def get_sync_command(self) -> list[str] | None:
+        """Get the command to sync/refresh repository metadata.
+
+        Returns:
+            list[str] | None: The sync command, or None if not supported/required.
+        """
+        return None
+
+
+# Registry of all driver classes
+_REGISTRY: list[Type[PackageManager]] = []
+
+
+def register_manager(cls: Type[PackageManager]) -> Type[PackageManager]:
+    """Decorator to register a package manager class."""
+    _REGISTRY.append(cls)
+    return cls
+
+
+def discover_managers() -> list[PackageManager]:
+    """Discover and return instances of all available package managers.
+
+    Returns:
+        list[PackageManager]: A list of available package manager driver instances.
+    """
+    # Import drivers to trigger their decorators
+    try:
+        import app.core.drivers
+    except ImportError:
+        pass
+
+    active = []
+    for cls in _REGISTRY:
+        inst = cls()
+        if inst.is_available():
+            active.append(inst)
+    return active

@@ -26,16 +26,12 @@ class DnfManager(PackageManager):
             list[dict[str, Any]]: A list of dictionaries representing available updates.
         """
         try:
-            # First try using --json option (supported in DNF 5) with sudo -S
+            # First try using --json option (supported in DNF 5) without sudo
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-S", "dnf", "check-update", "--json",
-                stdin=asyncio.subprocess.PIPE,
+                "dnf", "check-update", "--json",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            proc.stdin.write(b"0\n")
-            await proc.stdin.drain()
-            proc.stdin.close()
             stdout, _ = await proc.communicate()
             if proc.returncode in (0, 100) and stdout:
                 import json
@@ -58,17 +54,13 @@ class DnfManager(PackageManager):
         except Exception:
             pass
 
-        # Fallback to standard check-update parsing with sudo -S
+        # Fallback to standard check-update parsing without sudo
         try:
             proc = await asyncio.create_subprocess_exec(
-                "sudo", "-S", "dnf", "check-update", "--quiet",
-                stdin=asyncio.subprocess.PIPE,
+                "dnf", "check-update", "--quiet",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            proc.stdin.write(b"0\n")
-            await proc.stdin.drain()
-            proc.stdin.close()
             stdout, _ = await proc.communicate()
             # DNF returns 100 when updates exist, 0 when none
             if proc.returncode not in (0, 100):
@@ -92,8 +84,8 @@ class DnfManager(PackageManager):
             list[str]: The upgrade command and its arguments.
         """
         if packages:
-            return ["sudo", "dnf", "upgrade", "-y"] + packages
-        return ["sudo", "dnf", "upgrade", "-y"]
+            return ["pkexec", "dnf", "upgrade", "-y"] + packages
+        return ["pkexec", "dnf", "upgrade", "-y"]
 
     def get_sync_command(self) -> list[str] | None:
         """Get the command to sync repository metadata for DNF.
@@ -101,4 +93,4 @@ class DnfManager(PackageManager):
         Returns:
             list[str]: The sync command list.
         """
-        return ["sudo", "dnf", "makecache"]
+        return ["pkexec", "dnf", "makecache"]

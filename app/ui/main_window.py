@@ -105,14 +105,9 @@ class ExecutionWorker(QThread):
         self.log_signal.emit(f"⚡ Executing: {' '.join(self.cmd)}")
         try:
             async def run_cmd():
-                use_sudo = self.cmd[0] == "sudo"
                 run_cmd_list = list(self.cmd)
-                if use_sudo and "-S" not in run_cmd_list:
-                    run_cmd_list.insert(1, "-S")
-
                 proc = await asyncio.create_subprocess_exec(
                     *run_cmd_list,
-                    stdin=asyncio.subprocess.PIPE if use_sudo else None,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
                     preexec_fn=os.setsid
@@ -120,17 +115,11 @@ class ExecutionWorker(QThread):
                 coordinator = SubprocessCoordinator()
                 coordinator.register(proc.pid)
                 try:
-                    if use_sudo:
-                        proc.stdin.write(b"0\n")
-                        await proc.stdin.drain()
-                        proc.stdin.close()
                     while True:
                         line = await proc.stdout.readline()
                         if not line:
                             break
                         line_str = line.decode(errors="ignore").strip()
-                        if "[sudo] password for" in line_str:
-                            continue
                         self.log_signal.emit(line_str)
                     return await proc.wait()
                 finally:
@@ -1063,7 +1052,7 @@ class MainWindow(QMainWindow):
             remote = item.get("remote", "flathub")
             cmd = ["flatpak", "install", "-y", remote, pkg_id]
         else:  # DNF
-            cmd = ["sudo", "dnf", "install", "-y", pkg_id]
+            cmd = ["pkexec", "dnf", "install", "-y", pkg_id]
 
         self.log(f"📦 Queueing installation of {pkg_id}...")
         self.nav_list.setCurrentRow(2)  # Switch to console

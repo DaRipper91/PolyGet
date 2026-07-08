@@ -11,6 +11,11 @@ class NpmManager(PackageManager):
     name: str = "NPM"
     category: str = "Language/Dev"
 
+    def __init__(self) -> None:
+        """Initialize the NPM package manager driver."""
+        super().__init__()
+        self._global_prefix: str | None = None
+
     def is_available(self) -> bool:
         """Check if npm is installed and available in the system PATH.
 
@@ -25,6 +30,19 @@ class NpmManager(PackageManager):
         Returns:
             list[dict[str, Any]]: A list of dictionaries representing available updates.
         """
+        # Fetch prefix first asynchronously
+        try:
+            prefix_proc = await asyncio.create_subprocess_exec(
+                "npm", "config", "get", "prefix",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout_prefix, _ = await prefix_proc.communicate()
+            if prefix_proc.returncode == 0 and stdout_prefix:
+                self._global_prefix = stdout_prefix.decode(errors="ignore").strip()
+        except Exception:
+            pass
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 "npm", "outdated", "-g", "--json",
@@ -57,19 +75,25 @@ class NpmManager(PackageManager):
         if packages:
             base_cmd = base_cmd + packages
 
-        try:
-            import subprocess
-            import os
-            res = subprocess.run(
-                ["npm", "config", "get", "prefix"],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if res.returncode == 0:
-                prefix = res.stdout.strip()
-                if not os.access(prefix, os.W_OK):
-                    return ["sudo"] + base_cmd
-        except Exception:
-            pass
+        import os
+
+        prefix = self._global_prefix
+
+        if not prefix:
+            prefix = os.environ.get("NPM_CONFIG_PREFIX")
+
+        if not prefix:
+            # Fallback checks on standard locations if we can't find the prefix
+            fallback_paths = ["/usr/lib/node_modules", "/usr/local/lib/node_modules", "/usr/local", "/usr"]
+            for path in fallback_paths:
+                if os.path.exists(path):
+                    if not os.access(path, os.W_OK):
+                        return ["sudo"] + base_cmd
+                    else:
+                        return base_cmd
+
+        if prefix:
+            if not os.access(prefix, os.W_OK):
+                return ["sudo"] + base_cmd
+
         return base_cmd

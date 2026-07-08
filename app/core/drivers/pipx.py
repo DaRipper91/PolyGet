@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 import shutil
 from typing import Any
 from app.core.manager import PackageManager, register_manager
@@ -19,6 +21,42 @@ class PipxManager(PackageManager):
         """
         return shutil.which("pipx") is not None
 
+    async def _check_package(self, name: str) -> list[dict[str, Any]]:
+        """Check a single package for updates using its venv pip.
+
+        Args:
+            name (str): The name of the pipx package.
+
+        Returns:
+            list[dict[str, Any]]: A list containing update details if found, or empty list.
+        """
+        try:
+            pipx_home = os.environ.get("PIPX_HOME", os.path.expanduser("~/.local/share/pipx"))
+            pip_path = os.path.join(pipx_home, "venvs", name, "bin", "pip")
+            if not os.path.exists(pip_path):
+                return []
+
+            pip_proc = await asyncio.create_subprocess_exec(
+                pip_path, "list", "--outdated", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            pip_stdout, _ = await pip_proc.communicate()
+            if pip_stdout:
+                pip_data = json.loads(pip_stdout.decode(errors="ignore"))
+                results = []
+                for item in pip_data:
+                    if item.get("name") == name:
+                        results.append({
+                            "name": name,
+                            "current": item.get("version", "Unknown"),
+                            "new": item.get("latest_version", "Latest")
+                        })
+                return results
+        except Exception:
+            pass
+        return []
+
     async def check_updates(self) -> list[dict[str, Any]]:
         """Query Pipx for outdated packages.
 
@@ -33,32 +71,24 @@ class PipxManager(PackageManager):
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await proc.communicate()
-            updates = []
+
+            packages = []
             for line in stdout.decode(errors="ignore").splitlines():
                 parts = line.strip().split()
                 if len(parts) >= 2:
-                    name = parts[0]
-                    # Check if pip is available in its venv
-                    import os
-                    pipx_home = os.environ.get("PIPX_HOME", os.path.expanduser("~/.local/share/pipx"))
-                    pip_path = os.path.join(pipx_home, "venvs", name, "bin", "pip")
-                    if os.path.exists(pip_path):
-                        pip_proc = await asyncio.create_subprocess_exec(
-                            pip_path, "list", "--outdated", "--json",
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE
-                        )
-                        pip_stdout, _ = await pip_proc.communicate()
-                        if pip_stdout:
-                            import json
-                            pip_data = json.loads(pip_stdout.decode(errors="ignore"))
-                            for item in pip_data:
-                                if item.get("name") == name:
-                                    updates.append({
-                                        "name": name,
-                                        "current": item.get("version", "Unknown"),
-                                        "new": item.get("latest_version", "Latest")
-                                    })
+                    packages.append(parts[0])
+
+            if not packages:
+                return []
+
+            # Gather all package check tasks concurrently
+            tasks = [self._check_package(pkg) for pkg in packages]
+            results = await asyncio.gather(*tasks)
+
+            # Flatten results list
+            updates = []
+            for result in results:
+                updates.extend(result)
             return updates
         except Exception:
             return []
@@ -72,3 +102,4 @@ class PipxManager(PackageManager):
         if packages:
             return ["pipx", "upgrade"] + packages
         return ["pipx", "upgrade-all"]
+

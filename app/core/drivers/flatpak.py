@@ -30,7 +30,7 @@ class FlatpakManager(PackageManager):
             installed_map = {}
             try:
                 list_proc = await asyncio.create_subprocess_exec(
-                    "flatpak", "list", "--json",
+                    "flatpak", "list", "--columns=application,version,branch,active", "--json",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -42,13 +42,18 @@ class FlatpakManager(PackageManager):
                         app_id = pkg.get("application_id")
                         if app_id:
                             # Use version, fallback to branch, then default to "Installed"
-                            installed_map[app_id] = pkg.get("version") or pkg.get("branch") or "Installed"
+                            version = pkg.get("version") or pkg.get("branch") or "Installed"
+                            commit = pkg.get("active_commit") or ""
+                            installed_map[app_id] = {
+                                "version": version,
+                                "commit": commit
+                            }
             except Exception:
                 pass
 
             # 2. Query Flatpak for updates
             proc = await asyncio.create_subprocess_exec(
-                "flatpak", "remote-ls", "--updates", "--json",
+                "flatpak", "remote-ls", "--updates", "--columns=application,version,branch,commit", "--json",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
@@ -61,12 +66,25 @@ class FlatpakManager(PackageManager):
             for item in data:
                 app_id = item.get("application_id")
                 if app_id:
-                    new_version = item.get("version") or item.get("branch") or "Update"
-                    current_version = installed_map.get(app_id, "Installed")
+                    new_ver = item.get("version") or item.get("branch") or "Update"
+                    remote_commit = item.get("commit") or ""
+                    
+                    inst_info = installed_map.get(app_id, {"version": "Installed", "commit": ""})
+                    current_ver = inst_info["version"]
+                    local_commit = inst_info["commit"]
+
+                    # If version strings are the same, append commit info to make the drift distinct
+                    if current_ver == new_ver and local_commit and remote_commit:
+                        # Truncate hashes for display cleaniness (e.g. first 8 characters)
+                        current_ver = f"{current_ver} ({local_commit[:8]})"
+                        new_ver = f"{new_ver} ({remote_commit[:8]})"
+                    elif current_ver == new_ver and remote_commit:
+                        new_ver = f"{new_ver} (Rebuild: {remote_commit[:8]})"
+
                     updates.append({
                         "name": app_id,
-                        "current": current_version,
-                        "new": new_version
+                        "current": current_ver,
+                        "new": new_ver
                     })
             return updates
         except Exception:

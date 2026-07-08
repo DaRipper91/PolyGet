@@ -120,6 +120,57 @@ def test_cargo_list_installed_and_install_cmd():
     asyncio.run(run_test())
 
 
+def test_flatpak_check_updates():
+    """Test FlatpakManager's check_updates parsing with column commit matching."""
+    manager = FlatpakManager()
+
+    async def run_test():
+        mock_list_proc = AsyncMock()
+        mock_list_proc.returncode = 0
+        mock_list_proc.communicate.return_value = (
+            b'[\n'
+            b'  {\n'
+            b'    "application_id" : "org.kde.kate",\n'
+            b'    "version" : "26.04.3",\n'
+            b'    "branch" : "stable",\n'
+            b'    "active_commit" : "a164b7760356"\n'
+            b'  }\n'
+            b']\n',
+            b""
+        )
+
+        mock_update_proc = AsyncMock()
+        mock_update_proc.returncode = 0
+        mock_update_proc.communicate.return_value = (
+            b'[\n'
+            b'  {\n'
+            b'    "application_id" : "org.kde.kate",\n'
+            b'    "version" : "26.04.3",\n'
+            b'    "branch" : "stable",\n'
+            b'    "commit" : "11d746b2fee3"\n'
+            b'  }\n'
+            b']\n',
+            b""
+        )
+
+        def mock_subprocess_exec(*args, **kwargs):
+            if "list" in args:
+                return mock_list_proc
+            elif "remote-ls" in args:
+                return mock_update_proc
+            return AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec):
+            updates = await manager.check_updates()
+
+        assert len(updates) == 1
+        assert updates[0]["name"] == "org.kde.kate"
+        assert updates[0]["current"] == "26.04.3 (a164b776)"
+        assert updates[0]["new"] == "26.04.3 (11d746b2)"
+
+    asyncio.run(run_test())
+
+
 def test_active_managers_sanity():
     """Test that all active/available managers return valid types for list_installed and get_install_command."""
     async def run_test():

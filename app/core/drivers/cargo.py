@@ -63,3 +63,41 @@ class CargoManager(PackageManager):
                 return ["cargo", "install-update"] + packages
             return ["cargo", "install-update", "-a"]
         return ["cargo", "install", "cargo-update"]
+
+    async def list_installed(self) -> list[str]:
+        """List installed packages via Cargo.
+
+        Returns:
+            list[str]: A list of installed package names.
+        """
+        try:
+            if shutil.which("cargo-install-update") is None:
+                return []
+            proc = await asyncio.create_subprocess_exec(
+                "cargo", "install-update", "-l",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return []
+
+            installed = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 4 and not parts[0].startswith("Package") and not parts[0].startswith("---"):
+                    installed.append(parts[0])
+            return installed
+        except Exception:
+            return []
+
+    def get_install_command(self, package: str) -> list[str]:
+        """Get the command to install a cargo package.
+
+        Args:
+            package (str): The package name to install.
+
+        Returns:
+            list[str]: The install command list.
+        """
+        return ["cargo", "install", package]

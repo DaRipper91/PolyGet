@@ -97,3 +97,36 @@ class NpmManager(PackageManager):
                 return ["sudo"] + base_cmd
 
         return base_cmd
+
+    async def list_installed(self) -> list[str]:
+        """List installed global NPM packages.
+
+        Returns:
+            list[str]: A list of installed package names.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "list", "-g", "--depth=0", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            if not stdout:
+                return []
+            import json
+            data = json.loads(stdout.decode(errors="ignore"))
+            dependencies = data.get("dependencies", {})
+            return list(dependencies.keys())
+        except Exception:
+            return []
+
+    def get_install_command(self, package: str) -> list[str]:
+        """Get the command to install a global NPM package.
+
+        Args:
+            package (str): The package name to install.
+
+        Returns:
+            list[str]: The install command list.
+        """
+        return ["npm", "install", "-g", package]

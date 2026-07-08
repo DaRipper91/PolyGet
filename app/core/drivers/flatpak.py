@@ -89,3 +89,40 @@ class FlatpakManager(PackageManager):
             list[str]: The sync command list.
         """
         return ["flatpak", "update", "--appstream"]
+
+    async def list_installed(self) -> list[str]:
+        """List installed Flatpak packages.
+
+        Returns:
+            list[str]: A list of installed package application IDs.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "flatpak", "list", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0 or not stdout:
+                return []
+            import json
+            data = json.loads(stdout.decode(errors="ignore"))
+            installed = []
+            for pkg in data:
+                app_id = pkg.get("application_id")
+                if app_id:
+                    installed.append(app_id)
+            return installed
+        except Exception:
+            return []
+
+    def get_install_command(self, package: str) -> list[str]:
+        """Get the command to install a Flatpak package.
+
+        Args:
+            package (str): The package ID to install.
+
+        Returns:
+            list[str]: The install command list.
+        """
+        return ["flatpak", "install", "-y", package]

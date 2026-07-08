@@ -103,3 +103,39 @@ class PipxManager(PackageManager):
             return ["pipx", "upgrade"] + packages
         return ["pipx", "upgrade-all"]
 
+    async def list_installed(self) -> list[str]:
+        """List installed pipx packages.
+
+        Returns:
+            list[str]: A list of installed package names.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pipx", "list", "--short",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return []
+
+            packages = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    packages.append(parts[0])
+            return packages
+        except Exception:
+            return []
+
+    def get_install_command(self, package: str) -> list[str]:
+        """Get the command to install a pipx package.
+
+        Args:
+            package (str): The package to install.
+
+        Returns:
+            list[str]: The install command list.
+        """
+        return ["pipx", "install", package]
+

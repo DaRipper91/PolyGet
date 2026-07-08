@@ -47,6 +47,25 @@ class PackageManager:
         """
         return None
 
+    async def list_installed(self) -> list[str]:
+        """Get a list of installed package names.
+
+        Returns:
+            list[str]: A list of installed package names.
+        """
+        raise NotImplementedError("Subclasses must implement list_installed()")
+
+    def get_install_command(self, package: str) -> list[str]:
+        """Get the command list to install a package.
+
+        Args:
+            package (str): The name of the package to install.
+
+        Returns:
+            list[str]: The command list to install the package.
+        """
+        raise NotImplementedError("Subclasses must implement get_install_command()")
+
 
 # Registry of all driver classes
 _REGISTRY: list[Type[PackageManager]] = []

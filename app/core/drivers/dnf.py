@@ -94,3 +94,42 @@ class DnfManager(PackageManager):
             list[str]: The sync command list.
         """
         return ["pkexec", "dnf", "makecache"]
+
+    async def list_installed(self) -> list[str]:
+        """List installed packages using DNF.
+
+        Returns:
+            list[str]: A list of installed package names.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dnf", "list", "--installed", "--quiet",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return []
+
+            installed = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 3 and not parts[0].startswith("Installed") and not parts[0].startswith("Last"):
+                    pkg_name = parts[0]
+                    if "." in pkg_name:
+                        pkg_name = pkg_name.rsplit(".", 1)[0]
+                    installed.append(pkg_name)
+            return installed
+        except Exception:
+            return []
+
+    def get_install_command(self, package: str) -> list[str]:
+        """Get the command to install a package using DNF.
+
+        Args:
+            package (str): The name of the package to install.
+
+        Returns:
+            list[str]: The command list to install the package.
+        """
+        return ["pkexec", "dnf", "install", "-y", package]

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox
 )
 from app.core.manager import discover_managers, PackageManager
+from app.core.coordinator import SubprocessCoordinator
 
 
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
@@ -113,21 +114,27 @@ class ExecutionWorker(QThread):
                     *run_cmd_list,
                     stdin=asyncio.subprocess.PIPE if use_sudo else None,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT
+                    stderr=asyncio.subprocess.STDOUT,
+                    preexec_fn=os.setsid
                 )
-                if use_sudo:
-                    proc.stdin.write(b"0\n")
-                    await proc.stdin.drain()
-                    proc.stdin.close()
-                while True:
-                    line = await proc.stdout.readline()
-                    if not line:
-                        break
-                    line_str = line.decode(errors="ignore").strip()
-                    if "[sudo] password for" in line_str:
-                        continue
-                    self.log_signal.emit(line_str)
-                return await proc.wait()
+                coordinator = SubprocessCoordinator()
+                coordinator.register(proc.pid)
+                try:
+                    if use_sudo:
+                        proc.stdin.write(b"0\n")
+                        await proc.stdin.drain()
+                        proc.stdin.close()
+                    while True:
+                        line = await proc.stdout.readline()
+                        if not line:
+                            break
+                        line_str = line.decode(errors="ignore").strip()
+                        if "[sudo] password for" in line_str:
+                            continue
+                        self.log_signal.emit(line_str)
+                    return await proc.wait()
+                finally:
+                    coordinator.unregister(proc.pid)
 
             exit_code = loop.run_until_complete(run_cmd())
             self.finished_signal.emit(exit_code == 0)
@@ -1126,3 +1133,24 @@ class MainWindow(QMainWindow):
         else:
             self.log(f"❌ Failed to refresh repository for {manager_name}")
         self.run_next_sync_queue()
+
+    def closeEvent(self, event):
+        """Prompt user on exit if active background child processes exist, then terminate them."""
+        coordinator = SubprocessCoordinator()
+        active_pids = coordinator.active_pids
+        if active_pids:
+            reply = QMessageBox.question(
+                self,
+                "Confirm Exit",
+                f"There are {len(active_pids)} active background update processes running.\n"
+                "Are you sure you want to exit? Active tasks will be terminated.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                coordinator.terminate_all()
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()

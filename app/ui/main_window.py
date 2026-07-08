@@ -9,10 +9,11 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
-    QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox
+    QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog
 )
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
+from app.core.blueprint import BlueprintManager
 
 
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
@@ -308,6 +309,42 @@ class CategoryWorker(QThread):
         self.results_signal.emit(results)
 
 
+class FetchInstalledWorker(QThread):
+    """Worker thread to query installed packages across all available managers."""
+    log_signal = Signal(str)
+    result_signal = Signal(dict)
+
+    def __init__(self, managers: list[PackageManager], parent: Any = None):
+        super().__init__(parent)
+        self.managers = managers
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        self.log_signal.emit("🔍 Querying installed packages across all managers...")
+        results = {}
+        
+        async def fetch_installed(mgr: PackageManager):
+            self.log_signal.emit(f"📦 Querying installed packages from {mgr.name}...")
+            try:
+                pkgs = await mgr.list_installed()
+                self.log_signal.emit(f"✅ Found {len(pkgs)} installed packages for {mgr.name}.")
+                return mgr.name, pkgs
+            except Exception as e:
+                self.log_signal.emit(f"❌ Error querying {mgr.name}: {str(e)}")
+                return mgr.name, []
+
+        tasks = [fetch_installed(mgr) for mgr in self.managers]
+        done = loop.run_until_complete(asyncio.gather(*tasks))
+        loop.close()
+        
+        for name, pkgs in done:
+            results[name] = pkgs
+            
+        self.result_signal.emit(results)
+
+
 class UpdateItemWidget(QWidget):
     """Custom row widget replicating KDE Discover's update list items."""
     checked_changed = Signal(bool, str, str)
@@ -503,6 +540,10 @@ class MainWindow(QMainWindow):
         item_console.setIcon(QIcon.fromTheme("utilities-terminal"))
         self.nav_list.addItem(item_console)
         
+        item_blueprints = QListWidgetItem("Blueprints")
+        item_blueprints.setIcon(QIcon.fromTheme("document-properties"))
+        self.nav_list.addItem(item_blueprints)
+        
         self.nav_list.setCurrentRow(0)
         self.nav_list.currentRowChanged.connect(self.change_page)
         sidebar_layout.addWidget(self.nav_list)
@@ -680,6 +721,67 @@ class MainWindow(QMainWindow):
         console_layout.addWidget(self.console)
 
         self.stacked_widget.addWidget(console_page)
+
+        # PAGE 4: Blueprints
+        blueprints_page = QWidget()
+        blueprints_layout = QVBoxLayout(blueprints_page)
+        blueprints_layout.setContentsMargins(20, 20, 20, 20)
+        blueprints_layout.setSpacing(15)
+
+        lbl_desc = QLabel("Declarative Environment Sync\nDefine your system's package state in a YAML blueprint to import, export, or sync package manager drift.")
+        lbl_desc.setObjectName("summary-label")
+        lbl_desc.setWordWrap(True)
+        blueprints_layout.addWidget(lbl_desc)
+
+        blueprint_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        self.blueprint_editor = QPlainTextEdit()
+        self.blueprint_editor.setObjectName("console-output")
+        self.blueprint_editor.setPlaceholderText(
+            "# YAML Blueprint\n"
+            "# Map package managers to their lists of desired packages.\n"
+            "# Example:\n"
+            "# Flatpak:\n"
+            "#   - org.mozilla.firefox\n"
+            "# DNF:\n"
+            "#   - curl"
+        )
+        blueprint_splitter.addWidget(self.blueprint_editor)
+
+        btn_widget = QWidget()
+        btn_layout = QVBoxLayout(btn_widget)
+        btn_layout.setContentsMargins(10, 0, 10, 0)
+        btn_layout.setSpacing(10)
+
+        self.btn_export_blueprint = QPushButton("Export Local Configuration")
+        self.btn_load_blueprint = QPushButton("Load Blueprint File...")
+        self.btn_save_blueprint = QPushButton("Save Blueprint File...")
+        self.btn_sync_blueprint = QPushButton("Sync System to Blueprint")
+
+        self.btn_export_blueprint.clicked.connect(self.export_local_configuration)
+        self.btn_load_blueprint.clicked.connect(self.load_blueprint_file)
+        self.btn_save_blueprint.clicked.connect(self.save_blueprint_file)
+        self.btn_sync_blueprint.clicked.connect(self.sync_system_to_blueprint)
+
+        btn_layout.addWidget(self.btn_export_blueprint)
+        btn_layout.addWidget(self.btn_load_blueprint)
+        btn_layout.addWidget(self.btn_save_blueprint)
+        btn_layout.addWidget(self.btn_sync_blueprint)
+        btn_layout.addStretch()
+
+        blueprint_splitter.addWidget(btn_widget)
+        blueprint_splitter.setSizes([550, 200])
+        blueprints_layout.addWidget(blueprint_splitter)
+
+        self.blueprint_status = QLabel("Ready")
+        self.blueprint_status.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+        blueprints_layout.addWidget(self.blueprint_status)
+
+        self.blueprint_progress = QProgressBar()
+        self.blueprint_progress.setVisible(False)
+        blueprints_layout.addWidget(self.blueprint_progress)
+
+        self.stacked_widget.addWidget(blueprints_page)
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1122,6 +1224,233 @@ class MainWindow(QMainWindow):
         else:
             self.log(f"❌ Failed to refresh repository for {manager_name}")
         self.run_next_sync_queue()
+
+    def export_local_configuration(self):
+        self.btn_export_blueprint.setEnabled(False)
+        self.btn_load_blueprint.setEnabled(False)
+        self.btn_save_blueprint.setEnabled(False)
+        self.btn_sync_blueprint.setEnabled(False)
+        self.btn_scan.setEnabled(False)
+        self.btn_refresh_repos.setEnabled(False)
+        self.blueprint_progress.setVisible(True)
+        self.blueprint_progress.setRange(0, 0)
+        self.blueprint_status.setText("Exporting local configuration...")
+        self.log("📋 Exporting local configuration as blueprint...")
+
+        available = discover_managers()
+        if not available:
+            self.blueprint_status.setText("Error: No active package managers found.")
+            self.blueprint_progress.setVisible(False)
+            self.btn_export_blueprint.setEnabled(True)
+            self.btn_load_blueprint.setEnabled(True)
+            self.btn_save_blueprint.setEnabled(True)
+            self.btn_sync_blueprint.setEnabled(True)
+            self.btn_scan.setEnabled(True)
+            self.btn_refresh_repos.setEnabled(True)
+            return
+
+        worker = FetchInstalledWorker(available)
+        worker.log_signal.connect(self.log)
+        worker.result_signal.connect(self.handle_export_results)
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    @Slot(dict)
+    def handle_export_results(self, results: dict[str, list[str]]):
+        try:
+            yaml_content = BlueprintManager.generate_blueprint(results)
+            self.blueprint_editor.setPlainText(yaml_content)
+            self.blueprint_status.setText("Blueprint generated successfully.")
+            self.log("✅ Blueprint generated and loaded into editor.")
+        except Exception as e:
+            self.blueprint_status.setText(f"Error generating blueprint: {str(e)}")
+            self.log(f"❌ Error generating blueprint: {str(e)}")
+            QMessageBox.critical(self, "Export Error", f"Failed to generate blueprint: {str(e)}")
+
+        self.blueprint_progress.setVisible(False)
+        self.btn_export_blueprint.setEnabled(True)
+        self.btn_load_blueprint.setEnabled(True)
+        self.btn_save_blueprint.setEnabled(True)
+        self.btn_sync_blueprint.setEnabled(True)
+        self.btn_scan.setEnabled(True)
+        self.btn_refresh_repos.setEnabled(True)
+
+    def load_blueprint_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Blueprint File", "", "YAML Files (*.yaml *.yml);;All Files (*)"
+        )
+        if not file_path:
+            return
+        
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            self.blueprint_editor.setPlainText(content)
+            self.blueprint_status.setText(f"Loaded blueprint from {os.path.basename(file_path)}")
+            self.log(f"📂 Loaded blueprint file: {file_path}")
+        except Exception as e:
+            self.blueprint_status.setText(f"Error loading file: {str(e)}")
+            self.log(f"❌ Error loading blueprint file: {str(e)}")
+            QMessageBox.critical(self, "Load Error", f"Failed to load blueprint file: {str(e)}")
+
+    def save_blueprint_file(self):
+        content = self.blueprint_editor.toPlainText().strip()
+        if not content:
+            QMessageBox.warning(self, "Save Warning", "The blueprint editor is empty.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Blueprint File", "", "YAML Files (*.yaml *.yml);;All Files (*)"
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self.blueprint_status.setText(f"Saved blueprint to {os.path.basename(file_path)}")
+            self.log(f"💾 Saved blueprint file: {file_path}")
+        except Exception as e:
+            self.blueprint_status.setText(f"Error saving file: {str(e)}")
+            self.log(f"❌ Error saving blueprint file: {str(e)}")
+            QMessageBox.critical(self, "Save Error", f"Failed to save blueprint file: {str(e)}")
+
+    def sync_system_to_blueprint(self):
+        content = self.blueprint_editor.toPlainText().strip()
+        if not content:
+            QMessageBox.warning(self, "Sync Warning", "The blueprint editor is empty.")
+            return
+
+        blueprint_data = BlueprintManager.parse_blueprint(content)
+        if not blueprint_data:
+            QMessageBox.critical(
+                self, "Parsing Error", 
+                "Failed to parse blueprint YAML. Please ensure the YAML is valid and contains a mapping of backends to lists of packages."
+            )
+            return
+
+        self.btn_export_blueprint.setEnabled(False)
+        self.btn_load_blueprint.setEnabled(False)
+        self.btn_save_blueprint.setEnabled(False)
+        self.btn_sync_blueprint.setEnabled(False)
+        self.btn_scan.setEnabled(False)
+        self.btn_refresh_repos.setEnabled(False)
+        self.blueprint_progress.setVisible(True)
+        self.blueprint_progress.setRange(0, 0)
+        self.blueprint_status.setText("Syncing: querying installed packages...")
+        self.log("🔄 Starting blueprint sync: checking local system state...")
+
+        available = discover_managers()
+        self.pending_blueprint_data = blueprint_data
+        
+        worker = FetchInstalledWorker(available)
+        worker.log_signal.connect(self.log)
+        worker.result_signal.connect(self.handle_sync_check_results)
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    @Slot(dict)
+    def handle_sync_check_results(self, installed_results: dict[str, list[str]]):
+        blueprint_data = getattr(self, "pending_blueprint_data", {})
+        
+        available = discover_managers()
+        manager_map = {mgr.name.lower(): mgr for mgr in available}
+        
+        missing_packages = []
+        
+        for yaml_mgr_name, yaml_pkgs in blueprint_data.items():
+            mgr = manager_map.get(yaml_mgr_name.lower())
+            if not mgr:
+                self.log(f"⚠️ Warning: Package manager '{yaml_mgr_name}' specified in blueprint is not available on this system.")
+                continue
+            
+            actual_mgr_name = mgr.name
+            installed_pkgs = set(installed_results.get(actual_mgr_name, []))
+            
+            for pkg in yaml_pkgs:
+                if pkg not in installed_pkgs:
+                    missing_packages.append((mgr, pkg))
+
+        if not missing_packages:
+            self.blueprint_status.setText("System is in sync with blueprint.")
+            self.log("✅ No drift detected. System is fully in sync with the blueprint.")
+            QMessageBox.information(self, "Sync Complete", "System is already fully in sync with the blueprint.")
+            self.blueprint_progress.setVisible(False)
+            self.btn_export_blueprint.setEnabled(True)
+            self.btn_load_blueprint.setEnabled(True)
+            self.btn_save_blueprint.setEnabled(True)
+            self.btn_sync_blueprint.setEnabled(True)
+            self.btn_scan.setEnabled(True)
+            self.btn_refresh_repos.setEnabled(True)
+            return
+
+        drift_msg = f"Found {len(missing_packages)} package(s) missing from your system:\n\n"
+        for mgr, pkg in missing_packages[:15]:
+            drift_msg += f" - {pkg} ({mgr.name})\n"
+        if len(missing_packages) > 15:
+            drift_msg += f" ... and {len(missing_packages) - 15} more\n"
+        drift_msg += "\nWould you like to install them now?"
+
+        confirm = QMessageBox.question(
+            self, "Sync Confirmation - Drift Detected",
+            drift_msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            self.blueprint_status.setText("Sync cancelled by user.")
+            self.log("⚠️ Sync cancelled by user.")
+            self.blueprint_progress.setVisible(False)
+            self.btn_export_blueprint.setEnabled(True)
+            self.btn_load_blueprint.setEnabled(True)
+            self.btn_save_blueprint.setEnabled(True)
+            self.btn_sync_blueprint.setEnabled(True)
+            self.btn_scan.setEnabled(True)
+            self.btn_refresh_repos.setEnabled(True)
+            return
+
+        self.upgrade_queue.clear()
+        for mgr, pkg in missing_packages:
+            cmd = mgr.get_install_command(pkg)
+            self.upgrade_queue.append((mgr, pkg, cmd))
+
+        self.log(f"📦 Scheduled {len(missing_packages)} packages for installation.")
+        self.blueprint_status.setText("Installing missing packages...")
+        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.run_next_blueprint_sync()
+
+    def run_next_blueprint_sync(self):
+        if not self.upgrade_queue:
+            self.blueprint_progress.setVisible(False)
+            self.blueprint_status.setText("Sync complete.")
+            self.log("✅ Blueprint sync complete.")
+            QMessageBox.information(self, "Sync Complete", "All missing blueprint packages have been installed.")
+            self.nav_list.setCurrentRow(3)  # Return to blueprints page
+            self.btn_export_blueprint.setEnabled(True)
+            self.btn_load_blueprint.setEnabled(True)
+            self.btn_save_blueprint.setEnabled(True)
+            self.btn_sync_blueprint.setEnabled(True)
+            self.btn_scan.setEnabled(True)
+            self.btn_refresh_repos.setEnabled(True)
+            return
+
+        manager, pkg, cmd = self.upgrade_queue.pop(0)
+        self.log(f"⚡ Sync-installing: {pkg} via {manager.name} ({' '.join(cmd)})")
+        
+        worker = ExecutionWorker(cmd)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda success: self.handle_blueprint_sync_worker_finished(success, manager, pkg))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def handle_blueprint_sync_worker_finished(self, success: bool, manager, pkg: str):
+        if success:
+            self.log(f"✅ Successfully installed {pkg} via {manager.name}")
+        else:
+            self.log(f"❌ Failed to install {pkg} via {manager.name}")
+        self.run_next_blueprint_sync()
 
     def closeEvent(self, event):
         """Prompt user on exit if active background child processes exist, then terminate them."""

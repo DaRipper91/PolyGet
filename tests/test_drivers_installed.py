@@ -246,3 +246,16 @@ def test_flatpak_check_updates_timeout():
         mock_proc.kill.assert_called()
 
     asyncio.run(run_test())
+
+
+def test_driver_registry_auto_discovery():
+    """Verify that all 5 drivers (DNF, Flatpak, Pipx, NPM, Cargo) are dynamically discovered."""
+    from app.core.manager import _REGISTRY
+    assert len(_REGISTRY) >= 5
+    names = [cls.name for cls in _REGISTRY]
+    assert "DNF" in names
+    assert "Flatpak" in names
+    assert "Pipx" in names
+    assert "NPM" in names
+    assert "Cargo" in names
+

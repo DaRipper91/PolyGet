@@ -299,3 +299,57 @@ def test_blueprint_version_pinning(mock_info, mock_question, mock_discover, mock
     confirm_text = args[2]
     assert "org.kde.kate@26.04.3" in confirm_text
     assert "org.mozilla.firefox" not in confirm_text
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+@patch("app.ui.main_window.discover_managers")
+@patch("app.ui.main_window.QMessageBox.question")
+@patch("app.ui.main_window.QMessageBox.information")
+def test_sync_system_to_blueprint_with_drift(mock_info, mock_question, mock_discover, mock_scan, qapp):
+    """Test blueprint sync when there is drift (packages missing) and user confirms install."""
+    mock_manager = MagicMock(spec=PackageManager)
+    mock_manager.name = "Flatpak"
+    # Firefox is NOT installed
+    mock_manager.list_installed = AsyncMock(return_value=[])
+    mock_manager.get_install_command = MagicMock(return_value=["flatpak", "install", "-y", "org.mozilla.firefox"])
+    mock_discover.return_value = [mock_manager]
+
+    from PySide6.QtWidgets import QMessageBox
+    # User confirms installation
+    mock_question.return_value = QMessageBox.StandardButton.Yes
+
+    window = MainWindow()
+    window.blueprint_editor.setPlainText("Flatpak:\n  - org.mozilla.firefox\n")
+    
+    # Mock QThread.start to run synchronously
+    from app.ui.main_window import ExecutionWorker
+    def mock_start(self_thread):
+        if isinstance(self_thread, FetchInstalledWorker):
+            self_thread.run()
+            self_thread.finished.emit()
+        elif isinstance(self_thread, ExecutionWorker):
+            # Mock successful run
+            with patch("asyncio.create_subprocess_exec") as mock_exec:
+                mock_proc = AsyncMock()
+                mock_proc.pid = 9999
+                mock_proc.returncode = 0
+                mock_proc.stdout = AsyncMock()
+                mock_proc.stdout.readline = AsyncMock(side_effect=[b"Successfully installed org.mozilla.firefox", b""])
+                mock_proc.wait = AsyncMock(return_value=0)
+                mock_exec.return_value = mock_proc
+                self_thread.run()
+            self_thread.finished.emit()
+
+    with patch.object(QThread, "start", mock_start):
+        # Trigger sync
+        window.sync_system_to_blueprint()
+
+    # Should ask to install, then show complete
+    mock_question.assert_called_once()
+    mock_info.assert_called_once()
+    assert "Sync complete" in window.blueprint_status.text()
+    
+    # Ensure command was run and logged
+    log_content = window.console.toPlainText()
+    assert "Scheduled 1 packages for installation" in log_content
+    assert "Successfully installed org.mozilla.firefox" in log_content

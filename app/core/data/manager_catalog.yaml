@@ -324,6 +324,10 @@
     arch: ["sudo", "pacman", "-S", "--noconfirm", "julia"]
     debian: ["pkexec", "apt-get", "install", "-y", "julia"]
 
+# No full driver: Bundler is inherently per-project (Gemfile.lock), not a
+# global installed-package list like RubyGems. A driver here would either
+# always report empty results or require picking an arbitrary project
+# directory — neither fits PolyGet's global-dashboard model.
 - id: bundler
   name: Bundler
   category: Language/Dev
@@ -336,6 +340,8 @@
     arch: ["sudo", "pacman", "-S", "--noconfirm", "ruby-bundler"]
     debian: ["pkexec", "apt-get", "install", "-y", "ruby-bundler"]
 
+# No full driver: same reasoning as Bundler above — Gradle's dependency
+# scope is per-project (build.gradle), not a global package list.
 - id: gradle
   name: Gradle
   category: Language/Dev

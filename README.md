@@ -201,7 +201,7 @@ On launch, PolyGet scans your system for every supported package manager, shows 
 
 ## 🗺️ Roadmap
 
-- [x] Unified update dashboard across **7 backends** (DNF, Pacman, Flatpak, NPM, Pipx, Cargo, RubyGems)
+- [x] Unified update dashboard across **14 backends** (DNF, Pacman, Flatpak, NPM, Pipx, Cargo, RubyGems, Yarn, pnpm, Dart Pub, Hex, cpanm, Poetry, Julia)
 - [x] Declarative YAML blueprint export/import
 - [x] Process-group-safe subprocess coordination (no orphan backends)
 - [x] Manager Store — browse & install package managers you don't have yet
@@ -210,7 +210,7 @@ On launch, PolyGet scans your system for every supported package manager, shows 
 - [x] Driver-based package search refactored out of the main UI thread
 - [x] Auto-discovery of driver plugins (dynamic module scanner)
 - [x] Companion Textual-based TUI upgrader interface
-- [x] Automated background update scanning daemon with system notifications
+- [ ] Automated background update scanning daemon with system notifications
 - [ ] Support for source-based Gentoo Portage driver (emerge)
 
 ---

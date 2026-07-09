@@ -170,3 +170,43 @@ class FlatpakManager(PackageManager):
             list[str]: The install command list.
         """
         return ["flatpak", "install", "-y", package]
+
+    supports_repos: bool = True
+
+    async def list_repos(self) -> list[dict[str, Any]]:
+        """List configured remotes for Flatpak."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "flatpak", "remotes", "--show-disabled", "--columns=name,url,options",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            repos = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    name = parts[0].strip()
+                    url = parts[1].strip()
+                    options = parts[2].strip().lower() if len(parts) > 2 else ""
+                    enabled = "disabled" not in options.split(",")
+                    repos.append({
+                        "id": name,
+                        "name": name,
+                        "url": url,
+                        "enabled": enabled
+                    })
+            return repos
+        except Exception:
+            return []
+
+    def get_add_repo_command(self, repo_url_or_id: str) -> list[str]:
+        """Get the command to add a Flatpak remote."""
+        val = repo_url_or_id.strip().lower()
+        if val in ("flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"):
+            return ["flatpak", "remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"]
+        return ["flatpak", "remote-add", "--if-not-exists", repo_url_or_id, repo_url_or_id]
+
+    def get_remove_repo_command(self, repo_id: str) -> list[str]:
+        """Get the command to delete a Flatpak remote."""
+        return ["flatpak", "remote-delete", repo_id]

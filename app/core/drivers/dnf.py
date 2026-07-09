@@ -133,3 +133,57 @@ class DnfManager(PackageManager):
             list[str]: The command list to install the package.
         """
         return ["pkexec", "dnf", "install", "-y", package]
+
+    supports_repos: bool = True
+
+    async def list_repos(self) -> list[dict[str, Any]]:
+        """List configured repositories/remotes for DNF."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dnf", "repolist", "--all", "--quiet",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            repos = []
+            lines = stdout.decode(errors="ignore").splitlines()
+            if not lines:
+                return []
+            
+            # Skip header line if present
+            start_idx = 1 if "repo id" in lines[0].lower() else 0
+            for line in lines[start_idx:]:
+                import re
+                parts = re.split(r'\s{2,}', line.strip())
+                if len(parts) >= 2:
+                    # Check status column (parts[2]) or prefix
+                    enabled = True
+                    if len(parts) >= 3:
+                        status_str = parts[2].lower()
+                        if "disabled" in status_str:
+                            enabled = False
+                    elif parts[0].startswith("!"):
+                        enabled = False
+                    
+                    repo_id = parts[0].lstrip("!*")
+                    repo_name = parts[1]
+                    repos.append({
+                        "id": repo_id,
+                        "name": repo_name,
+                        "url": "",
+                        "enabled": enabled
+                    })
+            return repos
+        except Exception:
+            return []
+
+    def get_add_repo_command(self, repo_url_or_id: str) -> list[str]:
+        """Get the command to add a DNF repository or enable a COPR repo."""
+        if repo_url_or_id.count("/") == 1 and not repo_url_or_id.startswith("http"):
+            # COPR shorthand (e.g. "copr.fedorainfracloud.org/group_asahi/kernel" -> "group_asahi/kernel")
+            return ["pkexec", "dnf", "copr", "enable", "-y", repo_url_or_id]
+        return ["pkexec", "dnf", "config-manager", "--add-repo", repo_url_or_id]
+
+    def get_remove_repo_command(self, repo_id: str) -> list[str]:
+        """Get the command to disable a DNF repository."""
+        return ["pkexec", "dnf", "config-manager", "--set-disabled", repo_id]

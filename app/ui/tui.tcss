@@ -1,0 +1,166 @@
+Screen {
+    background: #0d0714;
+    color: #f1eef6;
+}
+
+Header {
+    background: #1a0b2e;
+    color: #d8b4fe;
+    text-align: center;
+    height: 3;
+    border-bottom: double #2e1a47;
+}
+
+Footer {
+    background: #1a0b2e;
+    color: #a78bfa;
+}
+
+/* Sidebar Styling */
+#sidebar {
+    width: 30%;
+    height: 100%;
+    border-right: round #2e1a47;
+    background: #0f0717;
+}
+
+/* Right Main Panel Container */
+#main-panel {
+    width: 70%;
+    height: 100%;
+}
+
+/* Details Panel Styling */
+#details-panel {
+    width: 100%;
+    height: 60%;
+    border-bottom: round #2e1a47;
+    background: #0d0714;
+    padding: 1;
+}
+
+/* Terminal / Live Progress Panel Styling */
+#terminal-panel {
+    width: 100%;
+    height: 40%;
+    background: #08030c;
+    border: round #2e1a47;
+    padding: 1;
+}
+
+/* Highlight focused borders with glowing neon purple */
+#sidebar:focus, #details-panel:focus, #terminal-panel:focus {
+    border: round #8b5cf6;
+}
+
+/* Title Labels */
+.title-label {
+    color: #c084fc;
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+/* Details Content Styling */
+#details-content {
+    margin-top: 1;
+    color: #e2d9f3;
+}
+
+/* Progress Bar Styling */
+ProgressBar {
+    width: 100%;
+    height: 1;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+ProgressBar > Bar {
+    color: #8b5cf6;
+    background: #2e1a47;
+}
+
+/* Status Badge Styles */
+.status-scanning {
+    color: #a78bfa;
+    text-style: italic;
+}
+
+.status-uptodate {
+    color: #34d399;
+    text-style: bold;
+}
+
+.status-updates {
+    color: #fbbf24;
+    text-style: bold;
+}
+
+.status-upgrading {
+    color: #60a5fa;
+    text-style: bold blink;
+}
+
+/* Password Modal Styling */
+PasswordModal {
+    align: center middle;
+}
+
+#password-dialog {
+    width: 50;
+    height: auto;
+    background: #0d0714;
+    border: double #8b5cf6;
+    padding: 1 2;
+}
+
+#password-dialog Label {
+    margin-bottom: 1;
+    text-align: center;
+}
+
+#password-input {
+    background: #08030c;
+    border: round #2e1a47;
+    color: #f1eef6;
+    margin-bottom: 1;
+}
+
+#password-input:focus {
+    border: round #8b5cf6;
+}
+
+#password-buttons {
+    align: center middle;
+    height: auto;
+}
+
+#password-buttons Button {
+    margin: 0 1;
+}
+
+/* Help Modal Styling */
+HelpModal {
+    align: center middle;
+}
+
+#help-dialog {
+    width: 60;
+    height: auto;
+    background: #0d0714;
+    border: double #8b5cf6;
+    padding: 1 2;
+}
+
+#help-dialog Label {
+    margin-bottom: 1;
+}
+
+#help-text {
+    color: #e2d9f3;
+    margin-bottom: 2;
+}
+
+#help-buttons {
+    align: center middle;
+    height: auto;
+}

@@ -1,1 +1,4 @@
 PySide6>=6.5.0
+textual>=0.50.0
+rich>=13.0.0
+PyYAML>=6.0.0

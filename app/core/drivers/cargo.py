@@ -101,3 +101,31 @@ class CargoManager(PackageManager):
             list[str]: The install command list.
         """
         return ["cargo", "install", package]
+
+    async def search_packages(self, query: str) -> list[dict[str, Any]]:
+        """Search for cargo packages on crates.io."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "cargo", "search", "--limit", "20", query,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            import re
+            pattern = re.compile(r'^([a-zA-Z0-9\-_+.]+)\s*=\s*"([^"]+)"\s*#\s*(.+)$')
+            results = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                match = pattern.match(line.strip())
+                if match:
+                    pkg_name = match.group(1)
+                    version = match.group(2)
+                    desc = match.group(3)
+                    results.append({
+                        "name": pkg_name,
+                        "id": pkg_name,
+                        "description": desc,
+                        "version": version
+                    })
+            return results
+        except Exception:
+            return []

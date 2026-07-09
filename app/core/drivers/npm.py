@@ -137,3 +137,29 @@ class NpmManager(PackageManager):
             list[str]: The install command list.
         """
         return ["npm", "install", "-g", package]
+
+    async def search_packages(self, query: str) -> list[dict[str, Any]]:
+        """Search for NPM packages globally."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "search", "--json", query,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            if not stdout:
+                return []
+            import json
+            data = json.loads(stdout.decode(errors="ignore"))
+            results = []
+            if isinstance(data, list):
+                for item in data[:20]:
+                    results.append({
+                        "name": item.get("name", ""),
+                        "id": item.get("name", ""),
+                        "description": item.get("description", ""),
+                        "version": item.get("version", "")
+                    })
+            return results
+        except Exception:
+            return []

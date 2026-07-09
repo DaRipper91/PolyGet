@@ -187,3 +187,31 @@ class DnfManager(PackageManager):
     def get_remove_repo_command(self, repo_id: str) -> list[str]:
         """Get the command to disable a DNF repository."""
         return ["pkexec", "dnf", "config-manager", "--set-disabled", repo_id]
+
+    async def search_packages(self, query: str) -> list[dict[str, Any]]:
+        """Search for DNF system packages."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dnf", "search", query,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
+            import re
+            pattern = re.compile(r'^\s*([a-zA-Z0-9\-_+.]+)\.([a-zA-Z0-9_]+)\s+(.+)$')
+            results = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                match = pattern.match(line)
+                if match:
+                    pkg_name = match.group(1)
+                    if any(x in pkg_name for x in ("-debuginfo", "-debugsource", ".src")):
+                        continue
+                    results.append({
+                        "name": pkg_name,
+                        "id": pkg_name,
+                        "description": match.group(3),
+                        "version": ""
+                    })
+            return results
+        except Exception:
+            return []

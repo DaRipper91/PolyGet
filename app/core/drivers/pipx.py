@@ -139,3 +139,76 @@ class PipxManager(PackageManager):
         """
         return ["pipx", "install", package]
 
+    from pathlib import Path
+    _INDEX_CACHE_PATH = Path.home() / ".cache" / "polyget" / "pypi_simple_index.json"
+    _INDEX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 1 week
+
+    async def _ensure_index_cached(self) -> list[str]:
+        """Download and cache the full list of PyPI package names, refreshing weekly."""
+        import json
+        import time
+        if self._INDEX_CACHE_PATH.exists():
+            age = time.time() - self._INDEX_CACHE_PATH.stat().st_mtime
+            if age < self._INDEX_MAX_AGE_SECONDS:
+                try:
+                    return json.loads(self._INDEX_CACHE_PATH.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+        self._INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # Fetch simple HTML or JSON from PyPI. PyPI simple API supports JSON simple v1 index!
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "-H", "Accept: application/vnd.pypi.simple.v1+json",
+                "https://pypi.org/simple/",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            if stdout:
+                data = json.loads(stdout.decode(errors="ignore"))
+                names = [p["name"] for p in data.get("projects", [])]
+                self._INDEX_CACHE_PATH.write_text(json.dumps(names), encoding="utf-8")
+                return names
+        except Exception:
+            pass
+        return []
+
+    async def search_packages(self, query: str) -> list[dict[str, Any]]:
+        """Search for Python packages on PyPI using local simple index cache substring matches."""
+        try:
+            names = await self._ensure_index_cached()
+            if not names:
+                return []
+            
+            query_lower = query.lower()
+            matches = [n for n in names if query_lower in n.lower()][:20]
+            
+            results = []
+            import json
+            for name in matches:
+                # Fetch details for description/version
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "curl", "-s", "-H", "User-Agent: PolyGet/1.0",
+                        f"https://pypi.org/pypi/{name}/json",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+                    if stdout:
+                        data = json.loads(stdout.decode(errors="ignore"))
+                        info = data.get("info", {})
+                        if info:
+                            results.append({
+                                "name": info.get("name", name),
+                                "id": info.get("name", name),
+                                "description": info.get("summary", ""),
+                                "version": info.get("version", "")
+                            })
+                except Exception:
+                    pass
+            return results
+        except Exception:
+            return []
+

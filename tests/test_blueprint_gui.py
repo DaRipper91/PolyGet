@@ -236,3 +236,24 @@ def test_store_search_pipx(qapp):
     assert results[0]["name"] == "black"
     assert results[0]["version"] == "22.3.0"
     assert results[0]["description"] == "The uncompromising code formatter."
+
+
+def test_scan_worker_concurrent(qapp):
+    """Test ScanWorker queries all package manager scans concurrently."""
+    from app.ui.main_window import ScanWorker
+    from app.core.drivers.flatpak import FlatpakManager
+    from unittest.mock import AsyncMock, patch
+
+    mgr1 = FlatpakManager()
+    mgr1.check_updates = AsyncMock(return_value=[])
+
+    worker = ScanWorker([mgr1])
+    results = {}
+    
+    def on_updates(name, ups):
+        results[name] = ups
+
+    worker.updates_signal.connect(on_updates)
+    worker.run()
+
+    assert "Flatpak" in results

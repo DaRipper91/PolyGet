@@ -67,28 +67,35 @@ def _parse_icon_from_file(filepath: str) -> str | None:
     return None
 
 
-class UpdateWorker(QThread):
-    """Worker thread to run asynchronous scanning."""
+class ScanWorker(QThread):
+    """Worker thread to run all package manager scans concurrently using asyncio.gather."""
     log_signal = Signal(str)
     updates_signal = Signal(str, list)  # manager_name, list of updates
+    finished_all = Signal()
 
-    def __init__(self, manager: PackageManager, parent: Any = None):
+    def __init__(self, managers: list[PackageManager], parent: Any = None):
         super().__init__(parent)
-        self.manager = manager
-        self.updates: list[dict[str, Any]] = []
+        self.managers = managers
 
     def run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        self.log_signal.emit(f"🔍 Scanning {self.manager.name} for updates...")
-        try:
-            self.updates = loop.run_until_complete(self.manager.check_updates())
-            self.updates_signal.emit(self.manager.name, self.updates)
-            self.log_signal.emit(f"✅ Scan complete for {self.manager.name}. Found {len(self.updates)} update(s).")
-        except Exception as e:
-            self.log_signal.emit(f"❌ Error scanning {self.manager.name}: {str(e)}")
-            self.updates_signal.emit(self.manager.name, [])
+        
+        async def run_scan(mgr):
+            self.log_signal.emit(f"🔍 Scanning {mgr.name} for updates...")
+            try:
+                updates = await mgr.check_updates()
+                self.updates_signal.emit(mgr.name, updates)
+                self.log_signal.emit(f"✅ Scan complete for {mgr.name}. Found {len(updates)} update(s).")
+            except Exception as e:
+                self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
+                self.updates_signal.emit(mgr.name, [])
+
+        tasks = [run_scan(mgr) for mgr in self.managers]
+        if tasks:
+            loop.run_until_complete(asyncio.gather(*tasks))
         loop.close()
+        self.finished_all.emit()
 
 
 class ExecutionWorker(QThread):
@@ -1039,12 +1046,12 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(f"🔍 {name} - Connecting...")
             self.status_list.addItem(item)
 
-            worker = UpdateWorker(mgr)
-            worker.log_signal.connect(self.log)
-            worker.updates_signal.connect(self.handle_scan_results)
-            worker.finished.connect(self._on_worker_finished)
-            self.active_workers.append(worker)
-            worker.start()
+        worker = ScanWorker(available)
+        worker.log_signal.connect(self.log)
+        worker.updates_signal.connect(self.handle_scan_results)
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
 
     @Slot(str, list)
     def handle_scan_results(self, manager_name: str, updates: list[dict[str, Any]]):

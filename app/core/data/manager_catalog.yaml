@@ -1,0 +1,143 @@
+- id: dnf
+  name: DNF
+  category: System
+  description: Fedora/RHEL system package manager.
+  icon: package-x-generic
+  binary: dnf
+  has_driver: true
+  self_install: {}
+
+- id: pacman
+  name: Pacman
+  category: System
+  description: Arch Linux system package manager.
+  icon: package-x-generic
+  binary: pacman
+  has_driver: false
+  self_install: {}
+
+- id: paru
+  name: Paru (AUR helper)
+  category: System
+  description: AUR helper for Arch-based systems, wraps pacman for community packages.
+  icon: package-x-generic
+  binary: paru
+  has_driver: false
+  self_install:
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "paru"]
+
+- id: flatpak
+  name: Flatpak
+  category: Universal
+  description: Sandboxed, distro-agnostic universal app packages.
+  icon: emblem-downloads
+  binary: flatpak
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "flatpak"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "flatpak"]
+    debian: ["pkexec", "apt-get", "install", "-y", "flatpak"]
+    suse: ["pkexec", "zypper", "install", "-y", "flatpak"]
+
+- id: npm
+  name: NPM
+  category: Language/Dev
+  description: Node.js package manager for globally installed JS tooling.
+  icon: text-x-script
+  binary: npm
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "nodejs"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "nodejs", "npm"]
+    debian: ["pkexec", "apt-get", "install", "-y", "nodejs", "npm"]
+
+- id: pipx
+  name: Pipx
+  category: Language/Dev
+  description: Installs and runs Python CLI applications in isolated environments.
+  icon: text-x-python
+  binary: pipx
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "pipx"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "python-pipx"]
+    debian: ["pkexec", "apt-get", "install", "-y", "pipx"]
+
+- id: cargo
+  name: Cargo
+  category: Language/Dev
+  description: Rust toolchain's package manager, for globally installed Rust binaries.
+  icon: text-x-generic
+  binary: cargo
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "cargo"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "rust"]
+    debian: ["pkexec", "apt-get", "install", "-y", "cargo"]
+
+- id: apt
+  name: APT
+  category: System
+  description: Debian/Ubuntu system package manager.
+  icon: package-x-generic
+  binary: apt-get
+  has_driver: false
+  self_install: {}
+
+- id: zypper
+  name: Zypper
+  category: System
+  description: openSUSE system package manager.
+  icon: package-x-generic
+  binary: zypper
+  has_driver: false
+  self_install: {}
+
+- id: apk
+  name: APK
+  category: System
+  description: Alpine Linux system package manager.
+  icon: package-x-generic
+  binary: apk
+  has_driver: false
+  self_install: {}
+
+- id: xbps
+  name: XBPS
+  category: System
+  description: Void Linux system package manager.
+  icon: package-x-generic
+  binary: xbps-install
+  has_driver: false
+  self_install: {}
+
+- id: nix
+  name: Nix
+  category: Universal
+  description: Purely functional, reproducible package manager and profile system.
+  icon: package-x-generic
+  binary: nix
+  has_driver: false
+  self_install: {}
+
+- id: snap
+  name: Snap
+  category: Universal
+  description: Canonical's sandboxed universal app packages.
+  icon: emblem-downloads
+  binary: snap
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "snapd"]
+    debian: ["pkexec", "apt-get", "install", "-y", "snapd"]
+
+- id: distrobox
+  name: Distrobox
+  category: Universal
+  description: Runs containerized versions of other distros' package managers on your host.
+  icon: utilities-terminal
+  binary: distrobox
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "distrobox"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "distrobox"]

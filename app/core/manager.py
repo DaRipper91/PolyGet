@@ -74,6 +74,52 @@ class PackageManager:
         """
         return None
 
+    supports_repos: bool = False
+
+    async def list_repos(self) -> list[dict[str, Any]]:
+        """List configured repositories/remotes for this manager.
+
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries representing active repos,
+                where each dict has at least 'id', 'name', 'url', 'enabled'.
+        """
+        raise NotImplementedError("This manager does not support repo listing")
+
+    def get_add_repo_command(self, repo_url_or_id: str) -> list[str]:
+        """Get the command to add a repository/remote.
+
+        Args:
+            repo_url_or_id (str): The repository URL, path, or ID to add.
+
+        Returns:
+            list[str]: The command and its arguments.
+        """
+        raise NotImplementedError("This manager does not support adding repos")
+
+    def get_remove_repo_command(self, repo_id: str) -> list[str]:
+        """Get the command to remove a repository/remote.
+
+        Args:
+            repo_id (str): The repository identifier to remove.
+
+        Returns:
+            list[str]: The command and its arguments.
+        """
+        raise NotImplementedError("This manager does not support removing repos")
+
+    async def search_packages(self, query: str) -> list[dict[str, Any]]:
+        """Search this manager's package source for a query string.
+
+        Args:
+            query (str): The search query.
+
+        Returns:
+            list[dict[str, Any]]: A list of dictionaries representing matching packages.
+                Each dict must contain: 'name', 'id', 'description', 'version'.
+                Callers will add the 'source' key themselves.
+        """
+        raise NotImplementedError(f"{self.name} does not support package search")
+
 
 # Registry of all driver classes
 _REGISTRY: list[Type[PackageManager]] = []

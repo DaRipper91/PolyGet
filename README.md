@@ -33,8 +33,8 @@ Built solo, for a real dual-machine dev workflow (Arch-based desktop + Fedora-ba
 
 | ⚙️ System | 📦 Universal | 🐍 Language / Dev |
 |:---:|:---:|:---:|
-| **DNF** | **Flatpak** | **Pipx** |
-| Fedora / RHEL | Sandboxed, cross-distro | Isolated Python CLI tools |
+| **DNF** · **Pacman** | **Flatpak** | **Pipx** · **RubyGems** |
+| Fedora & Arch / CachyOS | Sandboxed, cross-distro | Isolated Python & Ruby tools |
 | | | **NPM** · **Cargo** |
 | | | Node & Rust global installs |
 
@@ -201,14 +201,17 @@ On launch, PolyGet scans your system for every supported package manager, shows 
 
 ## 🗺️ Roadmap
 
-- [x] Unified update dashboard across 5 backends
+- [x] Unified update dashboard across **7 backends** (DNF, Pacman, Flatpak, NPM, Pipx, Cargo, RubyGems)
 - [x] Declarative YAML blueprint export/import
-- [x] Process-group-safe subprocess coordination
+- [x] Process-group-safe subprocess coordination (no orphan backends)
 - [x] Manager Store — browse & install package managers you don't have yet
 - [x] Distro-aware self-install commands (Fedora / Arch / Debian family detection)
 - [x] Repos tab — manage DNF repos/COPR and Flatpak remotes
-- [x] Driver-based package search (currently mid-refactor out of the UI thread)
-- [x] Auto-discovery of driver plugins (no more manual imports per manager)
+- [x] Driver-based package search refactored out of the main UI thread
+- [x] Auto-discovery of driver plugins (dynamic module scanner)
+- [ ] Companion Textual-based TUI upgrader interface
+- [ ] Automated background update scanning daemon with system notifications
+- [ ] Support for source-based Gentoo Portage driver (emerge)
 
 ---
 

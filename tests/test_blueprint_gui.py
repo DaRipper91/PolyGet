@@ -194,3 +194,45 @@ def test_store_search_npm_cargo(qapp):
     npm_item = [x for x in results if x["source"] == "NPM"][0]
     assert npm_item["name"] == "typescript"
     assert npm_item["version"] == "4.5.2"
+
+
+def test_store_search_pipx(qapp):
+    """Test SearchWorker querying Pipx exact package lookup via PyPI JSON API."""
+    from app.ui.main_window import SearchWorker
+
+    mock_pipx_proc = AsyncMock()
+    mock_pipx_proc.returncode = 0
+    mock_pipx_proc.communicate.return_value = (
+        b'{\n'
+        b'  "info": {\n'
+        b'    "name": "black",\n'
+        b'    "summary": "The uncompromising code formatter.",\n'
+        b'    "version": "22.3.0"\n'
+        b'  }\n'
+        b'}\n',
+        b""
+    )
+
+    def mock_exec(*args, **kwargs):
+        if "curl" in args:
+            return mock_pipx_proc
+        return AsyncMock()
+
+    # Search pipx
+    worker = SearchWorker("black", source_filter="Pipx")
+    
+    results = []
+    def on_results(res):
+        results.extend(res)
+
+    worker.results_signal.connect(on_results)
+
+    with patch("shutil.which", return_value="/usr/bin/mock"), \
+         patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        worker.run()
+
+    assert len(results) == 1
+    assert results[0]["source"] == "Pipx"
+    assert results[0]["name"] == "black"
+    assert results[0]["version"] == "22.3.0"
+    assert results[0]["description"] == "The uncompromising code formatter."

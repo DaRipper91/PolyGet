@@ -135,7 +135,7 @@ class ExecutionWorker(QThread):
 
 
 class SearchWorker(QThread):
-    """Worker thread to run asynchronous searches across DNF, Flatpak, NPM, and Cargo."""
+    """Worker thread to run asynchronous searches across DNF, Flatpak, NPM, Cargo, and Pipx."""
     results_signal = Signal(list)
     log_signal = Signal(str)
 
@@ -256,6 +256,31 @@ class SearchWorker(QThread):
                 except Exception as e:
                     self.log_signal.emit(f"NPM search error: {str(e)}")
 
+        async def search_pipx():
+            if self.source_filter in ("All", "Pipx"):
+                import json
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "curl", "-s", "-H", "User-Agent: PolyGet/1.0", f"https://pypi.org/pypi/{self.query}/json",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await proc.communicate()
+                    if stdout:
+                        data = json.loads(stdout.decode(errors="ignore"))
+                        info = data.get("info", {})
+                        if info:
+                            results.append({
+                                "name": info.get("name", ""),
+                                "id": info.get("name", ""),
+                                "description": info.get("summary", ""),
+                                "version": info.get("version", ""),
+                                "source": "Pipx",
+                                "remote": ""
+                            })
+                except Exception as e:
+                    self.log_signal.emit(f"Pipx search error: {str(e)}")
+
         tasks = []
         if self.source_filter in ("All", "Flatpak"):
             tasks.append(search_flatpak())
@@ -265,6 +290,8 @@ class SearchWorker(QThread):
             tasks.append(search_cargo())
         if self.source_filter in ("All", "NPM"):
             tasks.append(search_npm())
+        if self.source_filter in ("All", "Pipx"):
+            tasks.append(search_pipx())
 
         if tasks:
             loop.run_until_complete(asyncio.gather(*tasks))
@@ -731,7 +758,7 @@ class MainWindow(QMainWindow):
         store_header.addWidget(self.txt_store_search, stretch=3)
 
         self.combo_source = QComboBox()
-        self.combo_source.addItems(["All Sources", "Flatpak", "DNF", "NPM", "Cargo"])
+        self.combo_source.addItems(["All Sources", "Flatpak", "DNF", "NPM", "Cargo", "Pipx"])
         self.combo_source.setStyleSheet("""
             QComboBox {
                 background-color: #11111b;
@@ -1179,6 +1206,8 @@ class MainWindow(QMainWindow):
             source_filter = "NPM"
         elif "Cargo" in sel_text:
             source_filter = "Cargo"
+        elif "Pipx" in sel_text:
+            source_filter = "Pipx"
 
         worker = SearchWorker(query, source_filter)
         worker.log_signal.connect(self.log)

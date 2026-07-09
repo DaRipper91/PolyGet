@@ -239,3 +239,111 @@
     fedora: ["pkexec", "dnf", "install", "-y", "luarocks"]
     arch: ["sudo", "pacman", "-S", "--noconfirm", "luarocks"]
     debian: ["pkexec", "apt-get", "install", "-y", "luarocks"]
+
+- id: yarn
+  name: Yarn
+  category: Language/Dev
+  description: Node.js package manager for globally installed JS tooling.
+  icon: text-x-generic
+  binary: yarn
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "yarn"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "yarn"]
+    debian: ["pkexec", "apt-get", "install", "-y", "yarn"]
+
+- id: pnpm
+  name: pnpm
+  category: Language/Dev
+  description: Node.js package manager for globally installed JS tooling.
+  icon: text-x-generic
+  binary: pnpm
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "npm", "install", "-g", "pnpm"]
+    arch: ["sudo", "npm", "install", "-g", "pnpm"]
+    debian: ["pkexec", "npm", "install", "-g", "pnpm"]
+
+- id: dart_pub
+  name: Dart Pub
+  category: Language/Dev
+  description: Dart's pub package manager for global-activated CLI packages.
+  icon: text-x-generic
+  binary: dart
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "dart"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "dart"]
+    debian: ["pkexec", "apt-get", "install", "-y", "dart"]
+
+- id: hex
+  name: Hex
+  category: Language/Dev
+  description: Elixir's Hex package manager (mix archives/escripts).
+  icon: text-x-generic
+  binary: mix
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "elixir"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "elixir"]
+    debian: ["pkexec", "apt-get", "install", "-y", "elixir"]
+
+- id: cpanm
+  name: cpanm
+  category: Language/Dev
+  description: Perl's cpanminus package manager for CPAN modules.
+  icon: text-x-generic
+  binary: cpanm
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "perl-App-cpanminus"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "cpanminus"]
+    debian: ["pkexec", "apt-get", "install", "-y", "cpanminus"]
+
+- id: poetry
+  name: Poetry
+  category: Language/Dev
+  description: Python dependency manager (tracks Poetry's own global plugins).
+  icon: text-x-generic
+  binary: poetry
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "poetry"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "poetry"]
+    debian: ["pkexec", "apt-get", "install", "-y", "poetry"]
+
+- id: julia
+  name: Julia
+  category: Language/Dev
+  description: Julia's Pkg manager (tracks the default global environment).
+  icon: text-x-generic
+  binary: julia
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "julia"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "julia"]
+    debian: ["pkexec", "apt-get", "install", "-y", "julia"]
+
+- id: bundler
+  name: Bundler
+  category: Language/Dev
+  description: Ruby's per-project dependency manager (Gemfile.lock).
+  icon: text-x-generic
+  binary: bundle
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "rubygem-bundler"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "ruby-bundler"]
+    debian: ["pkexec", "apt-get", "install", "-y", "ruby-bundler"]
+
+- id: gradle
+  name: Gradle
+  category: Language/Dev
+  description: Java/Kotlin per-project build and dependency tool.
+  icon: text-x-generic
+  binary: gradle
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "gradle"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "gradle"]
+    debian: ["pkexec", "apt-get", "install", "-y", "gradle"]

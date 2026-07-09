@@ -34,7 +34,7 @@ class FlatpakManager(PackageManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                list_stdout, _ = await list_proc.communicate()
+                list_stdout, _ = await asyncio.wait_for(list_proc.communicate(), timeout=8.0)
                 if list_stdout:
                     import json
                     installed_data = json.loads(list_stdout.decode(errors="ignore"))
@@ -58,15 +58,26 @@ class FlatpakManager(PackageManager):
                                 "alt_id": alt_id
                             }
             except Exception:
-                pass
+                try:
+                    list_proc.kill()
+                except Exception:
+                    pass
 
             # 2. Query Flatpak for updates
-            proc = await asyncio.create_subprocess_exec(
-                "flatpak", "remote-ls", "--updates", "--columns=application,version,branch,commit", "--json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await proc.communicate()
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "flatpak", "remote-ls", "--updates", "--columns=application,version,branch,commit", "--json",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                return []
+
             if not stdout:
                 return []
             import json

@@ -229,3 +229,20 @@ def test_active_managers_sanity():
                 assert isinstance(part, str)
 
     asyncio.run(run_test())
+
+
+def test_flatpak_check_updates_timeout():
+    """Test FlatpakManager.check_updates handles execution timeouts gracefully."""
+    manager = FlatpakManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        # Mock communicate to raise TimeoutError when wrapped in asyncio.wait_for
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
+             patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+            updates = await manager.check_updates()
+            
+        assert updates == []
+        mock_proc.kill.assert_called()
+
+    asyncio.run(run_test())

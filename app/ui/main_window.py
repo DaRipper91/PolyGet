@@ -453,6 +453,7 @@ class UpdateItemWidget(QWidget):
         self.setup_ui(pkg, manager_name)
 
     def setup_ui(self, pkg: dict[str, Any], manager_name: str):
+        self.setObjectName("update-item-card")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(15)
@@ -513,6 +514,7 @@ class StoreItemWidget(QWidget):
         self.setup_ui()
 
     def setup_ui(self):
+        self.setObjectName("store-item-card")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(15)
@@ -611,6 +613,24 @@ class MainWindow(QMainWindow):
         sidebar_widget = QWidget()
         sidebar_widget.setObjectName("sidebar-panel")
         sidebar_layout = QVBoxLayout(sidebar_widget)
+        sidebar_layout.setContentsMargins(12, 12, 12, 12)
+        sidebar_layout.setSpacing(12)
+
+        # Sidebar Header Banner
+        banner_widget = QWidget()
+        banner_widget.setObjectName("sidebar-banner")
+        banner_layout = QVBoxLayout(banner_widget)
+        banner_layout.setContentsMargins(15, 15, 15, 15)
+        banner_layout.setSpacing(4)
+        
+        lbl_banner_title = QLabel("POLYGET")
+        lbl_banner_title.setObjectName("banner-title")
+        lbl_banner_subtitle = QLabel("Unified Software Hub")
+        lbl_banner_subtitle.setObjectName("banner-subtitle")
+        
+        banner_layout.addWidget(lbl_banner_title)
+        banner_layout.addWidget(lbl_banner_subtitle)
+        sidebar_layout.addWidget(banner_widget)
         sidebar_layout.setContentsMargins(12, 12, 12, 12)
         sidebar_layout.setSpacing(12)
 
@@ -834,7 +854,7 @@ class MainWindow(QMainWindow):
         blueprint_splitter = QSplitter(Qt.Orientation.Horizontal)
         
         self.blueprint_editor = QPlainTextEdit()
-        self.blueprint_editor.setObjectName("console-output")
+        self.blueprint_editor.setObjectName("blueprint-editor")
         self.blueprint_editor.setPlaceholderText(
             "# YAML Blueprint\n"
             "# Map package managers to their lists of desired packages.\n"
@@ -896,15 +916,33 @@ class MainWindow(QMainWindow):
                 font-size: 13px;
             }
             QWidget#sidebar-panel {
-                background-color: #181825;
+                background-color: #11111b;
                 border-right: 1px solid #313244;
+            }
+            QWidget#sidebar-banner {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #89b4fa, stop:1 #cba6f7);
+                border-radius: 8px;
+                margin-bottom: 5px;
+            }
+            QLabel#banner-title {
+                font-size: 16px;
+                font-weight: 800;
+                color: #11111b;
+                letter-spacing: 2px;
+            }
+            QLabel#banner-subtitle {
+                font-size: 10px;
+                font-weight: 600;
+                color: #313244;
             }
             QLabel#sidebar-title {
                 font-weight: bold;
                 color: #89b4fa;
-                font-size: 12px;
+                font-size: 11px;
                 text-transform: uppercase;
                 margin-top: 10px;
+                margin-bottom: 2px;
+                letter-spacing: 0.5px;
             }
             QLabel#summary-label {
                 font-size: 16px;
@@ -925,29 +963,52 @@ class MainWindow(QMainWindow):
                 background: transparent;
                 border: none;
             }
-            QListWidget#nav-list::item, QListWidget#status-list::item {
-                padding: 10px 12px;
-                border-radius: 6px;
-                margin-bottom: 2px;
+            QListWidget#nav-list::item {
+                padding: 11px 14px;
+                border-radius: 8px;
+                margin-bottom: 4px;
+                color: #a6adc8;
             }
             QListWidget#nav-list::item:selected {
                 background-color: #313244;
                 color: #89b4fa;
                 font-weight: bold;
+                border-left: 3px solid #89b4fa;
             }
             QListWidget#nav-list::item:hover:!selected {
-                background-color: #1e1e2e;
+                background-color: #181825;
+                color: #cdd6f4;
+            }
+            QListWidget#status-list::item {
+                background-color: #181825;
+                border: 1px solid #313244;
+                padding: 8px 10px;
+                border-radius: 6px;
+                margin-bottom: 4px;
+                color: #cdd6f4;
             }
             QListWidget#updates-list {
+                background: transparent;
+                border: none;
+            }
+            QListWidget#updates-list::item {
+                background: transparent;
+                padding: 0px;
+                margin-bottom: 8px;
+                border: none;
+            }
+            QListWidget#updates-list::item:selected {
+                background: transparent;
+                border: none;
+            }
+            QWidget#update-item-card, QWidget#store-item-card {
                 background-color: #181825;
                 border: 1px solid #313244;
                 border-radius: 8px;
             }
-            QListWidget#updates-list::item {
-                border-bottom: 1px solid #313244;
-            }
-            QListWidget#updates-list::item:last {
-                border-bottom: none;
+            QWidget#update-item-card:hover, QWidget#store-item-card:hover {
+                background-color: #1e1e2e;
+                border-color: #89b4fa;
             }
             QPushButton {
                 background-color: #89b4fa;
@@ -971,13 +1032,23 @@ class MainWindow(QMainWindow):
             QPushButton#btn-scan:hover {
                 background-color: #45475a;
             }
-            QPlainTextEdit#console-output {
+            QTextEdit#console-output {
                 background-color: #11111b;
                 border: 1px solid #313244;
                 border-radius: 8px;
                 font-family: 'Fira Code', 'Courier New', monospace;
                 color: #a6e3a1;
                 font-size: 12px;
+                padding: 10px;
+            }
+            QPlainTextEdit#blueprint-editor {
+                background-color: #11111b;
+                border: 1px solid #313244;
+                border-radius: 8px;
+                font-family: 'Fira Code', 'Courier New', monospace;
+                color: #cdd6f4;
+                font-size: 13px;
+                padding: 10px;
             }
             QProgressBar {
                 border: 1px solid #313244;
@@ -1000,6 +1071,60 @@ class MainWindow(QMainWindow):
             }
             QCheckBox::indicator:checked {
                 background-color: #89b4fa;
+            }
+            QSplitter::handle {
+                background-color: #313244;
+            }
+            QSplitter::handle:horizontal {
+                width: 1px;
+            }
+            QSplitter::handle:vertical {
+                height: 1px;
+            }
+            /* Custom ScrollBar Styling */
+            QScrollBar:vertical {
+                border: none;
+                background: #11111b;
+                width: 8px;
+                margin: 0px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #45475a;
+                min-height: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #585b70;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+                background: none;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                border: none;
+                background: #11111b;
+                height: 8px;
+                margin: 0px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #45475a;
+                min-width: 20px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #585b70;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                border: none;
+                background: none;
             }
         """)
 

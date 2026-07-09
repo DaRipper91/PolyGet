@@ -98,6 +98,27 @@ class ScanWorker(QThread):
         self.finished_all.emit()
 
 
+class FetchReposWorker(QThread):
+    """Asynchronous worker to fetch repository/remote listings without blocking the GUI."""
+    result_signal = Signal(list)
+    error_signal = Signal(str)
+
+    def __init__(self, manager: PackageManager, parent: Any = None):
+        super().__init__(parent)
+        self.manager = manager
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            repos = loop.run_until_complete(self.manager.list_repos())
+            self.result_signal.emit(repos)
+        except Exception as e:
+            self.error_signal.emit(str(e))
+        finally:
+            loop.close()
+
+
 class ExecutionWorker(QThread):
     """General purpose execution worker piping command outputs to the logs."""
     log_signal = Signal(str)
@@ -582,15 +603,18 @@ class StoreItemWidget(QWidget):
         layout.addWidget(self.btn_install)
 
 
+from app.core.catalog import CatalogEntry
+
 class ManagerItemWidget(QWidget):
     """Custom row widget representing supported package managers."""
-    install_requested = Signal(str)
+    install_requested = Signal(object)
 
-    def __init__(self, mgr: PackageManager, parent: Any = None):
+    def __init__(self, entry: CatalogEntry, parent: Any = None):
         super().__init__(parent)
-        self.mgr_name = mgr.name
-        self.category = mgr.category
-        self.is_installed = mgr.is_available()
+        self.entry = entry
+        self.mgr_name = entry.name
+        self.category = entry.category
+        self.is_installed = entry.installed
         self.setup_ui()
 
     def setup_ui(self):
@@ -609,9 +633,17 @@ class ManagerItemWidget(QWidget):
             "Flatpak": "preferences-desktop-apps",
             "NPM": "nodejs",
             "Cargo": "rust",
-            "Pipx": "python"
+            "Pipx": "python",
+            "Pacman": "system-run",
+            "APT": "system-run",
+            "Zypper": "system-run",
+            "APK": "system-run",
+            "XBPS": "system-run",
+            "Snap": "emblem-downloads",
+            "Distrobox": "utilities-terminal"
         }
-        qicon = QIcon.fromTheme(icon_map.get(self.mgr_name, "package-x-generic"))
+        icon_name = icon_map.get(self.mgr_name, self.entry.icon or "package-x-generic")
+        qicon = QIcon.fromTheme(icon_name)
         if not qicon.isNull():
             self.lbl_icon.setPixmap(qicon.pixmap(40, 40))
         else:
@@ -626,15 +658,7 @@ class ManagerItemWidget(QWidget):
         lbl_name.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffffff;")
         details_layout.addWidget(lbl_name)
 
-        descriptions = {
-            "DNF": "System package manager (Fedora RPM packages). Always active.",
-            "Flatpak": "Universal sandboxed application manager. Ideal for desktop apps.",
-            "NPM": "JavaScript and Node.js global runtime libraries and CLI tools.",
-            "Cargo": "Rust compiler binary package manager for developer tools.",
-            "Pipx": "Isolated python runner. Run python CLI apps inside separate virtual environments."
-        }
-        desc = descriptions.get(self.mgr_name, "Package manager integration driver.")
-        lbl_desc = QLabel(desc)
+        lbl_desc = QLabel(self.entry.description)
         lbl_desc.setStyleSheet("color: #a6adc8; font-size: 12px;")
         lbl_desc.setWordWrap(True)
         details_layout.addWidget(lbl_desc)
@@ -652,22 +676,110 @@ class ManagerItemWidget(QWidget):
 
         # Action Button
         if not self.is_installed:
-            self.btn_action = QPushButton("Install")
-            self.btn_action.setStyleSheet("""
-                QPushButton {
-                    background-color: #313244;
-                    color: #cdd6f4;
-                    padding: 6px 14px;
-                    font-weight: bold;
-                    border-radius: 6px;
-                }
-                QPushButton:hover {
-                    background-color: #89b4fa;
-                    color: #11111b;
-                }
-            """)
-            self.btn_action.clicked.connect(lambda: self.install_requested.emit(self.mgr_name))
-            layout.addWidget(self.btn_action)
+            if not self.entry.has_driver:
+                lbl_note = QLabel("Browsing only — driver coming later")
+                lbl_note.setStyleSheet("color: #a6adc8; font-style: italic; font-size: 11px;")
+                layout.addWidget(lbl_note)
+            else:
+                self.btn_action = QPushButton("Install")
+                self.btn_action.setStyleSheet("""
+                    QPushButton {
+                        background-color: #313244;
+                        color: #cdd6f4;
+                        padding: 6px 14px;
+                        font-weight: bold;
+                        border-radius: 6px;
+                    }
+                    QPushButton:hover {
+                        background-color: #89b4fa;
+                        color: #11111b;
+                    }
+                    QPushButton:disabled {
+                        background-color: #181825;
+                        color: #585b70;
+                    }
+                """)
+                
+                # Check if install command is available for this distro family
+                install_cmd = self.entry.get_self_install_command()
+                if install_cmd is None:
+                    self.btn_action.setEnabled(False)
+                    self.btn_action.setToolTip("Not available for your distro family yet")
+                    
+                self.btn_action.clicked.connect(lambda: self.install_requested.emit(self.entry))
+                layout.addWidget(self.btn_action)
+
+
+class RepoItemWidget(QWidget):
+    """Custom row widget representing a repository/remote source."""
+    remove_requested = Signal(str)
+    toggle_requested = Signal(str, bool)
+
+    def __init__(self, repo: dict[str, Any], parent: Any = None):
+        super().__init__(parent)
+        self.repo_id = repo["id"]
+        self.repo_name = repo["name"]
+        self.repo_url = repo.get("url", "")
+        self.is_enabled = repo.get("enabled", True)
+        self.setup_ui()
+
+    def setup_ui(self):
+        self.setObjectName("update-item-card")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(15)
+
+        # Checkbox/Toggle for Enable/Disable state
+        self.checkbox = QCheckBox()
+        self.checkbox.setChecked(self.is_enabled)
+        self.checkbox.stateChanged.connect(self.on_checkbox_toggled)
+        layout.addWidget(self.checkbox)
+
+        # Details
+        details_layout = QVBoxLayout()
+        details_layout.setSpacing(2)
+
+        lbl_name = QLabel(self.repo_name)
+        lbl_name.setStyleSheet("font-weight: bold; font-size: 13px; color: #ffffff;")
+        details_layout.addWidget(lbl_name)
+
+        if self.repo_url:
+            lbl_url = QLabel(self.repo_url)
+            lbl_url.setStyleSheet("color: #a6adc8; font-size: 11px;")
+            lbl_url.setWordWrap(True)
+            details_layout.addWidget(lbl_url)
+            
+        layout.addLayout(details_layout, stretch=1)
+
+        # Status badge
+        lbl_status = QLabel("Enabled" if self.is_enabled else "Disabled")
+        if self.is_enabled:
+            badge_style = "background-color: #064e3b; color: #6ee7b7; border-radius: 12px; padding: 4px 10px; font-weight: bold; font-size: 10px;"
+        else:
+            badge_style = "background-color: #313244; color: #a6adc8; border-radius: 12px; padding: 4px 10px; font-weight: bold; font-size: 10px;"
+        lbl_status.setStyleSheet(badge_style)
+        layout.addWidget(lbl_status)
+
+        # Delete/Remove button
+        self.btn_delete = QPushButton("Remove")
+        self.btn_delete.setStyleSheet("""
+            QPushButton {
+                background-color: #7f1d1d;
+                color: #fca5a5;
+                padding: 6px 12px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #fca5a5;
+                color: #11111b;
+            }
+        """)
+        self.btn_delete.clicked.connect(lambda: self.remove_requested.emit(self.repo_id))
+        layout.addWidget(self.btn_delete)
+
+    def on_checkbox_toggled(self, state: int):
+        self.toggle_requested.emit(self.repo_id, state == 2)
 
 
 class MainWindow(QMainWindow):
@@ -752,6 +864,10 @@ class MainWindow(QMainWindow):
         item_managers = QListWidgetItem("Package Managers")
         item_managers.setIcon(QIcon.fromTheme("preferences-system"))
         self.nav_list.addItem(item_managers)
+        
+        item_repos = QListWidgetItem("Repositories")
+        item_repos.setIcon(QIcon.fromTheme("applications-internet"))
+        self.nav_list.addItem(item_repos)
         
         self.nav_list.setCurrentRow(0)
         self.nav_list.currentRowChanged.connect(self.change_page)
@@ -1014,6 +1130,65 @@ class MainWindow(QMainWindow):
         managers_layout.addWidget(self.managers_list)
 
         self.stacked_widget.addWidget(managers_page)
+
+        # PAGE 6: Repositories
+        repos_page = QWidget()
+        repos_layout = QHBoxLayout(repos_page)
+        repos_layout.setContentsMargins(0, 0, 0, 0)
+        repos_layout.setSpacing(0)
+
+        # Left panel: list of managers supporting repos
+        repos_sidebar = QWidget()
+        repos_sidebar.setObjectName("sidebar-panel")
+        repos_sidebar.setFixedWidth(200)
+        repos_sidebar_layout = QVBoxLayout(repos_sidebar)
+        repos_sidebar_layout.setContentsMargins(12, 12, 12, 12)
+        repos_sidebar_layout.setSpacing(10)
+
+        lbl_repos_sidebar_title = QLabel("SOURCES")
+        lbl_repos_sidebar_title.setObjectName("sidebar-title")
+        repos_sidebar_layout.addWidget(lbl_repos_sidebar_title)
+
+        self.repos_mgr_list = QListWidget()
+        self.repos_mgr_list.setObjectName("nav-list")
+        self.repos_mgr_list.currentRowChanged.connect(self.load_repos_for_selected_manager)
+        repos_sidebar_layout.addWidget(self.repos_mgr_list)
+
+        repos_layout.addWidget(repos_sidebar)
+
+        # Right panel: repos list + add form
+        repos_main = QWidget()
+        repos_main_layout = QVBoxLayout(repos_main)
+        repos_main_layout.setContentsMargins(20, 20, 20, 20)
+        repos_main_layout.setSpacing(15)
+
+        lbl_repos_main_title = QLabel("Repository Configuration")
+        lbl_repos_main_title.setObjectName("summary-label")
+        repos_main_layout.addWidget(lbl_repos_main_title)
+
+        self.repos_list_widget = QListWidget()
+        self.repos_list_widget.setObjectName("updates-list")
+        repos_main_layout.addWidget(self.repos_list_widget)
+
+        # Add Repo Form
+        add_repo_widget = QWidget()
+        add_repo_layout = QHBoxLayout(add_repo_widget)
+        add_repo_layout.setContentsMargins(0, 0, 0, 0)
+        add_repo_layout.setSpacing(10)
+
+        self.txt_add_repo = QLineEdit()
+        self.txt_add_repo.setPlaceholderText("Enter repository URL, filepath, or COPR group/project...")
+        self.txt_add_repo.setObjectName("search-bar")
+        add_repo_layout.addWidget(self.txt_add_repo, stretch=1)
+
+        self.btn_add_repo = QPushButton("Add Source")
+        self.btn_add_repo.clicked.connect(self.add_repository_source)
+        add_repo_layout.addWidget(self.btn_add_repo)
+
+        repos_main_layout.addWidget(add_repo_widget)
+        repos_layout.addWidget(repos_main)
+
+        self.stacked_widget.addWidget(repos_page)
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1247,41 +1422,129 @@ class MainWindow(QMainWindow):
             self.stacked_widget.setCurrentIndex(index)
             if index == 4:
                 self.populate_managers_list()
+            elif index == 5:
+                self.populate_repos_managers()
 
-    def populate_managers_list(self):
-        self.managers_list.clear()
-        from app.core.manager import get_all_managers
-        managers = get_all_managers()
-        
-        # Sort managers by name
-        managers.sort(key=lambda m: m.name)
-        
-        for mgr in managers:
-            row_item = QListWidgetItem(self.managers_list)
-            row_item.setSizeHint(QSize(0, 75))
-            
-            row_widget = ManagerItemWidget(mgr)
-            row_widget.install_requested.connect(self.install_manager_backend)
-            self.managers_list.setItemWidget(row_item, row_widget)
+    def populate_repos_managers(self):
+        self.repos_mgr_list.clear()
+        from app.core.manager import discover_managers
+        managers = discover_managers()
+        self.repos_managers = [m for m in managers if getattr(m, "supports_repos", False)]
+        for mgr in self.repos_managers:
+            self.repos_mgr_list.addItem(mgr.name)
+        if self.repos_mgr_list.count() > 0:
+            self.repos_mgr_list.setCurrentRow(0)
 
-    def install_manager_backend(self, name: str):
-        # Resolve command
-        cmds = {
-            "Flatpak": ["sudo", "dnf", "install", "-y", "flatpak"],
-            "NPM": ["sudo", "dnf", "install", "-y", "nodejs", "npm"],
-            "Cargo": ["sudo", "dnf", "install", "-y", "cargo"],
-            "Pipx": ["sudo", "dnf", "install", "-y", "pipx"]
-        }
-        cmd = cmds.get(name)
-        if not cmd:
+    def load_repos_for_selected_manager(self, row: int):
+        if row < 0 or row >= len(self.repos_managers):
+            self.repos_list_widget.clear()
             return
+        mgr = self.repos_managers[row]
+        self.repos_list_widget.clear()
+        
+        worker = FetchReposWorker(mgr)
+        worker.result_signal.connect(lambda repos: self.display_repos_list(repos, mgr))
+        worker.error_signal.connect(lambda err: self.log(f"❌ Error fetching repositories: {err}"))
+        self.active_workers.append(worker)
+        worker.start()
+
+    def display_repos_list(self, repos: list[dict[str, Any]], mgr: PackageManager):
+        self.repos_list_widget.clear()
+        for repo in repos:
+            row_item = QListWidgetItem(self.repos_list_widget)
+            row_item.setSizeHint(QSize(0, 65))
+            row_widget = RepoItemWidget(repo)
+            # Connect toggle and remove requests
+            row_widget.toggle_requested.connect(lambda r_id, enable, m=mgr: self.toggle_repository_source(m, r_id, enable))
+            row_widget.remove_requested.connect(lambda r_id, m=mgr: self.remove_repository_source(m, r_id))
+            self.repos_list_widget.setItemWidget(row_item, row_widget)
+
+    def toggle_repository_source(self, mgr: PackageManager, repo_id: str, enable: bool):
+        if enable:
+            # Re-enabling repo (special config-manager command for DNF, or flatpak remote-add)
+            cmd = ["pkexec", "dnf", "config-manager", "--set-enabled", repo_id] if mgr.name == "DNF" else mgr.get_add_repo_command(repo_id)
+        else:
+            # Disabling repo
+            cmd = mgr.get_remove_repo_command(repo_id)
             
-        self.log(f"⚡ Launching installation process for package manager: {name} ({' '.join(cmd)})")
+        self.log(f"⚡ Toggling repository source: {repo_id} ({' '.join(cmd)})")
         self.nav_list.setCurrentRow(2)  # Switch to console
         
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(lambda success: self.handle_manager_install_finished(success, name))
+        worker.finished_signal.connect(lambda success: self.handle_repo_action_finished(success, repo_id, "modified"))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def remove_repository_source(self, mgr: PackageManager, repo_id: str):
+        cmd = mgr.get_remove_repo_command(repo_id)
+        self.log(f"⚡ Removing repository source: {repo_id} ({' '.join(cmd)})")
+        self.nav_list.setCurrentRow(2)  # Switch to console
+        
+        worker = ExecutionWorker(cmd)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda success: self.handle_repo_action_finished(success, repo_id, "removed"))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def add_repository_source(self):
+        row = self.repos_mgr_list.currentRow()
+        if row < 0 or row >= len(self.repos_managers):
+            return
+        mgr = self.repos_managers[row]
+        repo_url = self.txt_add_repo.text().strip()
+        if not repo_url:
+            return
+            
+        cmd = mgr.get_add_repo_command(repo_url)
+        self.log(f"⚡ Adding repository source: {repo_url} ({' '.join(cmd)})")
+        self.txt_add_repo.clear()
+        self.nav_list.setCurrentRow(2)  # Switch to console
+        
+        worker = ExecutionWorker(cmd)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda success: self.handle_repo_action_finished(success, repo_url, "added"))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def handle_repo_action_finished(self, success: bool, target: str, action: str):
+        if success:
+            self.log(f"✅ Successfully {action} repository source: {target}")
+            self.load_repos_for_selected_manager(self.repos_mgr_list.currentRow())
+        else:
+            self.log(f"❌ Failed to perform action on repository source: {target}")
+
+    def populate_managers_list(self):
+        self.managers_list.clear()
+        from app.core.catalog import load_catalog
+        entries = load_catalog()
+        
+        # Sort entries by name
+        entries.sort(key=lambda e: e.name)
+        
+        for entry in entries:
+            row_item = QListWidgetItem(self.managers_list)
+            row_item.setSizeHint(QSize(0, 85))
+            
+            row_widget = ManagerItemWidget(entry)
+            row_widget.install_requested.connect(self.install_manager_backend)
+            self.managers_list.setItemWidget(row_item, row_widget)
+
+    def install_manager_backend(self, entry: CatalogEntry):
+        cmd = entry.get_self_install_command()
+        if not cmd:
+            self.log(f"❌ Install command not found for {entry.name} on this distro family.")
+            return
+            
+        self.log(f"⚡ Launching installation process for package manager: {entry.name} ({' '.join(cmd)})")
+        self.nav_list.setCurrentRow(2)  # Switch to console
+        
+        worker = ExecutionWorker(cmd)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda success: self.handle_manager_install_finished(success, entry.name))
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()

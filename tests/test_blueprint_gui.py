@@ -377,9 +377,57 @@ def test_gui_package_managers_page(qapp):
 
     # 3. Test triggering install backend
     mock_start = MagicMock()
+    row_widget.entry.get_self_install_command = MagicMock(return_value=["mock-install"])
     with patch.object(QThread, "start", mock_start):
-        window.install_manager_backend("Flatpak")
+        window.install_manager_backend(row_widget.entry)
 
     # Verify transition to console (row 2)
     assert window.nav_list.currentRow() == 2
     mock_start.assert_called_once()
+
+
+def test_gui_repositories_page(qapp):
+    """Test the Repositories UI page population and actions."""
+    from app.ui.main_window import MainWindow, RepoItemWidget, FetchReposWorker
+    from PySide6.QtCore import QThread
+    from unittest.mock import MagicMock, patch
+
+    window = MainWindow()
+
+    # 1. Switch to Repositories tab (index 5)
+    window.nav_list.setCurrentRow(5)
+    
+    # Check that managers listing is populated with at least DNF/Flatpak
+    assert window.repos_mgr_list.count() > 0
+    assert "DNF" in [window.repos_mgr_list.item(i).text() for i in range(window.repos_mgr_list.count())]
+
+    # 2. Mock FetchReposWorker.run to emit sample repo data synchronously
+    sample_repos = [
+        {"id": "mock-repo", "name": "Mock Repo", "url": "https://example.com", "enabled": True}
+    ]
+    
+    def mock_run(self_worker):
+        self_worker.result_signal.emit(sample_repos)
+
+    def mock_thread_start(self_worker):
+        self_worker.run()
+        
+    with patch.object(FetchReposWorker, "run", mock_run), \
+         patch.object(QThread, "start", mock_thread_start):
+        window.load_repos_for_selected_manager(0)
+        
+    assert window.repos_list_widget.count() == 1
+    row_item = window.repos_list_widget.item(0)
+    row_widget = window.repos_list_widget.itemWidget(row_item)
+    assert isinstance(row_widget, RepoItemWidget)
+    assert row_widget.repo_name == "Mock Repo"
+
+    # 3. Test triggering add repo action
+    window.txt_add_repo.setText("copr/test")
+    mock_start = MagicMock()
+    with patch.object(QThread, "start", mock_start):
+        window.add_repository_source()
+
+    assert window.nav_list.currentRow() == 2
+    mock_start.assert_called_once()
+

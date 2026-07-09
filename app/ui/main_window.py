@@ -163,7 +163,7 @@ class ExecutionWorker(QThread):
 
 
 class SearchWorker(QThread):
-    """Worker thread to run asynchronous searches across DNF, Flatpak, NPM, Cargo, and Pipx."""
+    """Worker thread to run asynchronous searches across active package managers."""
     results_signal = Signal(list)
     log_signal = Signal(str)
 
@@ -177,150 +177,23 @@ class SearchWorker(QThread):
         asyncio.set_event_loop(loop)
         results = []
 
-        async def search_flatpak():
-            if self.source_filter in ("All", "Flatpak") and shutil.which("flatpak"):
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "flatpak", "search", "-j", self.query,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-                    if stdout:
-                        import json
-                        data = json.loads(stdout.decode(errors="ignore"))
-                        for item in data:
-                            results.append({
-                                "name": item.get("name", ""),
-                                "id": item.get("application_id", ""),
-                                "description": item.get("description", ""),
-                                "version": item.get("version", ""),
-                                "source": "Flatpak",
-                                "remote": item.get("remotes", "flathub").split(",")[0]
-                            })
-                except Exception as e:
-                    self.log_signal.emit(f"Flatpak search error: {str(e)}")
+        from app.core.manager import discover_managers
+        managers = discover_managers()
 
-        async def search_dnf():
-            if self.source_filter in ("All", "DNF") and shutil.which("dnf"):
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "dnf", "search", self.query,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
-                    import re
-                    pattern = re.compile(r'^\s*([a-zA-Z0-9\-_+.]+)\.([a-zA-Z0-9_]+)\s+(.+)$')
-                    for line in stdout.decode(errors="ignore").splitlines():
-                        match = pattern.match(line)
-                        if match:
-                            pkg_name = match.group(1)
-                            desc = match.group(3)
-                            # Ignore debug/devel meta packages
-                            if any(x in pkg_name for x in ("-debuginfo", "-debugsource", ".src")):
-                                continue
-                            results.append({
-                                "name": pkg_name,
-                                "id": pkg_name,
-                                "description": desc,
-                                "version": "",
-                                "source": "DNF",
-                                "remote": ""
-                            })
-                except Exception as e:
-                    self.log_signal.emit(f"DNF search error: {str(e)}")
+        async def search_one(mgr):
+            if self.source_filter not in ("All", "All Sources", mgr.name):
+                return
+            try:
+                items = await mgr.search_packages(self.query)
+                for item in items:
+                    item.setdefault("source", mgr.name)
+                    results.append(item)
+            except NotImplementedError:
+                pass
+            except Exception as e:
+                self.log_signal.emit(f"⚠️ {mgr.name} search error: {str(e)}")
 
-        async def search_cargo():
-            if self.source_filter in ("All", "Cargo") and shutil.which("cargo"):
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "cargo", "search", "--limit", "20", self.query,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
-                    import re
-                    pattern = re.compile(r'^([a-zA-Z0-9\-_+.]+)\s*=\s*"([^"]+)"\s*#\s*(.+)$')
-                    for line in stdout.decode(errors="ignore").splitlines():
-                        match = pattern.match(line.strip())
-                        if match:
-                            pkg_name = match.group(1)
-                            version = match.group(2)
-                            desc = match.group(3)
-                            results.append({
-                                "name": pkg_name,
-                                "id": pkg_name,
-                                "description": desc,
-                                "version": version,
-                                "source": "Cargo",
-                                "remote": ""
-                            })
-                except Exception as e:
-                    self.log_signal.emit(f"Cargo search error: {str(e)}")
-
-        async def search_npm():
-            if self.source_filter in ("All", "NPM") and shutil.which("npm"):
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "npm", "search", "--json", self.query,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
-                    if stdout:
-                        import json
-                        data = json.loads(stdout.decode(errors="ignore"))
-                        if isinstance(data, list):
-                            for item in data[:20]:
-                                results.append({
-                                    "name": item.get("name", ""),
-                                    "id": item.get("name", ""),
-                                    "description": item.get("description", ""),
-                                    "version": item.get("version", ""),
-                                    "source": "NPM",
-                                    "remote": ""
-                                })
-                except Exception as e:
-                    self.log_signal.emit(f"NPM search error: {str(e)}")
-
-        async def search_pipx():
-            if self.source_filter in ("All", "Pipx"):
-                import json
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "curl", "-s", "-H", "User-Agent: PolyGet/1.0", f"https://pypi.org/pypi/{self.query}/json",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
-                    if stdout:
-                        data = json.loads(stdout.decode(errors="ignore"))
-                        info = data.get("info", {})
-                        if info:
-                            results.append({
-                                "name": info.get("name", ""),
-                                "id": info.get("name", ""),
-                                "description": info.get("summary", ""),
-                                "version": info.get("version", ""),
-                                "source": "Pipx",
-                                "remote": ""
-                            })
-                except Exception as e:
-                    self.log_signal.emit(f"Pipx search error: {str(e)}")
-
-        tasks = []
-        if self.source_filter in ("All", "Flatpak"):
-            tasks.append(search_flatpak())
-        if self.source_filter in ("All", "DNF"):
-            tasks.append(search_dnf())
-        if self.source_filter in ("All", "Cargo"):
-            tasks.append(search_cargo())
-        if self.source_filter in ("All", "NPM"):
-            tasks.append(search_npm())
-        if self.source_filter in ("All", "Pipx"):
-            tasks.append(search_pipx())
-
+        tasks = [search_one(m) for m in managers]
         if tasks:
             loop.run_until_complete(asyncio.gather(*tasks))
         loop.close()
@@ -993,7 +866,9 @@ class MainWindow(QMainWindow):
         store_header.addWidget(self.txt_store_search, stretch=3)
 
         self.combo_source = QComboBox()
-        self.combo_source.addItems(["All Sources", "Flatpak", "DNF", "NPM", "Cargo", "Pipx"])
+        from app.core.manager import discover_managers
+        mgr_names = [m.name for m in discover_managers()]
+        self.combo_source.addItems(["All Sources"] + sorted(mgr_names))
         self.combo_source.setStyleSheet("""
             QComboBox {
                 background-color: #11111b;

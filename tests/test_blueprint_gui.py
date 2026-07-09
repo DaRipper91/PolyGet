@@ -228,6 +228,7 @@ def test_store_search_pipx(qapp):
     worker.results_signal.connect(on_results)
 
     with patch("shutil.which", return_value="/usr/bin/mock"), \
+         patch("app.core.drivers.pipx.PipxManager._ensure_index_cached", return_value=["black"]), \
          patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
         worker.run()
 

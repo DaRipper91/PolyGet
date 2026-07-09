@@ -259,3 +259,25 @@ def test_driver_registry_auto_discovery():
     assert "NPM" in names
     assert "Cargo" in names
 
+
+def test_search_packages_capability():
+    """Verify that all active managers respond to search_packages or raise NotImplementedError."""
+    async def run_test():
+        managers = discover_managers()
+        for mgr in managers:
+            try:
+                # Mock create_subprocess_exec to avoid actual execution overhead
+                with patch("asyncio.create_subprocess_exec") as mock_exec, \
+                     patch("app.core.drivers.pipx.PipxManager._ensure_index_cached", return_value=["black"]):
+                    
+                    mock_proc = AsyncMock()
+                    mock_proc.communicate.return_value = (b"", b"")
+                    mock_exec.return_value = mock_proc
+                    
+                    results = await mgr.search_packages("testquery")
+                    assert isinstance(results, list)
+            except NotImplementedError:
+                pass
+
+    asyncio.run(run_test())
+

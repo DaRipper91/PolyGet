@@ -41,7 +41,7 @@ class PipxManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            pip_stdout, _ = await pip_proc.communicate()
+            pip_stdout, _ = await asyncio.wait_for(pip_proc.communicate(), timeout=12.0)
             if pip_stdout:
                 pip_data = json.loads(pip_stdout.decode(errors="ignore"))
                 results = []
@@ -70,7 +70,7 @@ class PipxManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
 
             packages = []
             for line in stdout.decode(errors="ignore").splitlines():
@@ -115,7 +115,7 @@ class PipxManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
             if proc.returncode != 0:
                 return []
 

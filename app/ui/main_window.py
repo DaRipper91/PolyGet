@@ -164,7 +164,7 @@ class SearchWorker(QThread):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, _ = await proc.communicate()
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
                     if stdout:
                         import json
                         data = json.loads(stdout.decode(errors="ignore"))
@@ -188,7 +188,7 @@ class SearchWorker(QThread):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, _ = await proc.communicate()
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
                     import re
                     pattern = re.compile(r'^\s*([a-zA-Z0-9\-_+.]+)\.([a-zA-Z0-9_]+)\s+(.+)$')
                     for line in stdout.decode(errors="ignore").splitlines():
@@ -218,7 +218,7 @@ class SearchWorker(QThread):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, _ = await proc.communicate()
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
                     import re
                     pattern = re.compile(r'^([a-zA-Z0-9\-_+.]+)\s*=\s*"([^"]+)"\s*#\s*(.+)$')
                     for line in stdout.decode(errors="ignore").splitlines():
@@ -246,7 +246,7 @@ class SearchWorker(QThread):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, _ = await proc.communicate()
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
                     if stdout:
                         import json
                         data = json.loads(stdout.decode(errors="ignore"))
@@ -272,7 +272,7 @@ class SearchWorker(QThread):
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE
                     )
-                    stdout, _ = await proc.communicate()
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
                     if stdout:
                         data = json.loads(stdout.decode(errors="ignore"))
                         info = data.get("info", {})

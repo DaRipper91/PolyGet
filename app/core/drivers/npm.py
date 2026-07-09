@@ -37,11 +37,14 @@ class NpmManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout_prefix, _ = await prefix_proc.communicate()
+            stdout_prefix, _ = await asyncio.wait_for(prefix_proc.communicate(), timeout=5.0)
             if prefix_proc.returncode == 0 and stdout_prefix:
                 self._global_prefix = stdout_prefix.decode(errors="ignore").strip()
         except Exception:
-            pass
+            try:
+                prefix_proc.kill()
+            except Exception:
+                pass
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -49,7 +52,7 @@ class NpmManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if not stdout:
                 return []
             import json
@@ -63,6 +66,10 @@ class NpmManager(PackageManager):
                 })
             return updates
         except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
             return []
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
@@ -110,7 +117,7 @@ class NpmManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
             if not stdout:
                 return []
             import json

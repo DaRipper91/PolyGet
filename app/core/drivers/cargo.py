@@ -33,7 +33,7 @@ class CargoManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
             updates = []
             # Parse output: lines look like "pkg_name  current_version  latest_version  needs_update"
             for line in stdout.decode(errors="ignore").splitlines():
@@ -78,7 +78,7 @@ class CargoManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             if proc.returncode != 0:
                 return []
 

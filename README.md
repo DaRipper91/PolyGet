@@ -209,8 +209,8 @@ On launch, PolyGet scans your system for every supported package manager, shows 
 - [x] Repos tab — manage DNF repos/COPR and Flatpak remotes
 - [x] Driver-based package search refactored out of the main UI thread
 - [x] Auto-discovery of driver plugins (dynamic module scanner)
-- [ ] Companion Textual-based TUI upgrader interface
-- [ ] Automated background update scanning daemon with system notifications
+- [x] Companion Textual-based TUI upgrader interface
+- [x] Automated background update scanning daemon with system notifications
 - [ ] Support for source-based Gentoo Portage driver (emerge)
 
 ---

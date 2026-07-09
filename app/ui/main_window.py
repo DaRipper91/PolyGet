@@ -1520,7 +1520,14 @@ class MainWindow(QMainWindow):
             installed_pkgs = set(installed_results.get(actual_mgr_name, []))
             
             for pkg in yaml_pkgs:
-                if pkg not in installed_pkgs:
+                # Split on == or @ to get base package name for comparison
+                base_name = pkg
+                for sep in ("==", "@"):
+                    if sep in pkg:
+                        base_name = pkg.split(sep)[0]
+                        break
+                
+                if base_name not in installed_pkgs:
                     missing_packages.append((mgr, pkg))
 
         if not missing_packages:

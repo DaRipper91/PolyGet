@@ -257,3 +257,45 @@ def test_scan_worker_concurrent(qapp):
     worker.run()
 
     assert "Flatpak" in results
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+@patch("app.ui.main_window.discover_managers")
+@patch("app.ui.main_window.QMessageBox.question")
+@patch("app.ui.main_window.QMessageBox.information")
+def test_blueprint_version_pinning(mock_info, mock_question, mock_discover, mock_scan, qapp):
+    """Test blueprint sync with version pinning (e.g. package==version or package@version)."""
+    mock_manager = MagicMock(spec=PackageManager)
+    mock_manager.name = "Flatpak"
+    # Firefox is installed
+    mock_manager.list_installed = AsyncMock(return_value=["org.mozilla.firefox"])
+    mock_discover.return_value = [mock_manager]
+
+    window = MainWindow()
+    # Pinned package matching firefox name, and non-installed pinned package
+    window.blueprint_editor.setPlainText(
+        "Flatpak:\n"
+        "  - org.mozilla.firefox==120.0\n"
+        "  - org.kde.kate@26.04.3\n"
+    )
+    
+    # Mock QThread.start to run synchronously
+    with patch.object(QThread, "start") as mock_start:
+        def sync_run():
+            for w in window.active_workers:
+                if isinstance(w, FetchInstalledWorker):
+                    w.run()
+                    w.finished.emit()
+            
+        mock_start.side_effect = sync_run
+        
+        # Trigger sync
+        window.sync_system_to_blueprint()
+
+    # org.kde.kate@26.04.3 is missing, so mock_question should be called to confirm install.
+    # org.mozilla.firefox==120.0 should not be flagged as missing since base_name "org.mozilla.firefox" is installed.
+    mock_question.assert_called_once()
+    args, kwargs = mock_question.call_args
+    confirm_text = args[2]
+    assert "org.kde.kate@26.04.3" in confirm_text
+    assert "org.mozilla.firefox" not in confirm_text

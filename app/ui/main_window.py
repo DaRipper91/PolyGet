@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
-    QLabel, QPushButton, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
+    QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog
 )
 from app.core.manager import discover_managers, PackageManager
@@ -813,7 +813,7 @@ class MainWindow(QMainWindow):
         console_header.addWidget(btn_clear)
         console_layout.addLayout(console_header)
 
-        self.console = QPlainTextEdit()
+        self.console = QTextEdit()
         self.console.setReadOnly(True)
         self.console.setObjectName("console-output")
         console_layout.addWidget(self.console)
@@ -1011,7 +1011,24 @@ class MainWindow(QMainWindow):
         self.console.clear()
 
     def log(self, text: str):
-        self.console.appendPlainText(text)
+        # Color mapping for terminal log prefixes
+        color_map = {
+            "✅": "#a6e3a1",  # green
+            "❌": "#f38ba8",  # red
+            "🔍": "#89dceb",  # cyan
+            "📦": "#fab387",  # orange
+            "⚡": "#cba6f7"   # purple
+        }
+        
+        prefix = text[0] if text else ""
+        color = color_map.get(prefix, "#cdd6f4") # default text color
+        
+        # Escape HTML characters to prevent breaking layout
+        import html
+        escaped_msg = html.escape(text)
+        
+        # Append formatted HTML string
+        self.console.append(f'<span style="color: {color}; font-family: monospace;">{escaped_msg}</span>')
         self.console.verticalScrollBar().setValue(self.console.verticalScrollBar().maximum())
 
     @Slot()

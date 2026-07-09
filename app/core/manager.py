@@ -66,6 +66,14 @@ class PackageManager:
         """
         raise NotImplementedError("Subclasses must implement get_install_command()")
 
+    def get_self_install_command(self) -> list[str] | None:
+        """Get the command to install this manager itself on the current distro.
+
+        Returns:
+            list[str] | None: Command list, or None if unknown/unsupported.
+        """
+        return None
+
 
 # Registry of all driver classes
 _REGISTRY: list[Type[PackageManager]] = []

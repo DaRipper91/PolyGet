@@ -210,3 +210,27 @@ class FlatpakManager(PackageManager):
     def get_remove_repo_command(self, repo_id: str) -> list[str]:
         """Get the command to delete a Flatpak remote."""
         return ["flatpak", "remote-delete", repo_id]
+
+    async def search_packages(self, query: str) -> list[dict[str, Any]]:
+        """Search for Flatpak packages."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "flatpak", "search", "--columns=name,description,application,version,remotes", query,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            results = []
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 5:
+                    results.append({
+                        "name": parts[0].strip(),
+                        "description": parts[1].strip(),
+                        "id": parts[2].strip(),
+                        "version": parts[3].strip(),
+                        "remote": parts[4].split(",")[0].strip() if parts[4].strip() else "flathub"
+                    })
+            return results
+        except Exception:
+            return []

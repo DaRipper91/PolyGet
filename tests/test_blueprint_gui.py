@@ -134,3 +134,63 @@ def test_sync_system_to_blueprint_no_drift(mock_info, mock_question, mock_discov
     mock_question.assert_not_called()
     mock_info.assert_called_once()
     assert "System is in sync" in window.blueprint_status.text()
+
+
+def test_store_search_npm_cargo(qapp):
+    """Test SearchWorker querying npm search and cargo search concurrently."""
+    from app.ui.main_window import SearchWorker
+
+    mock_cargo_proc = AsyncMock()
+    mock_cargo_proc.returncode = 0
+    mock_cargo_proc.communicate.return_value = (
+        b'ripgrep = "13.0.0" # Fast search utility\n',
+        b""
+    )
+
+    mock_npm_proc = AsyncMock()
+    mock_npm_proc.returncode = 0
+    mock_npm_proc.communicate.return_value = (
+        b'[\n'
+        b'  {\n'
+        b'    "name" : "typescript",\n'
+        b'    "description" : "compiler",\n'
+        b'    "version" : "4.5.2"\n'
+        b'  }\n'
+        b']\n',
+        b""
+    )
+
+    def mock_exec(*args, **kwargs):
+        if "cargo" in args:
+            return mock_cargo_proc
+        elif "npm" in args:
+            return mock_npm_proc
+        return AsyncMock()
+
+    # Search both cargo and npm
+    worker = SearchWorker("test-query", source_filter="All")
+    
+    results = []
+    def on_results(res):
+        results.extend(res)
+
+    worker.results_signal.connect(on_results)
+
+    with patch("shutil.which", return_value="/usr/bin/mock"), \
+         patch("asyncio.create_subprocess_exec", side_effect=mock_exec):
+        worker.run()
+
+    # Verify that both Cargo and NPM search results were aggregated
+    sources = [item["source"] for item in results]
+    assert "Cargo" in sources
+    assert "NPM" in sources
+
+    # Verify Cargo item details
+    cargo_item = [x for x in results if x["source"] == "Cargo"][0]
+    assert cargo_item["name"] == "ripgrep"
+    assert cargo_item["version"] == "13.0.0"
+
+    # Verify NPM item details
+    npm_item = [x for x in results if x["source"] == "NPM"][0]
+    assert npm_item["name"] == "typescript"
+    assert npm_item["version"] == "4.5.2"

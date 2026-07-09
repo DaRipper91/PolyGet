@@ -135,7 +135,7 @@ class ExecutionWorker(QThread):
 
 
 class SearchWorker(QThread):
-    """Worker thread to run asynchronous searches across DNF and Flatpak."""
+    """Worker thread to run asynchronous searches across DNF, Flatpak, NPM, and Cargo."""
     results_signal = Signal(list)
     log_signal = Signal(str)
 
@@ -203,8 +203,71 @@ class SearchWorker(QThread):
                 except Exception as e:
                     self.log_signal.emit(f"DNF search error: {str(e)}")
 
-        tasks = [search_flatpak(), search_dnf()]
-        loop.run_until_complete(asyncio.gather(*tasks))
+        async def search_cargo():
+            if self.source_filter in ("All", "Cargo") and shutil.which("cargo"):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "cargo", "search", "--limit", "20", self.query,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await proc.communicate()
+                    import re
+                    pattern = re.compile(r'^([a-zA-Z0-9\-_+.]+)\s*=\s*"([^"]+)"\s*#\s*(.+)$')
+                    for line in stdout.decode(errors="ignore").splitlines():
+                        match = pattern.match(line.strip())
+                        if match:
+                            pkg_name = match.group(1)
+                            version = match.group(2)
+                            desc = match.group(3)
+                            results.append({
+                                "name": pkg_name,
+                                "id": pkg_name,
+                                "description": desc,
+                                "version": version,
+                                "source": "Cargo",
+                                "remote": ""
+                            })
+                except Exception as e:
+                    self.log_signal.emit(f"Cargo search error: {str(e)}")
+
+        async def search_npm():
+            if self.source_filter in ("All", "NPM") and shutil.which("npm"):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "npm", "search", "--json", self.query,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await proc.communicate()
+                    if stdout:
+                        import json
+                        data = json.loads(stdout.decode(errors="ignore"))
+                        if isinstance(data, list):
+                            for item in data[:20]:
+                                results.append({
+                                    "name": item.get("name", ""),
+                                    "id": item.get("name", ""),
+                                    "description": item.get("description", ""),
+                                    "version": item.get("version", ""),
+                                    "source": "NPM",
+                                    "remote": ""
+                                })
+                except Exception as e:
+                    self.log_signal.emit(f"NPM search error: {str(e)}")
+
+        tasks = []
+        if self.source_filter in ("All", "Flatpak"):
+            tasks.append(search_flatpak())
+        if self.source_filter in ("All", "DNF"):
+            tasks.append(search_dnf())
+        if self.source_filter in ("All", "Cargo"):
+            tasks.append(search_cargo())
+        if self.source_filter in ("All", "NPM"):
+            tasks.append(search_npm())
+
+        if tasks:
+            loop.run_until_complete(asyncio.gather(*tasks))
         loop.close()
         self.results_signal.emit(results)
 
@@ -668,7 +731,7 @@ class MainWindow(QMainWindow):
         store_header.addWidget(self.txt_store_search, stretch=3)
 
         self.combo_source = QComboBox()
-        self.combo_source.addItems(["All Sources", "Flatpak", "DNF"])
+        self.combo_source.addItems(["All Sources", "Flatpak", "DNF", "NPM", "Cargo"])
         self.combo_source.setStyleSheet("""
             QComboBox {
                 background-color: #11111b;
@@ -1153,8 +1216,17 @@ class MainWindow(QMainWindow):
         if source == "Flatpak":
             remote = item.get("remote", "flathub")
             cmd = ["flatpak", "install", "-y", remote, pkg_id]
-        else:  # DNF
+        elif source == "DNF":
             cmd = ["pkexec", "dnf", "install", "-y", pkg_id]
+        elif source == "Cargo":
+            cmd = ["cargo", "install", pkg_id]
+        elif source == "NPM":
+            cmd = ["npm", "install", "-g", pkg_id]
+        elif source == "Pipx":
+            cmd = ["pipx", "install", pkg_id]
+        else:
+            QMessageBox.critical(self, "Error", f"No installer available for source '{source}'.")
+            return
 
         self.log(f"📦 Queueing installation of {pkg_id}...")
         self.nav_list.setCurrentRow(2)  # Switch to console

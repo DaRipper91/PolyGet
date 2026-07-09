@@ -776,6 +776,7 @@ class MainWindow(QMainWindow):
             }
         """)
         store_header.addWidget(self.combo_source, stretch=1)
+        self.combo_source.currentTextChanged.connect(self.filter_store_results)
 
         btn_search = QPushButton("Search")
         btn_search.clicked.connect(self.perform_store_search)
@@ -1230,7 +1231,14 @@ class MainWindow(QMainWindow):
             self.lbl_store_results.setText("No search results found.")
             return
 
-        self.lbl_store_results.setText(f"Found {len(results)} package(s):")
+        # Calculate breakdown counts per source
+        counts = {}
+        for item in results:
+            src = item.get("source", "Unknown")
+            counts[src] = counts.get(src, 0) + 1
+        breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+
+        self.lbl_store_results.setText(f"Found {len(results)} package(s) ({breakdown}):")
         for item in results:
             row_item = QListWidgetItem(self.store_list)
             row_item.setSizeHint(QSize(0, 65))
@@ -1238,6 +1246,19 @@ class MainWindow(QMainWindow):
             row_widget = StoreItemWidget(item)
             row_widget.install_requested.connect(self.install_package)
             self.store_list.setItemWidget(row_item, row_widget)
+
+        # Apply any current filter immediately
+        self.filter_store_results()
+
+    def filter_store_results(self):
+        filter_text = self.combo_source.currentText()
+        for i in range(self.store_list.count()):
+            item = self.store_list.item(i)
+            widget = self.store_list.itemWidget(item)
+            if widget:
+                # If filter is "All Sources" or matches source type, show it
+                is_match = (filter_text == "All Sources" or widget.item.get("source") == filter_text)
+                item.setHidden(not is_match)
 
     @Slot(dict)
     def install_package(self, item: dict):

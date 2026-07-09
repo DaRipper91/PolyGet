@@ -1175,6 +1175,10 @@ class MainWindow(QMainWindow):
             source_filter = "Flatpak"
         elif "DNF" in sel_text:
             source_filter = "DNF"
+        elif "NPM" in sel_text:
+            source_filter = "NPM"
+        elif "Cargo" in sel_text:
+            source_filter = "Cargo"
 
         worker = SearchWorker(query, source_filter)
         worker.log_signal.connect(self.log)

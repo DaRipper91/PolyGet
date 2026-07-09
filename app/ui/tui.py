@@ -84,10 +84,10 @@ class PasswordModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
-class PolyUpApp(App[None]):
-    """Ultimate Package PolyUp TUI Application."""
+class PolyGetTuiApp(App[None]):
+    """PolyGet TUI Application."""
 
-    TITLE = "PolyUp"
+    TITLE = "PolyGet"
     CSS_PATH = "tui.tcss"
     BINDINGS = [
         ("q", "quit", "Quit"),
@@ -100,7 +100,7 @@ class PolyUpApp(App[None]):
     ]
 
     def __init__(self, **kwargs: Any) -> None:
-        """Initialize the PolyUpApp, discover available managers, and set up state."""
+        """Initialize the PolyGetTuiApp, discover available managers, and set up state."""
         super().__init__(**kwargs)
         self.managers: list[PackageManager] = discover_managers()
         # Track selected managers for upgrading

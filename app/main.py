@@ -8,8 +8,8 @@ def main() -> int:
         int: Application exit code.
     """
     if "--tui" in sys.argv:
-        from app.ui.tui import PolyUpApp
-        app = PolyUpApp()
+        from app.ui.tui import PolyGetTuiApp
+        app = PolyGetTuiApp()
         app.run()
         return 0
 

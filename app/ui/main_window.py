@@ -215,6 +215,14 @@ class CategoryWorker(QThread):
         asyncio.set_event_loop(loop)
         results = []
 
+        if shutil.which("appstreamcli") is None:
+            self.log_signal.emit(
+                "⚠️ Category browsing requires the 'appstream' package "
+                "(provides appstreamcli) — not found on this system."
+            )
+            self.results_signal.emit([])
+            return
+
         # Map display name to appstream category name if needed
         # Standard AppStream categories:
         # Development, Game, Graphics, Network, Office, Science, System, Utility, AudioVideo

@@ -13,8 +13,7 @@
   description: Arch Linux system package manager.
   icon: package-x-generic
   binary: pacman
-  has_driver: false
-  self_install: {}
+  has_driver: true
 
 - id: paru
   name: Paru (AUR helper)
@@ -141,3 +140,102 @@
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "distrobox"]
     arch: ["sudo", "pacman", "-S", "--noconfirm", "distrobox"]
+
+- id: portage
+  name: Portage
+  category: System
+  description: Gentoo's source-based package manager (emerge).
+  icon: package-x-generic
+  binary: emerge
+  has_driver: false
+  self_install: {}
+
+- id: eopkg
+  name: eopkg
+  category: System
+  description: Solus system package manager.
+  icon: package-x-generic
+  binary: eopkg
+  has_driver: false
+  self_install: {}
+
+- id: guix
+  name: Guix
+  category: Universal
+  description: Functional package manager in the same lineage as Nix, GNU project.
+  icon: package-x-generic
+  binary: guix
+  has_driver: false
+  self_install: {}
+
+- id: gem
+  name: RubyGems
+  category: Language/Dev
+  description: Ruby's package manager, pulls from rubygems.org.
+  icon: text-x-generic
+  binary: gem
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "ruby"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "ruby"]
+    debian: ["pkexec", "apt-get", "install", "-y", "ruby-full"]
+
+- id: composer
+  name: Composer
+  category: Language/Dev
+  description: PHP's dependency and package manager.
+  icon: text-x-generic
+  binary: composer
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "composer"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "composer"]
+    debian: ["pkexec", "apt-get", "install", "-y", "composer"]
+
+- id: go
+  name: Go Modules
+  category: Language/Dev
+  description: Go's built-in module and binary installer (go install).
+  icon: text-x-generic
+  binary: go
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "golang"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "go"]
+    debian: ["pkexec", "apt-get", "install", "-y", "golang-go"]
+
+- id: nuget
+  name: NuGet
+  category: Language/Dev
+  description: .NET/C# package manager.
+  icon: text-x-generic
+  binary: dotnet
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "dotnet-sdk-8.0"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "dotnet-sdk"]
+    debian: ["pkexec", "apt-get", "install", "-y", "dotnet-sdk-8.0"]
+
+- id: maven
+  name: Maven
+  category: Language/Dev
+  description: Java build and dependency manager.
+  icon: text-x-generic
+  binary: mvn
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "maven"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "maven"]
+    debian: ["pkexec", "apt-get", "install", "-y", "maven"]
+
+- id: luarocks
+  name: LuaRocks
+  category: Language/Dev
+  description: Lua's package manager.
+  icon: text-x-generic
+  binary: luarocks
+  has_driver: false
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "luarocks"]
+    arch: ["sudo", "pacman", "-S", "--noconfirm", "luarocks"]
+    debian: ["pkexec", "apt-get", "install", "-y", "luarocks"]

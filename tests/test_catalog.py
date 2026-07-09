@@ -3,9 +3,13 @@ from unittest.mock import patch
 from app.core.catalog import load_catalog, CatalogEntry
 
 def test_load_catalog():
-    """Verify that catalog loading works and returns at least 14 entries."""
+    """Verify that catalog loading works and returns at least 23 entries with valid categories."""
     entries = load_catalog()
-    assert len(entries) >= 14
+    assert len(entries) >= 23
+    
+    valid_categories = {"System", "Universal", "Language/Dev"}
+    for entry in entries:
+        assert entry.category in valid_categories, f"Invalid category {entry.category} for entry {entry.name}"
     
     # Check specific fields of some entries
     dnf_entry = next((e for e in entries if e.id == "dnf"), None)
@@ -41,3 +45,15 @@ def test_catalog_self_install_command():
 
     with patch("app.core.catalog.get_distro_family", return_value="alpine"):
         assert entry.get_self_install_command() is None
+
+def test_catalog_driver_consistency():
+    """Verify that every catalog entry with has_driver=True has a corresponding registered PackageManager."""
+    from app.core.manager import _REGISTRY
+    import app.core.drivers
+    
+    entries = load_catalog()
+    registered_names = [cls.name for cls in _REGISTRY]
+    
+    for entry in entries:
+        if entry.has_driver:
+            assert entry.name in registered_names, f"Catalog entry {entry.name} has has_driver=True but no driver is registered under that name."

@@ -121,27 +121,29 @@ def test_cargo_list_installed_and_install_cmd():
 
 
 def test_flatpak_check_updates():
-    """Test FlatpakManager's check_updates parsing with column commit matching."""
+    """Test FlatpakManager's check_updates parsing with column commit and alt-id matching."""
     manager = FlatpakManager()
 
     async def run_test():
-        mock_list_proc = AsyncMock()
-        mock_list_proc.returncode = 0
-        mock_list_proc.communicate.return_value = (
+        # Test Case 1: Update with different commits and no alt-id (normal update)
+        mock_list_proc1 = AsyncMock()
+        mock_list_proc1.returncode = 0
+        mock_list_proc1.communicate.return_value = (
             b'[\n'
             b'  {\n'
             b'    "application_id" : "org.kde.kate",\n'
             b'    "version" : "26.04.3",\n'
             b'    "branch" : "stable",\n'
-            b'    "active_commit" : "a164b7760356"\n'
+            b'    "active_commit" : "a164b7760356",\n'
+            b'    "options" : "system"\n'
             b'  }\n'
             b']\n',
             b""
         )
 
-        mock_update_proc = AsyncMock()
-        mock_update_proc.returncode = 0
-        mock_update_proc.communicate.return_value = (
+        mock_update_proc1 = AsyncMock()
+        mock_update_proc1.returncode = 0
+        mock_update_proc1.communicate.return_value = (
             b'[\n'
             b'  {\n'
             b'    "application_id" : "org.kde.kate",\n'
@@ -153,20 +155,57 @@ def test_flatpak_check_updates():
             b""
         )
 
-        def mock_subprocess_exec(*args, **kwargs):
+        def mock_exec1(*args, **kwargs):
             if "list" in args:
-                return mock_list_proc
-            elif "remote-ls" in args:
-                return mock_update_proc
-            return AsyncMock()
+                return mock_list_proc1
+            return mock_update_proc1
 
-        with patch("asyncio.create_subprocess_exec", side_effect=mock_subprocess_exec):
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec1):
             updates = await manager.check_updates()
-
         assert len(updates) == 1
         assert updates[0]["name"] == "org.kde.kate"
         assert updates[0]["current"] == "26.04.3 (a164b776)"
         assert updates[0]["new"] == "26.04.3 (11d746b2)"
+
+        # Test Case 2: Ghost update where alt-id matches the remote commit (should be filtered out)
+        mock_list_proc2 = AsyncMock()
+        mock_list_proc2.returncode = 0
+        mock_list_proc2.communicate.return_value = (
+            b'[\n'
+            b'  {\n'
+            b'    "application_id" : "org.kde.kate",\n'
+            b'    "version" : "26.04.3",\n'
+            b'    "branch" : "stable",\n'
+            b'    "active_commit" : "5e34b0ce7f7b",\n'
+            b'    "options" : "system,alt-id=a164b7760356,current"\n'
+            b'  }\n'
+            b']\n',
+            b""
+        )
+
+        mock_update_proc2 = AsyncMock()
+        mock_update_proc2.returncode = 0
+        mock_update_proc2.communicate.return_value = (
+            b'[\n'
+            b'  {\n'
+            b'    "application_id" : "org.kde.kate",\n'
+            b'    "version" : "26.04.3",\n'
+            b'    "branch" : "stable",\n'
+            b'    "commit" : "a164b7760356"\n'
+            b'  }\n'
+            b']\n',
+            b""
+        )
+
+        def mock_exec2(*args, **kwargs):
+            if "list" in args:
+                return mock_list_proc2
+            return mock_update_proc2
+
+        with patch("asyncio.create_subprocess_exec", side_effect=mock_exec2):
+            updates = await manager.check_updates()
+        # Should filter out the update because alt-id matches remote_commit
+        assert len(updates) == 0
 
     asyncio.run(run_test())
 

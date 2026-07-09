@@ -30,7 +30,7 @@ class FlatpakManager(PackageManager):
             installed_map = {}
             try:
                 list_proc = await asyncio.create_subprocess_exec(
-                    "flatpak", "list", "--columns=application,version,branch,active", "--json",
+                    "flatpak", "list", "--columns=application,version,branch,active,options", "--json",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -44,9 +44,18 @@ class FlatpakManager(PackageManager):
                             # Use version, fallback to branch, then default to "Installed"
                             version = pkg.get("version") or pkg.get("branch") or "Installed"
                             commit = pkg.get("active_commit") or ""
+                            
+                            # Parse alt-id from options (crucial for OCI registries like Fedora's)
+                            alt_id = ""
+                            options = pkg.get("options") or ""
+                            for opt in options.split(","):
+                                if opt.startswith("alt-id="):
+                                    alt_id = opt.split("=")[1]
+
                             installed_map[app_id] = {
                                 "version": version,
-                                "commit": commit
+                                "commit": commit,
+                                "alt_id": alt_id
                             }
             except Exception:
                 pass
@@ -69,9 +78,15 @@ class FlatpakManager(PackageManager):
                     new_ver = item.get("version") or item.get("branch") or "Update"
                     remote_commit = item.get("commit") or ""
                     
-                    inst_info = installed_map.get(app_id, {"version": "Installed", "commit": ""})
+                    inst_info = installed_map.get(app_id, {"version": "Installed", "commit": "", "alt_id": ""})
                     current_ver = inst_info["version"]
                     local_commit = inst_info["commit"]
+                    alt_id = inst_info["alt_id"]
+
+                    # Filter out OCI registry ghost updates. If the remote commit hash matches
+                    # the local alt-id, the package is actually already installed and up to date.
+                    if alt_id and remote_commit and (alt_id.startswith(remote_commit) or remote_commit.startswith(alt_id)):
+                        continue
 
                     # If version strings are the same, append commit info to make the drift distinct
                     if current_ver == new_ver and local_commit and remote_commit:

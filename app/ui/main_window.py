@@ -582,6 +582,94 @@ class StoreItemWidget(QWidget):
         layout.addWidget(self.btn_install)
 
 
+class ManagerItemWidget(QWidget):
+    """Custom row widget representing supported package managers."""
+    install_requested = Signal(str)
+
+    def __init__(self, mgr: PackageManager, parent: Any = None):
+        super().__init__(parent)
+        self.mgr_name = mgr.name
+        self.category = mgr.category
+        self.is_installed = mgr.is_available()
+        self.setup_ui()
+
+    def setup_ui(self):
+        self.setObjectName("store-item-card")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(15)
+
+        # Icon mapping
+        self.lbl_icon = QLabel()
+        self.lbl_icon.setFixedSize(40, 40)
+        self.lbl_icon.setScaledContents(True)
+        
+        icon_map = {
+            "DNF": "system-run",
+            "Flatpak": "preferences-desktop-apps",
+            "NPM": "nodejs",
+            "Cargo": "rust",
+            "Pipx": "python"
+        }
+        qicon = QIcon.fromTheme(icon_map.get(self.mgr_name, "package-x-generic"))
+        if not qicon.isNull():
+            self.lbl_icon.setPixmap(qicon.pixmap(40, 40))
+        else:
+            self.lbl_icon.setPixmap(QIcon.fromTheme("package-x-generic").pixmap(40, 40))
+        layout.addWidget(self.lbl_icon)
+
+        # Details
+        details_layout = QVBoxLayout()
+        details_layout.setSpacing(2)
+
+        lbl_name = QLabel(f"{self.mgr_name} ({self.category})")
+        lbl_name.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffffff;")
+        details_layout.addWidget(lbl_name)
+
+        descriptions = {
+            "DNF": "System package manager (Fedora RPM packages). Always active.",
+            "Flatpak": "Universal sandboxed application manager. Ideal for desktop apps.",
+            "NPM": "JavaScript and Node.js global runtime libraries and CLI tools.",
+            "Cargo": "Rust compiler binary package manager for developer tools.",
+            "Pipx": "Isolated python runner. Run python CLI apps inside separate virtual environments."
+        }
+        desc = descriptions.get(self.mgr_name, "Package manager integration driver.")
+        lbl_desc = QLabel(desc)
+        lbl_desc.setStyleSheet("color: #a6adc8; font-size: 12px;")
+        lbl_desc.setWordWrap(True)
+        details_layout.addWidget(lbl_desc)
+
+        layout.addLayout(details_layout, stretch=1)
+
+        # Status Badge
+        lbl_status = QLabel("Active" if self.is_installed else "Not Installed")
+        if self.is_installed:
+            badge_style = "background-color: #064e3b; color: #6ee7b7; border-radius: 12px; padding: 4px 12px; font-weight: bold; font-size: 11px;"
+        else:
+            badge_style = "background-color: #7f1d1d; color: #fca5a5; border-radius: 12px; padding: 4px 12px; font-weight: bold; font-size: 11px;"
+        lbl_status.setStyleSheet(badge_style)
+        layout.addWidget(lbl_status)
+
+        # Action Button
+        if not self.is_installed:
+            self.btn_action = QPushButton("Install")
+            self.btn_action.setStyleSheet("""
+                QPushButton {
+                    background-color: #313244;
+                    color: #cdd6f4;
+                    padding: 6px 14px;
+                    font-weight: bold;
+                    border-radius: 6px;
+                }
+                QPushButton:hover {
+                    background-color: #89b4fa;
+                    color: #11111b;
+                }
+            """)
+            self.btn_action.clicked.connect(lambda: self.install_requested.emit(self.mgr_name))
+            layout.addWidget(self.btn_action)
+
+
 class MainWindow(QMainWindow):
     """Main window supporting unified updates, package browsing, and logs."""
 
@@ -660,6 +748,10 @@ class MainWindow(QMainWindow):
         item_blueprints = QListWidgetItem("Blueprints")
         item_blueprints.setIcon(QIcon.fromTheme("document-properties"))
         self.nav_list.addItem(item_blueprints)
+        
+        item_managers = QListWidgetItem("Package Managers")
+        item_managers.setIcon(QIcon.fromTheme("preferences-system"))
+        self.nav_list.addItem(item_managers)
         
         self.nav_list.setCurrentRow(0)
         self.nav_list.currentRowChanged.connect(self.change_page)
@@ -900,6 +992,28 @@ class MainWindow(QMainWindow):
         blueprints_layout.addWidget(self.blueprint_progress)
 
         self.stacked_widget.addWidget(blueprints_page)
+
+        # PAGE 5: Package Managers
+        managers_page = QWidget()
+        managers_layout = QVBoxLayout(managers_page)
+        managers_layout.setContentsMargins(20, 20, 20, 20)
+        managers_layout.setSpacing(15)
+
+        lbl_managers_title = QLabel("Manage Package Manager Drivers")
+        lbl_managers_title.setObjectName("summary-label")
+        managers_layout.addWidget(lbl_managers_title)
+
+        lbl_managers_desc = QLabel("Browse which manager backend drivers are active on your system. You can install missing backends directly via DNF.")
+        lbl_managers_desc.setObjectName("summary-label")
+        lbl_managers_desc.setWordWrap(True)
+        lbl_managers_desc.setStyleSheet("font-size: 13px; font-weight: normal; color: #a6adc8;")
+        managers_layout.addWidget(lbl_managers_desc)
+
+        self.managers_list = QListWidget()
+        self.managers_list.setObjectName("updates-list")
+        managers_layout.addWidget(self.managers_list)
+
+        self.stacked_widget.addWidget(managers_page)
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1131,6 +1245,55 @@ class MainWindow(QMainWindow):
     def change_page(self, index: int):
         if index >= 0:
             self.stacked_widget.setCurrentIndex(index)
+            if index == 4:
+                self.populate_managers_list()
+
+    def populate_managers_list(self):
+        self.managers_list.clear()
+        from app.core.manager import get_all_managers
+        managers = get_all_managers()
+        
+        # Sort managers by name
+        managers.sort(key=lambda m: m.name)
+        
+        for mgr in managers:
+            row_item = QListWidgetItem(self.managers_list)
+            row_item.setSizeHint(QSize(0, 75))
+            
+            row_widget = ManagerItemWidget(mgr)
+            row_widget.install_requested.connect(self.install_manager_backend)
+            self.managers_list.setItemWidget(row_item, row_widget)
+
+    def install_manager_backend(self, name: str):
+        # Resolve command
+        cmds = {
+            "Flatpak": ["sudo", "dnf", "install", "-y", "flatpak"],
+            "NPM": ["sudo", "dnf", "install", "-y", "nodejs", "npm"],
+            "Cargo": ["sudo", "dnf", "install", "-y", "cargo"],
+            "Pipx": ["sudo", "dnf", "install", "-y", "pipx"]
+        }
+        cmd = cmds.get(name)
+        if not cmd:
+            return
+            
+        self.log(f"⚡ Launching installation process for package manager: {name} ({' '.join(cmd)})")
+        self.nav_list.setCurrentRow(2)  # Switch to console
+        
+        worker = ExecutionWorker(cmd)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(lambda success: self.handle_manager_install_finished(success, name))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def handle_manager_install_finished(self, success: bool, name: str):
+        if success:
+            self.log(f"✅ Successfully installed package manager: {name}")
+            # Rescan to update registry cache / available list
+            self.scan_all()
+            self.populate_managers_list()
+        else:
+            self.log(f"❌ Failed to install package manager: {name}")
 
     def console_clear(self):
         self.console.clear()

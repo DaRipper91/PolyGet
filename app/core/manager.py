@@ -95,3 +95,16 @@ def discover_managers() -> list[PackageManager]:
         if inst.is_available():
             active.append(inst)
     return active
+
+
+def get_all_managers() -> list[PackageManager]:
+    """Return instances of all registered package manager drivers (regardless of availability).
+
+    Returns:
+        list[PackageManager]: A list of all registered package manager driver instances.
+    """
+    try:
+        import app.core.drivers
+    except ImportError:
+        pass
+    return [cls() for cls in _REGISTRY]

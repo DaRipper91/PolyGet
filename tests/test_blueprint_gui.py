@@ -353,3 +353,33 @@ def test_sync_system_to_blueprint_with_drift(mock_info, mock_question, mock_disc
     log_content = window.console.toPlainText()
     assert "Scheduled 1 packages for installation" in log_content
     assert "Successfully installed org.mozilla.firefox" in log_content
+
+
+def test_gui_package_managers_page(qapp):
+    """Test the Package Managers manager interface page population and install actions."""
+    from app.ui.main_window import MainWindow, ManagerItemWidget
+    from PySide6.QtCore import QThread
+    from unittest.mock import MagicMock, patch
+
+    window = MainWindow()
+
+    # 1. Switch to Package Managers tab (index 4)
+    window.nav_list.setCurrentRow(4)
+    
+    # 2. Check that the managers list was populated
+    assert window.managers_list.count() > 0
+    
+    # Check that ManagerItemWidget instances exist in rows
+    row_item = window.managers_list.item(0)
+    row_widget = window.managers_list.itemWidget(row_item)
+    assert isinstance(row_widget, ManagerItemWidget)
+    assert row_widget.mgr_name != ""
+
+    # 3. Test triggering install backend
+    mock_start = MagicMock()
+    with patch.object(QThread, "start", mock_start):
+        window.install_manager_backend("Flatpak")
+
+    # Verify transition to console (row 2)
+    assert window.nav_list.currentRow() == 2
+    mock_start.assert_called_once()

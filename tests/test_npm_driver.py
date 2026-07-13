@@ -55,6 +55,7 @@ def test_npm_check_updates():
         assert manager._global_prefix == "/usr/local"
         assert len(updates) == 1
         assert updates[0] == {"name": "package1", "current": "1.0.0", "new": "1.1.0"}
+        assert manager._last_outdated == ["package1"]
 
     asyncio.run(run_test())
 
@@ -89,24 +90,35 @@ def test_npm_check_updates_reports_registry_error():
 
 
 def test_npm_get_upgrade_command_cached_prefix_restricted():
-    """Test upgrade command when cached prefix requires sudo."""
+    """Test upgrade command when cached prefix requires elevation."""
     manager = NpmManager()
     manager._global_prefix = "/usr/local"
 
     # Mock os.access to return False for /usr/local
     with patch("os.access", return_value=False):
         cmd = manager.get_upgrade_command()
-        assert cmd == ["sudo", "npm", "update", "-g"]
+        assert cmd == ["pkexec", "npm", "update", "-g"]
 
 
 def test_npm_get_upgrade_command_cached_prefix_writable():
-    """Test upgrade command when cached prefix does not require sudo."""
+    """Explicit packages must be installed at @latest, not left to semver-limited `update`."""
     manager = NpmManager()
     manager._global_prefix = "/home/user/.npm-global"
 
     with patch("os.access", return_value=True):
         cmd = manager.get_upgrade_command(["some-package"])
-        assert cmd == ["npm", "update", "-g", "some-package"]
+        assert cmd == ["npm", "install", "-g", "some-package@latest"]
+
+
+def test_npm_get_upgrade_command_uses_cached_outdated_when_no_packages_given():
+    """A bulk upgrade with no explicit packages should target the last check_updates() results at @latest."""
+    manager = NpmManager()
+    manager._global_prefix = "/home/user/.npm-global"
+    manager._last_outdated = ["foo", "bar"]
+
+    with patch("os.access", return_value=True):
+        cmd = manager.get_upgrade_command()
+        assert cmd == ["npm", "install", "-g", "foo@latest", "bar@latest"]
 
 
 def test_npm_get_upgrade_command_env_prefix_restricted():
@@ -117,7 +129,7 @@ def test_npm_get_upgrade_command_env_prefix_restricted():
     with patch.dict(os.environ, {"NPM_CONFIG_PREFIX": "/usr"}), \
          patch("os.access", return_value=False):
         cmd = manager.get_upgrade_command()
-        assert cmd == ["sudo", "npm", "update", "-g"]
+        assert cmd == ["pkexec", "npm", "update", "-g"]
 
 
 def test_npm_get_upgrade_command_fallback_paths():
@@ -130,4 +142,4 @@ def test_npm_get_upgrade_command_fallback_paths():
          patch("os.path.exists", side_effect=lambda path: path == "/usr/local"), \
          patch("os.access", side_effect=lambda path, mode: path != "/usr/local" if path == "/usr/local" else True):
         cmd = manager.get_upgrade_command()
-        assert cmd == ["sudo", "npm", "update", "-g"]
+        assert cmd == ["pkexec", "npm", "update", "-g"]

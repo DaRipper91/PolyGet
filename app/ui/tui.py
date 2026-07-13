@@ -9,6 +9,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button
 from textual.containers import Horizontal, Vertical
 from app.core.manager import discover_managers, PackageManager
+from app.core.coordinator import SubprocessCoordinator
 
 
 class HelpModal(ModalScreen[None]):
@@ -146,6 +147,10 @@ class PolyGetTuiApp(App[None]):
                 list_view.append(ListItem(Label(label_text), name=mgr.name))
                 # Spawn background worker to check updates
                 self.run_worker(self._scan_manager(mgr), name=f"scan-{mgr.name}")
+
+    def on_unmount(self) -> None:
+        """Terminate any still-running upgrade subprocesses when the app shuts down."""
+        SubprocessCoordinator().terminate_all()
 
     async def _scan_manager(self, mgr: PackageManager) -> None:
         """Scan a single package manager for updates in the background."""
@@ -364,26 +369,31 @@ class PolyGetTuiApp(App[None]):
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
+                start_new_session=True
             )
+            coordinator = SubprocessCoordinator()
+            coordinator.register(proc.pid)
+            try:
+                if is_sudo and password is not None:
+                    proc.stdin.write(password.encode() + b"\n")
+                    await proc.stdin.drain()
+                proc.stdin.close()
 
-            if is_sudo and password is not None:
-                proc.stdin.write(password.encode() + b"\n")
-                await proc.stdin.drain()
-            proc.stdin.close()
+                async def read_stream(stream: asyncio.StreamReader) -> None:
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        log.write(escape(line.decode(errors="ignore").rstrip()))
 
-            async def read_stream(stream: asyncio.StreamReader) -> None:
-                while True:
-                    line = await stream.readline()
-                    if not line:
-                        break
-                    log.write(escape(line.decode(errors="ignore").rstrip()))
-
-            await asyncio.gather(
-                read_stream(proc.stdout),
-                read_stream(proc.stderr),
-                proc.wait()
-            )
+                await asyncio.gather(
+                    read_stream(proc.stdout),
+                    read_stream(proc.stderr),
+                    proc.wait()
+                )
+            finally:
+                coordinator.unregister(proc.pid)
 
             if proc.returncode == 0:
                 log.write(f" ✅ [bold green]{mgr.name} upgrade complete.[/bold green]")

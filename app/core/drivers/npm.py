@@ -15,6 +15,7 @@ class NpmManager(PackageManager):
         """Initialize the NPM package manager driver."""
         super().__init__()
         self._global_prefix: str | None = None
+        self._last_outdated: list[str] = []
 
     def is_available(self) -> bool:
         """Check if npm is installed and available in the system PATH.
@@ -82,17 +83,27 @@ class NpmManager(PackageManager):
                 "current": info.get("current", "Unknown"),
                 "new": info.get("latest", "Latest")
             })
+        self._last_outdated = [u["name"] for u in updates]
         return updates
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade global NPM packages.
 
+        `npm update -g` only bumps a package to the semver-`wanted` version, which can sit
+        below `latest` — the version `check_updates()` actually reports and compares against.
+        Installing `<package>@latest` explicitly keeps the upgrade command consistent with
+        what the UI claims is available, avoiding a package that's stuck showing "outdated"
+        forever. Falls back to `npm update -g` only when there's no known target list (e.g.
+        upgrade requested without a prior `check_updates()` call).
+
         Returns:
             list[str]: The upgrade command and its arguments.
         """
-        base_cmd = ["npm", "update", "-g"]
-        if packages:
-            base_cmd = base_cmd + packages
+        targets = packages if packages else self._last_outdated
+        if targets:
+            base_cmd = ["npm", "install", "-g"] + [f"{pkg}@latest" for pkg in targets]
+        else:
+            base_cmd = ["npm", "update", "-g"]
 
         import os
 
@@ -107,13 +118,13 @@ class NpmManager(PackageManager):
             for path in fallback_paths:
                 if os.path.exists(path):
                     if not os.access(path, os.W_OK):
-                        return ["sudo"] + base_cmd
+                        return ["pkexec"] + base_cmd
                     else:
                         return base_cmd
 
         if prefix:
             if not os.access(prefix, os.W_OK):
-                return ["sudo"] + base_cmd
+                return ["pkexec"] + base_cmd
 
         return base_cmd
 

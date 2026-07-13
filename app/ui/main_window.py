@@ -2067,12 +2067,15 @@ class MainWindow(QMainWindow):
     def _shutdown_workers(self):
         """Stop and join background QThreads so Qt doesn't destroy them mid-run.
 
-        Killing the tracked subprocesses above lets ExecutionWorker threads unblock
-        and exit on their own; anything else (e.g. a network-bound search) gets a
-        bounded wait and then a forceful terminate() so shutdown never hangs.
+        These workers override run() directly rather than calling exec(), so
+        QThread.quit() has nothing to do — it only stops a thread's own event
+        loop. Killing the tracked subprocesses above lets ExecutionWorker
+        threads unblock and exit on their own within the first wait(); anything
+        else (e.g. a network-bound search) gets a forceful terminate() as a
+        fallback. Both waits are bounded so shutdown can never hang, even if a
+        thread doesn't respond to terminate() promptly.
         """
         for worker in list(self.active_workers):
-            worker.quit()
             if not worker.wait(3000):
                 worker.terminate()
-                worker.wait()
+                worker.wait(2000)

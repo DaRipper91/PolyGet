@@ -395,12 +395,26 @@ def test_gui_repositories_page(qapp):
 
     window = MainWindow()
 
-    # 1. Switch to Repositories tab (index 5)
-    window.nav_list.setCurrentRow(5)
-    
-    # Check that managers listing is populated with at least DNF/Flatpak
-    assert window.repos_mgr_list.count() > 0
-    assert "DNF" in [window.repos_mgr_list.item(i).text() for i in range(window.repos_mgr_list.count())]
+    # Stub out discovery so this doesn't depend on which package managers
+    # actually happen to be installed on the host running the tests.
+    fake_repo_mgr = MagicMock()
+    fake_repo_mgr.name = "FakeRepoMgr"
+    fake_repo_mgr.supports_repos = True
+    fake_repo_mgr.get_add_repo_command.return_value = ["mock-add-repo"]
+    fake_repo_mgr.get_remove_repo_command.return_value = ["mock-remove-repo"]
+    fake_non_repo_mgr = MagicMock()
+    fake_non_repo_mgr.name = "FakeNonRepoMgr"
+    fake_non_repo_mgr.supports_repos = False
+
+    with patch("app.core.manager.discover_managers", return_value=[fake_repo_mgr, fake_non_repo_mgr]):
+        # 1. Switch to Repositories tab (index 5)
+        window.nav_list.setCurrentRow(5)
+
+        # Check that managers listing is populated with only repo-capable managers
+        assert window.repos_mgr_list.count() > 0
+        listed = [window.repos_mgr_list.item(i).text() for i in range(window.repos_mgr_list.count())]
+        assert "FakeRepoMgr" in listed
+        assert "FakeNonRepoMgr" not in listed
 
     # 2. Mock FetchReposWorker.run to emit sample repo data synchronously
     sample_repos = [

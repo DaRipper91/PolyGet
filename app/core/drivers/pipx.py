@@ -174,41 +174,43 @@ class PipxManager(PackageManager):
             pass
         return []
 
+    async def _fetch_package_detail(self, name: str) -> dict[str, Any] | None:
+        """Fetch a single package's description/version from PyPI's JSON API."""
+        import json
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "curl", "-s", "-H", "User-Agent: PolyGet/1.0",
+                f"https://pypi.org/pypi/{name}/json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            if stdout:
+                data = json.loads(stdout.decode(errors="ignore"))
+                info = data.get("info", {})
+                if info:
+                    return {
+                        "name": info.get("name", name),
+                        "id": info.get("name", name),
+                        "description": info.get("summary", ""),
+                        "version": info.get("version", "")
+                    }
+        except Exception:
+            pass
+        return None
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         """Search for Python packages on PyPI using local simple index cache substring matches."""
         try:
             names = await self._ensure_index_cached()
             if not names:
                 return []
-            
+
             query_lower = query.lower()
             matches = [n for n in names if query_lower in n.lower()][:20]
-            
-            results = []
-            import json
-            for name in matches:
-                # Fetch details for description/version
-                try:
-                    proc = await asyncio.create_subprocess_exec(
-                        "curl", "-s", "-H", "User-Agent: PolyGet/1.0",
-                        f"https://pypi.org/pypi/{name}/json",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-                    if stdout:
-                        data = json.loads(stdout.decode(errors="ignore"))
-                        info = data.get("info", {})
-                        if info:
-                            results.append({
-                                "name": info.get("name", name),
-                                "id": info.get("name", name),
-                                "description": info.get("summary", ""),
-                                "version": info.get("version", "")
-                            })
-                except Exception:
-                    pass
-            return results
+
+            details = await asyncio.gather(*(self._fetch_package_detail(name) for name in matches))
+            return [detail for detail in details if detail is not None]
         except Exception:
             return []
 

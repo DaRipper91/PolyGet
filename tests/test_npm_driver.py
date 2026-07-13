@@ -59,6 +59,35 @@ def test_npm_check_updates():
     asyncio.run(run_test())
 
 
+def test_npm_check_updates_reports_registry_error():
+    """An npm error payload (e.g. registry 403) must raise, not be parsed as a fake package."""
+    async def run_test():
+        manager = NpmManager()
+
+        mock_prefix_proc = AsyncMock()
+        mock_prefix_proc.returncode = 0
+        mock_prefix_proc.communicate.return_value = (b"/usr/local\n", b"")
+
+        mock_outdated_proc = AsyncMock()
+        mock_outdated_proc.communicate.return_value = (
+            b'{"error": {"code": "E403", "summary": "403 Forbidden - GET https://registry.npmjs.org/npm"}}',
+            b""
+        )
+
+        def create_subprocess_exec_side_effect(*args, **kwargs):
+            if "config" in args:
+                return mock_prefix_proc
+            elif "outdated" in args:
+                return mock_outdated_proc
+            raise ValueError(f"Unexpected subprocess call: {args}")
+
+        with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_exec_side_effect):
+            with pytest.raises(RuntimeError, match="403 Forbidden"):
+                await manager.check_updates()
+
+    asyncio.run(run_test())
+
+
 def test_npm_get_upgrade_command_cached_prefix_restricted():
     """Test upgrade command when cached prefix requires sudo."""
     manager = NpmManager()

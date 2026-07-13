@@ -46,6 +46,7 @@ class NpmManager(PackageManager):
             except Exception:
                 pass
 
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "npm", "outdated", "-g", "--json",
@@ -57,20 +58,31 @@ class NpmManager(PackageManager):
                 return []
             import json
             data = json.loads(stdout.decode(errors="ignore"))
-            updates = []
-            for name, info in data.items():
-                updates.append({
-                    "name": name,
-                    "current": info.get("current", "Unknown"),
-                    "new": info.get("latest", "Latest")
-                })
-            return updates
         except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            if proc is not None:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
             return []
+
+        # `npm outdated -g --json` reports failures (registry errors, network
+        # issues, etc.) as {"error": {...}} on stdout rather than a package
+        # map. Left unchecked, that dict gets misread as a package literally
+        # named "error" instead of surfacing the real failure.
+        if isinstance(data, dict) and "error" in data:
+            err = data["error"]
+            message = err.get("summary") or err.get("detail") if isinstance(err, dict) else str(err)
+            raise RuntimeError(f"npm outdated failed: {message or 'unknown error'}")
+
+        updates = []
+        for name, info in data.items():
+            updates.append({
+                "name": name,
+                "current": info.get("current", "Unknown"),
+                "new": info.get("latest", "Latest")
+            })
+        return updates
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade global NPM packages.

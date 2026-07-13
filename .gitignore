@@ -9,3 +9,10 @@ venv/
 .mypy_cache/
 .DS_Store
 *.log
+
+# rip-it-apart scratch state — intermediate stage reasoning, not the deliverable.
+# The final fix-plan file lands in docs/plans/ and is NOT ignored.
+.audit/
+
+# Local Claude Code settings (personal overrides, not shared)
+.claude/settings.local.json

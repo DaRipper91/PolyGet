@@ -2056,10 +2056,23 @@ class MainWindow(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
-            if reply == QMessageBox.Yes:
-                coordinator.terminate_all()
-                event.accept()
-            else:
+            if reply == QMessageBox.No:
                 event.ignore()
-        else:
-            event.accept()
+                return
+            coordinator.terminate_all()
+
+        self._shutdown_workers()
+        event.accept()
+
+    def _shutdown_workers(self):
+        """Stop and join background QThreads so Qt doesn't destroy them mid-run.
+
+        Killing the tracked subprocesses above lets ExecutionWorker threads unblock
+        and exit on their own; anything else (e.g. a network-bound search) gets a
+        bounded wait and then a forceful terminate() so shutdown never hangs.
+        """
+        for worker in list(self.active_workers):
+            worker.quit()
+            if not worker.wait(3000):
+                worker.terminate()
+                worker.wait()

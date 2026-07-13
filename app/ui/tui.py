@@ -333,11 +333,15 @@ class PolyGetTuiApp(App[None]):
         except Exception:
             pass
 
-    async def _upgrade_manager(self, mgr: PackageManager, password: str | None = "0") -> bool:
+    async def _upgrade_manager(self, mgr: PackageManager, password: str | None = None) -> bool:
         """Run the upgrade command for a single package manager and stream output.
 
         Args:
-            mgr: The package manager instance.
+            mgr: The package manager instance. On the first call `password` is None,
+                meaning no password has been supplied yet — stdin is closed without
+                writing anything so sudo can use a cached credential or fail fast,
+                rather than guessing. Only after that first attempt fails do we
+                prompt the user and retry with what they typed (which may be "").
             password: The password to pipe to sudo if needed.
 
         Returns:
@@ -363,13 +367,10 @@ class PolyGetTuiApp(App[None]):
                 stderr=asyncio.subprocess.PIPE
             )
 
-            if is_sudo:
-                pw = password if password is not None else ""
-                proc.stdin.write(pw.encode() + b"\n")
+            if is_sudo and password is not None:
+                proc.stdin.write(password.encode() + b"\n")
                 await proc.stdin.drain()
-                proc.stdin.close()
-            else:
-                proc.stdin.close()
+            proc.stdin.close()
 
             async def read_stream(stream: asyncio.StreamReader) -> None:
                 while True:
@@ -391,7 +392,7 @@ class PolyGetTuiApp(App[None]):
             else:
                 log.write(f" ❌ [bold red]{mgr.name} upgrade failed with exit code {proc.returncode}.[/bold red]")
                 await self._send_phone_notification(f"❌ {mgr.name} upgrade failed.")
-                if is_sudo and password == "0":
+                if is_sudo and password is None:
                     loop = asyncio.get_running_loop()
                     fut = loop.create_future()
 

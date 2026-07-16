@@ -675,7 +675,8 @@ class MainWindow(QMainWindow):
         self.selected_updates: dict[str, set[str]] = {}
         self.active_workers: list[QThread] = []
         self.upgrade_queue: list[tuple[PackageManager, list[str]]] = []
-        
+        self.upgrade_failures: list[str] = []
+
         self.setup_ui()
         self.apply_theme()
         self.scan_all()
@@ -1573,6 +1574,7 @@ class MainWindow(QMainWindow):
 
     def start_batch_upgrade(self):
         self.upgrade_queue.clear()
+        self.upgrade_failures.clear()
         for name, manager in self.managers.items():
             selected = list(self.selected_updates[name])
             if selected:
@@ -1593,22 +1595,35 @@ class MainWindow(QMainWindow):
         if not self.upgrade_queue:
             self.progress.setVisible(False)
             self.btn_scan.setEnabled(True)
-            QMessageBox.information(self, "Batch Upgrade Complete", "All selected package upgrades have finished.")
+            if self.upgrade_failures:
+                failed_list = "\n".join(f"- {name}" for name in self.upgrade_failures)
+                QMessageBox.warning(
+                    self,
+                    "Batch Upgrade Finished With Errors",
+                    f"{len(self.upgrade_failures)} manager(s) failed to upgrade. Check the console for details.\n\n{failed_list}"
+                )
+            else:
+                QMessageBox.information(self, "Batch Upgrade Complete", "All selected package upgrades have finished.")
             self.nav_list.setCurrentRow(0)
             self.scan_all()
             return
 
         manager, packages = self.upgrade_queue.pop(0)
         cmd = manager.get_upgrade_command(packages)
-        
+
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(lambda success: self.handle_queue_worker_finished(success))
+        worker.finished_signal.connect(lambda success: self.handle_queue_worker_finished(success, manager.name))
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
-    def handle_queue_worker_finished(self, success: bool):
+    def handle_queue_worker_finished(self, success: bool, manager_name: str):
+        if success:
+            self.log(f"✅ Successfully upgraded {manager_name}")
+        else:
+            self.log(f"❌ Failed to upgrade {manager_name}")
+            self.upgrade_failures.append(manager_name)
         self.run_next_upgrade_queue()
 
     # --- Store Browsing / Searching Functionality ---

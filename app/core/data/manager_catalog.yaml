@@ -80,7 +80,7 @@
   description: Debian/Ubuntu system package manager.
   icon: package-x-generic
   binary: apt-get
-  has_driver: false
+  has_driver: true
   self_install: {}
 
 - id: zypper

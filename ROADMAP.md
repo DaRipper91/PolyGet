@@ -8,13 +8,13 @@ that file is the *why* and *how*.
 
 - [x] Fix npm update-loop (semver `wanted` vs `latest` mismatch) and Qt UI stall on bare `sudo` (`30a12f0`)
 - [x] Surface batch-upgrade failures instead of always reporting success (`6b831c0`)
+- [x] `apt` driver — Debian/Ubuntu System-category coverage, matching the existing DNF/Pacman drivers
 
 ## New features
 
 - [ ] Package pin/ignore list — persist per-package exclusions so outdated packages don't get force-selected on every scan
 - [ ] Security audit surface — surface `npm audit`/`cargo audit`/`pip-audit`-style vulnerability data, not just "outdated"
 - [ ] Update history log — append-only record of what got upgraded, when, and whether it succeeded
-- [ ] `apt` driver — Debian/Ubuntu System-category coverage, matching the existing DNF/Pacman drivers
 - [ ] System tray + background scan — periodic scan with a tray badge, no need to keep the window open
 
 ## Improvements

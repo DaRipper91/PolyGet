@@ -5,7 +5,7 @@
 Your system runs Pacman. Your other system runs DNF. Flatpak doesn't care which. Neither does npm,
 Cargo, Pipx, or RubyGems. PolyGet doesn't care either — it's a PySide6 desktop app (with a Textual
 TUI riding shotgun) that gives all of them one dashboard, one search bar, and one place to manage
-repos and remotes. 14 drivers, one interface, zero "wait, which package manager owns this again?"
+repos and remotes. 15 drivers, one interface, zero "wait, which package manager owns this again?"
 
 Forged across two daily-driver machines that don't agree on anything by default: CachyOS
 (Arch-based) and Asahi Linux (Fedora-based) — which is exactly why the Pacman driver and the DNF

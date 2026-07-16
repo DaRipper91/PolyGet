@@ -22,6 +22,7 @@ staring at that day.
 - `app/ui/` — PySide6 windows, styling, thread workers, and the TUI
 - `docs/plans/` — dated design docs; read these before re-deriving the *why* from a diff
 - `tests/` — the suite that keeps this honest
+- `ROADMAP.md` — what's shipped and what's planned next
 
 ---
 

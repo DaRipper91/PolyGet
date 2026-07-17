@@ -9,6 +9,7 @@ that file is the *why* and *how*.
 - [x] Fix npm update-loop (semver `wanted` vs `latest` mismatch) and Qt UI stall on bare `sudo` (`30a12f0`)
 - [x] Surface batch-upgrade failures instead of always reporting success (`6b831c0`)
 - [x] `apt` driver — Debian/Ubuntu System-category coverage, matching the existing DNF/Pacman drivers
+- [x] Pending-updates count badge on the sidebar's "System Updates" row
 
 ## New features
 

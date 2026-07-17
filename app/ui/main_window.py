@@ -727,10 +727,6 @@ class MainWindow(QMainWindow):
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("nav-list")
         
-        item_updates = QListWidgetItem("System Updates")
-        item_updates.setIcon(QIcon.fromTheme("system-software-update"))
-        self.nav_list.addItem(item_updates)
-
         item_store = QListWidgetItem("Browse Store")
         item_store.setIcon(QIcon.fromTheme("emblem-downloads"))
         self.nav_list.addItem(item_store)
@@ -750,7 +746,24 @@ class MainWindow(QMainWindow):
         item_repos = QListWidgetItem("Repositories")
         item_repos.setIcon(QIcon.fromTheme("applications-internet"))
         self.nav_list.addItem(item_repos)
-        
+
+        # A plain-text item's sizeHint (queried only once it's actually in the list — before
+        # that, QListWidgetItem.sizeHint() isn't backed by a real style/delegate context) already
+        # includes the ::item padding/margin QSS box. Reuse it verbatim for the widget-based row
+        # below so both end up the exact same height instead of guessing at the QSS math.
+        native_row_size = item_store.sizeHint()
+
+        item_updates = QListWidgetItem()
+        self.nav_list.insertItem(0, item_updates)
+        updates_row, self.nav_updates_label, self.nav_updates_badge = self._create_nav_row(
+            "system-software-update", "System Updates"
+        )
+        self.nav_list.setItemWidget(item_updates, updates_row)
+        item_updates.setSizeHint(native_row_size)
+        # setCurrentRow(0) below fires before currentRowChanged is connected, so change_page(0)
+        # never runs on startup — style this row as selected up front to match.
+        self._style_nav_row_text(self.nav_updates_label, selected=True)
+
         self.nav_list.setCurrentRow(0)
         self.nav_list.currentRowChanged.connect(self.change_page)
         sidebar_layout.addWidget(self.nav_list)
@@ -1152,6 +1165,9 @@ class MainWindow(QMainWindow):
                 background-color: #181825;
                 color: #cdd6f4;
             }
+            QWidget#nav-item-row {
+                background: transparent;
+            }
             QListWidget#status-list::item {
                 background-color: #181825;
                 border: 1px solid #313244;
@@ -1301,9 +1317,71 @@ class MainWindow(QMainWindow):
             }
         """)
 
+    def _create_nav_row(self, icon_name: str, text: str) -> tuple[QWidget, QLabel, QLabel]:
+        """Build a nav-list row with an icon, label, and a right-aligned pending-count badge.
+
+        setItemWidget() replaces the QListWidgetItem's own icon/text painting entirely, so the
+        selected/hover text-color rules in the ::item QSS no longer reach this row — the label's
+        selected-state color is instead toggled manually from change_page().
+
+        Returns:
+            tuple[QWidget, QLabel, QLabel]: The row widget, its text label, and its badge label
+                (badge starts hidden; caller shows/updates it via setText()/setVisible()).
+        """
+        row = QWidget()
+        row.setObjectName("nav-item-row")
+        layout = QHBoxLayout(row)
+        # Deliberately zero margins: the ::item padding/margin-bottom QSS rule is subtracted
+        # from whatever sizeHint the *item* reports to size this widget's content area, so
+        # adding padding here too would double it up. The caller sizes the item itself (see
+        # setup_ui, where item_updates borrows a plain-text row's sizeHint) to match natively
+        # padded rows instead.
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        icon_label = QLabel()
+        icon_label.setPixmap(QIcon.fromTheme(icon_name).pixmap(16, 16))
+        layout.addWidget(icon_label)
+
+        text_label = QLabel(text)
+        text_label.setObjectName("nav-item-text")
+        layout.addWidget(text_label)
+
+        layout.addStretch()
+
+        badge_label = QLabel("")
+        badge_label.setObjectName("nav-badge")
+        badge_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge_label.setVisible(False)
+        layout.addWidget(badge_label)
+
+        self._style_nav_row_text(text_label, selected=False)
+        return row, text_label, badge_label
+
+    def _style_nav_row_text(self, label: QLabel, selected: bool) -> None:
+        """Match a nav row's text-label color/weight to the ::item:selected QSS rule by hand."""
+        if selected:
+            label.setStyleSheet("color: #89b4fa; font-weight: bold; background: transparent;")
+        else:
+            label.setStyleSheet("color: #a6adc8; font-weight: normal; background: transparent;")
+
+    def update_updates_badge(self) -> None:
+        """Refresh the pending-updates count badge on the sidebar's "System Updates" row."""
+        total = sum(len(u) for u in self.updates_cache.values())
+        if total > 0:
+            self.nav_updates_badge.setText(str(total))
+            self.nav_updates_badge.setStyleSheet(
+                "background-color: #89b4fa; color: #11111b; border-radius: 9px; "
+                "padding: 1px 7px; font-weight: bold; font-size: 11px;"
+            )
+            self.nav_updates_badge.setVisible(True)
+        else:
+            self.nav_updates_badge.setVisible(False)
+
     def change_page(self, index: int):
         if index >= 0:
             self.stacked_widget.setCurrentIndex(index)
+            self._style_nav_row_text(self.nav_updates_label, selected=(index == 0))
             if index == 4:
                 self.populate_managers_list()
             elif index == 5:
@@ -1481,7 +1559,8 @@ class MainWindow(QMainWindow):
         self.updates_cache.clear()
         self.selected_updates.clear()
         self.console.clear()
-        
+        self.update_updates_badge()
+
         self.lbl_summary.setText("Checking for updates...")
         self.log("🔄 Starting full scan of repositories...")
 
@@ -1511,6 +1590,7 @@ class MainWindow(QMainWindow):
         self.updates_cache[manager_name] = updates
         for pkg in updates:
             self.selected_updates[manager_name].add(pkg.get("name", ""))
+        self.update_updates_badge()
 
         for i in range(self.status_list.count()):
             item = self.status_list.item(i)

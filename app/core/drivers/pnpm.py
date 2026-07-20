@@ -20,13 +20,13 @@ class PnpmManager(PackageManager):
                 "pnpm", "outdated", "--global", "--format", "json",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             import json
             data = json.loads(stdout.decode(errors="ignore") or "{}")
             return [{"name": name, "current": info.get("current", ""), "new": info.get("latest", "")}
                     for name, info in data.items()]
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:
@@ -39,7 +39,7 @@ class PnpmManager(PackageManager):
                 "pnpm", "list", "--global", "--depth=0", "--json",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             import json
             data = json.loads(stdout.decode(errors="ignore") or "[]")
             deps = data[0].get("dependencies", {}) if data else {}

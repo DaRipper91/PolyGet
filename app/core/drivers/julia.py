@@ -38,12 +38,13 @@ class JuliaManager(PackageManager):
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:
-            pkg_list = ", ".join(f'"{p}"' for p in packages)
-            return ["julia", "-e", f"using Pkg; Pkg.update([{pkg_list}])"]
+            # Keep package names in ARGS rather than interpolating them into Julia source.
+            # Blueprint files are user-controlled input and may contain quotes or Julia syntax.
+            return ["julia", "-e", "using Pkg; Pkg.update(ARGS)", "--"] + packages
         return ["julia", "-e", "using Pkg; Pkg.update()"]
 
     def get_install_command(self, package: str) -> list[str]:
-        return ["julia", "-e", f'using Pkg; Pkg.add("{package}")']
+        return ["julia", "-e", "using Pkg; Pkg.add(ARGS[1])", "--", package]
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # No official Julia registry search HTTP API — General registry search

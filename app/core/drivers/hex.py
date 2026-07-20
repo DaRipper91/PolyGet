@@ -20,7 +20,7 @@ class HexManager(PackageManager):
                 "mix", "archive",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 line = line.strip().rstrip("*").strip()

@@ -85,6 +85,27 @@ class PasswordModal(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+_PKEXEC_NO_AGENT_MARKERS = (
+    "authentication agent",
+    "no session for cookie",
+    "not authorized",
+    "cannot determine the session",
+)
+
+
+def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
+    """Heuristic: pkexec failed because no polkit authentication agent is bound to
+    this session (e.g. a bare terminal/SSH session with no desktop running), rather
+    than because the privileged command itself failed for an unrelated reason. This
+    is reasoned from documented polkit behavior, not verified against every polkit
+    version — it deliberately requires a stderr marker rather than treating any
+    nonzero pkexec exit as "needs a password," so real command failures (e.g. an
+    unreachable mirror, a genuinely missing package) aren't masked as an auth issue.
+    """
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
+
+
 class PolyGetTuiApp(App[None]):
     """PolyGet TUI Application."""
 
@@ -110,6 +131,7 @@ class PolyGetTuiApp(App[None]):
         self.checking_managers: set[str] = set()
         # Outdated package cache, dynamically populated
         self.updates_cache: dict[str, list[dict[str, Any]]] = {}
+        self.scan_errors: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the TUI layout widgets.
@@ -154,13 +176,24 @@ class PolyGetTuiApp(App[None]):
 
     async def _scan_manager(self, mgr: PackageManager) -> None:
         """Scan a single package manager for updates in the background."""
+        error = None
         try:
             updates = await mgr.check_updates()
-        except Exception:
+        except Exception as e:
             updates = []
+            error = str(e)
 
         self.updates_cache[mgr.name] = updates
-        if updates:
+        if error:
+            self.scan_errors[mgr.name] = error
+            self.notify(
+                f"Scan failed: {mgr.name} ({error})",
+                title="Upgrader",
+                severity="error",
+                timeout=5,
+            )
+        elif updates:
+            self.scan_errors.pop(mgr.name, None)
             self.selected_managers.add(mgr.name)
             self.notify(f"Scan complete: {mgr.name} ({len(updates)} updates)", title="Upgrader", severity="warning", timeout=3)
         else:
@@ -198,6 +231,8 @@ class PolyGetTuiApp(App[None]):
             return f"{selected_mark} 🔄 {mgr.name} (Checking...)"
 
         updates = self.updates_cache.get(mgr.name, [])
+        if mgr.name in self.scan_errors:
+            return f"{selected_mark} ❌ {mgr.name} (Scan failed)"
         if updates:
             return f"{selected_mark} ⚠️ {mgr.name} ({len(updates)} updates)"
         else:
@@ -231,8 +266,12 @@ class PolyGetTuiApp(App[None]):
         # Update details content
         checking = manager_name in self.checking_managers
         updates = self.updates_cache.get(mgr.name, [])
-        
-        if checking:
+        scan_error = self.scan_errors.get(mgr.name)
+
+        if scan_error:
+            status_style = "bold #f38ba8"
+            status_text = f"Scan failed: {scan_error}"
+        elif checking:
             status_style = "bold #38bdf8"
             status_text = "Checking for updates..."
         else:
@@ -246,7 +285,9 @@ class PolyGetTuiApp(App[None]):
             f"Upgrade Command: [bold #a78bfa]{command_str}[/]\n\n"
         )
 
-        if checking:
+        if scan_error:
+            content += "The update check failed; no update status is available.\n"
+        elif checking:
             content += "Scanning for outdated packages in the background...\n"
         elif updates:
             content += "[bold]Outdated Packages:[/bold]\n"
@@ -338,26 +379,35 @@ class PolyGetTuiApp(App[None]):
         except Exception:
             pass
 
-    async def _upgrade_manager(self, mgr: PackageManager, password: str | None = None) -> bool:
+    async def _upgrade_manager(
+        self,
+        mgr: PackageManager,
+        password: str | None = None,
+        cmd_override: list[str] | None = None,
+    ) -> bool:
         """Run the upgrade command for a single package manager and stream output.
 
         Args:
-            mgr: The package manager instance. On the first call `password` is None,
-                meaning no password has been supplied yet — stdin is closed without
-                writing anything so sudo can use a cached credential or fail fast,
-                rather than guessing. Only after that first attempt fails do we
+            mgr: The package manager instance.
+            password: The password to pipe to sudo if needed. On the first call this
+                is None, meaning no password has been supplied yet — stdin is closed
+                without writing anything so sudo can use a cached credential or fail
+                fast, rather than guessing. Only after that first attempt fails do we
                 prompt the user and retry with what they typed (which may be "").
-            password: The password to pipe to sudo if needed.
+            cmd_override: Used internally to retry with a substituted `sudo` command
+                after a pkexec no-auth-agent failure, instead of re-deriving
+                `mgr.get_upgrade_command()` (which would just return `pkexec` again).
 
         Returns:
             bool: True if the upgrade succeeded, False otherwise.
         """
         log = self.query_one("#terminal-log", RichLog)
-        cmd = list(mgr.get_upgrade_command())
+        cmd = list(cmd_override) if cmd_override is not None else list(mgr.get_upgrade_command())
         if not cmd:
             return False
 
         is_sudo = cmd[0] == "sudo"
+        is_pkexec = cmd[0] == "pkexec"
         if is_sudo and "-S" not in cmd:
             cmd.insert(1, "-S")
 
@@ -374,22 +424,26 @@ class PolyGetTuiApp(App[None]):
             )
             coordinator = SubprocessCoordinator()
             coordinator.register(proc.pid)
+            stderr_lines: list[str] = []
             try:
                 if is_sudo and password is not None:
                     proc.stdin.write(password.encode() + b"\n")
                     await proc.stdin.drain()
                 proc.stdin.close()
 
-                async def read_stream(stream: asyncio.StreamReader) -> None:
+                async def read_stream(stream: asyncio.StreamReader, capture: list[str] | None = None) -> None:
                     while True:
                         line = await stream.readline()
                         if not line:
                             break
-                        log.write(escape(line.decode(errors="ignore").rstrip()))
+                        text = line.decode(errors="ignore").rstrip()
+                        if capture is not None:
+                            capture.append(text)
+                        log.write(escape(text))
 
                 await asyncio.gather(
                     read_stream(proc.stdout),
-                    read_stream(proc.stderr),
+                    read_stream(proc.stderr, stderr_lines),
                     proc.wait()
                 )
             finally:
@@ -402,7 +456,20 @@ class PolyGetTuiApp(App[None]):
             else:
                 log.write(f" ❌ [bold red]{mgr.name} upgrade failed with exit code {proc.returncode}.[/bold red]")
                 await self._send_phone_notification(f"❌ {mgr.name} upgrade failed.")
-                if is_sudo and password is None:
+
+                needs_password_retry = (
+                    password is None
+                    and (
+                        is_sudo
+                        or (is_pkexec and _looks_like_pkexec_no_agent_failure("\n".join(stderr_lines)))
+                    )
+                )
+                if needs_password_retry:
+                    if is_pkexec:
+                        log.write(
+                            " ⚠️ No polkit authentication agent is bound to this session "
+                            "(common over SSH or in a minimal terminal) — falling back to sudo."
+                        )
                     loop = asyncio.get_running_loop()
                     fut = loop.create_future()
 
@@ -414,7 +481,10 @@ class PolyGetTuiApp(App[None]):
 
                     if custom_password is not None:
                         log.write(f" 🔄 Retrying {mgr.name} upgrade with custom password...")
-                        return await self._upgrade_manager(mgr, password=custom_password)
+                        retry_cmd = ["sudo"] + cmd[1:] if is_pkexec else cmd
+                        return await self._upgrade_manager(
+                            mgr, password=custom_password, cmd_override=retry_cmd
+                        )
                 return False
         except Exception as e:
             log.write(f" ❌ [bold red]Error running upgrade for {mgr.name}: {escape(str(e))}[/bold red]")
@@ -439,12 +509,19 @@ class PolyGetTuiApp(App[None]):
         progress.progress = 0
 
         total_steps = len(selected_instances)
+        failures = []
         for i, mgr in enumerate(selected_instances, 1):
-            await self._upgrade_manager(mgr)
+            if not await self._upgrade_manager(mgr):
+                failures.append(mgr.name)
             progress.progress = int((i / total_steps) * 100)
 
-        log.write("[bold green]🎉 All selected package managers upgraded successfully.[/bold green]")
-        await self._send_phone_notification("🎉 All selected package upgrades completed.")
+        if failures:
+            failed = ", ".join(failures)
+            log.write(f"[bold yellow]⚠️ Upgrade finished with failures: {escape(failed)}.[/bold yellow]")
+            await self._send_phone_notification(f"⚠️ Package upgrades failed: {failed}")
+        else:
+            log.write("[bold green]🎉 All selected package managers upgraded successfully.[/bold green]")
+            await self._send_phone_notification("🎉 All selected package upgrades completed.")
 
     async def action_upgrade_all(self) -> None:
         """Trigger the upgrade process for all discovered package managers."""
@@ -459,9 +536,16 @@ class PolyGetTuiApp(App[None]):
         progress.progress = 0
 
         total_steps = len(self.managers)
+        failures = []
         for i, mgr in enumerate(self.managers, 1):
-            await self._upgrade_manager(mgr)
+            if not await self._upgrade_manager(mgr):
+                failures.append(mgr.name)
             progress.progress = int((i / total_steps) * 100)
 
-        log.write("[bold green]🎉 Full system upgrade completed successfully.[/bold green]")
-        await self._send_phone_notification("🎉 Full system upgrades completed.")
+        if failures:
+            failed = ", ".join(failures)
+            log.write(f"[bold yellow]⚠️ Full upgrade finished with failures: {escape(failed)}.[/bold yellow]")
+            await self._send_phone_notification(f"⚠️ Full upgrades failed: {failed}")
+        else:
+            log.write("[bold green]🎉 Full system upgrade completed successfully.[/bold green]")
+            await self._send_phone_notification("🎉 Full system upgrades completed.")

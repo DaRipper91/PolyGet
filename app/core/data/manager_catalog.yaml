@@ -23,7 +23,7 @@
   binary: paru
   has_driver: false
   self_install:
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "paru"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "paru"]
 
 - id: flatpak
   name: Flatpak
@@ -34,7 +34,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "flatpak"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "flatpak"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "flatpak"]
     debian: ["pkexec", "apt-get", "install", "-y", "flatpak"]
     suse: ["pkexec", "zypper", "install", "-y", "flatpak"]
 
@@ -47,7 +47,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "nodejs"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "nodejs", "npm"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "nodejs", "npm"]
     debian: ["pkexec", "apt-get", "install", "-y", "nodejs", "npm"]
 
 - id: pipx
@@ -59,7 +59,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "pipx"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "python-pipx"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "python-pipx"]
     debian: ["pkexec", "apt-get", "install", "-y", "pipx"]
 
 - id: cargo
@@ -71,7 +71,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "cargo"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "rust"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "rust"]
     debian: ["pkexec", "apt-get", "install", "-y", "cargo"]
 
 - id: apt
@@ -139,7 +139,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "distrobox"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "distrobox"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "distrobox"]
 
 - id: portage
   name: Portage
@@ -177,7 +177,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "ruby"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "ruby"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "ruby"]
     debian: ["pkexec", "apt-get", "install", "-y", "ruby-full"]
 
 - id: composer
@@ -189,7 +189,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "composer"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "composer"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "composer"]
     debian: ["pkexec", "apt-get", "install", "-y", "composer"]
 
 - id: go
@@ -201,7 +201,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "golang"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "go"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "go"]
     debian: ["pkexec", "apt-get", "install", "-y", "golang-go"]
 
 - id: nuget
@@ -213,7 +213,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "dotnet-sdk-8.0"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "dotnet-sdk"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "dotnet-sdk"]
     debian: ["pkexec", "apt-get", "install", "-y", "dotnet-sdk-8.0"]
 
 - id: maven
@@ -225,7 +225,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "maven"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "maven"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "maven"]
     debian: ["pkexec", "apt-get", "install", "-y", "maven"]
 
 - id: luarocks
@@ -237,7 +237,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "luarocks"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "luarocks"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "luarocks"]
     debian: ["pkexec", "apt-get", "install", "-y", "luarocks"]
 
 - id: yarn
@@ -249,7 +249,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "yarn"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "yarn"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "yarn"]
     debian: ["pkexec", "apt-get", "install", "-y", "yarn"]
 
 - id: pnpm
@@ -261,7 +261,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "npm", "install", "-g", "pnpm"]
-    arch: ["sudo", "npm", "install", "-g", "pnpm"]
+    arch: ["pkexec", "npm", "install", "-g", "pnpm"]
     debian: ["pkexec", "npm", "install", "-g", "pnpm"]
 
 - id: dart_pub
@@ -273,7 +273,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "dart"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "dart"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "dart"]
     debian: ["pkexec", "apt-get", "install", "-y", "dart"]
 
 - id: hex
@@ -285,7 +285,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "elixir"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "elixir"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "elixir"]
     debian: ["pkexec", "apt-get", "install", "-y", "elixir"]
 
 - id: cpanm
@@ -297,7 +297,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "perl-App-cpanminus"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "cpanminus"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "cpanminus"]
     debian: ["pkexec", "apt-get", "install", "-y", "cpanminus"]
 
 - id: poetry
@@ -309,7 +309,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "poetry"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "poetry"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "poetry"]
     debian: ["pkexec", "apt-get", "install", "-y", "poetry"]
 
 - id: julia
@@ -321,7 +321,7 @@
   has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "julia"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "julia"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "julia"]
     debian: ["pkexec", "apt-get", "install", "-y", "julia"]
 
 # No full driver: Bundler is inherently per-project (Gemfile.lock), not a
@@ -337,7 +337,7 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "rubygem-bundler"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "ruby-bundler"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "ruby-bundler"]
     debian: ["pkexec", "apt-get", "install", "-y", "ruby-bundler"]
 
 # No full driver: same reasoning as Bundler above — Gradle's dependency
@@ -351,5 +351,5 @@
   has_driver: false
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "gradle"]
-    arch: ["sudo", "pacman", "-S", "--noconfirm", "gradle"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "gradle"]
     debian: ["pkexec", "apt-get", "install", "-y", "gradle"]

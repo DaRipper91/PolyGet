@@ -20,7 +20,7 @@ class DartPubManager(PackageManager):
                 "dart", "pub", "global", "list",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 if line.strip():

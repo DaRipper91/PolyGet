@@ -64,6 +64,36 @@ def test_dnf_check_updates_json():
     asyncio.run(run_test())
 
 
+def test_dnf_check_updates_timeout_raises_not_hangs():
+    """A hung dnf check-update subprocess must raise, not hang forever (audit finding B1)."""
+    async def run_test():
+        manager = DnfManager()
+
+        mock_proc = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                with pytest.raises(RuntimeError):
+                    await manager.check_updates()
+
+    asyncio.run(run_test())
+
+
+def test_dnf_list_installed_timeout_returns_empty():
+    """A hung dnf list --installed subprocess should fail open to [], not hang (audit finding B1)."""
+    async def run_test():
+        manager = DnfManager()
+
+        mock_proc = AsyncMock()
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                result = await manager.list_installed()
+                assert result == []
+
+    asyncio.run(run_test())
+
+
 def test_dnf_check_updates_fallback():
     """Test check_updates falls back to standard dnf check-update quiet output."""
     async def run_test():

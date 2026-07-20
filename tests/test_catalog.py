@@ -58,6 +58,18 @@ def test_catalog_driver_consistency():
         if entry.has_driver:
             assert entry.name in registered_names, f"Catalog entry {entry.name} has has_driver=True but no driver is registered under that name."
 
+def test_catalog_arch_self_install_never_uses_raw_sudo():
+    """Arch-family self-install commands must use pkexec, matching every other distro
+    family — ExecutionWorker never wires a stdin channel for a bare sudo password prompt,
+    so raw sudo would fail/hang with no way to authenticate (audit finding B3)."""
+    entries = load_catalog()
+    for entry in entries:
+        arch_cmd = entry.self_install.get("arch")
+        if arch_cmd:
+            assert arch_cmd[0] != "sudo", (
+                f"Catalog entry {entry.name!r} still uses raw sudo for arch self-install: {arch_cmd}"
+            )
+
 def test_driver_check_updates_fallbacks():
     """Verify that Dart Pub, Hex, cpanm, Poetry, and Julia check_updates return [] without raising exceptions."""
     from app.core.drivers.dart_pub import DartPubManager

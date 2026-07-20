@@ -27,7 +27,7 @@ class PoetryManager(PackageManager):
                 "poetry", "self", "show",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 parts = line.split()

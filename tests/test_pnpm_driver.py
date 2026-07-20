@@ -26,6 +26,34 @@ def test_pnpm_check_updates():
 
     asyncio.run(run_test())
 
+def test_pnpm_check_updates_timeout_raises_not_hangs():
+    """A hung pnpm outdated subprocess must raise, not hang forever (audit finding B1)."""
+    manager = PnpmManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                with pytest.raises(RuntimeError):
+                    await manager.check_updates()
+
+    asyncio.run(run_test())
+
+
+def test_pnpm_list_installed_timeout_returns_empty():
+    """A hung pnpm list subprocess should fail open to [], not hang (audit finding B1)."""
+    manager = PnpmManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                result = await manager.list_installed()
+                assert result == []
+
+    asyncio.run(run_test())
+
+
 def test_pnpm_list_installed():
     manager = PnpmManager()
     

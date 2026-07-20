@@ -46,8 +46,8 @@ class CargoManager(PackageManager):
                             "new": parts[2]
                         })
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade cargo binaries.

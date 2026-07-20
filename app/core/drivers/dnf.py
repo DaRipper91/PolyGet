@@ -32,7 +32,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode in (0, 100) and stdout:
                 import json
                 try:
@@ -61,10 +61,10 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             # DNF returns 100 when updates exist, 0 when none
             if proc.returncode not in (0, 100):
-                return []
+                raise RuntimeError("dnf update check failed")
 
             updates = []
             for line in stdout.decode(errors="ignore").splitlines():
@@ -74,8 +74,8 @@ class DnfManager(PackageManager):
                         pkg_name = parts[0].rsplit(".", 1)[0]
                         updates.append({"name": pkg_name, "current": "Installed", "new": parts[1]})
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade system packages using DNF.
@@ -107,7 +107,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             if proc.returncode != 0:
                 return []
 

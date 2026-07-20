@@ -20,7 +20,7 @@ class YarnManager(PackageManager):
                 "yarn", "global", "outdated", "--json",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             import json
             updates = []
             for line in stdout.decode(errors="ignore").splitlines():
@@ -33,8 +33,8 @@ class YarnManager(PackageManager):
                         if len(row) >= 4:
                             updates.append({"name": row[0], "current": row[1], "new": row[3]})
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:
@@ -47,7 +47,7 @@ class YarnManager(PackageManager):
                 "yarn", "global", "list", "--depth=0",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 line = line.strip()

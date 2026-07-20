@@ -59,13 +59,13 @@ class NpmManager(PackageManager):
                 return []
             import json
             data = json.loads(stdout.decode(errors="ignore"))
-        except Exception:
+        except Exception as e:
             if proc is not None:
                 try:
                     proc.kill()
                 except Exception:
                     pass
-            return []
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
         # `npm outdated -g --json` reports failures (registry errors, network
         # issues, etc.) as {"error": {...}} on stdout rather than a package

@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import shutil
+import tempfile
 from typing import Any
 from app.core.manager import PackageManager, register_manager
 
@@ -30,32 +31,41 @@ class PipxManager(PackageManager):
         Returns:
             list[dict[str, Any]]: A list containing update details if found, or empty list.
         """
-        try:
-            pipx_home = os.environ.get("PIPX_HOME", os.path.expanduser("~/.local/share/pipx"))
-            pip_path = os.path.join(pipx_home, "venvs", name, "bin", "pip")
-            if not os.path.exists(pip_path):
-                return []
+        pipx_home = os.environ.get("PIPX_HOME", os.path.expanduser("~/.local/share/pipx"))
+        pip_path = os.path.join(pipx_home, "venvs", name, "bin", "pip")
+        if not os.path.exists(pip_path):
+            # No venv/pip for this package — nothing checkable, not a failure.
+            return []
 
+        try:
             pip_proc = await asyncio.create_subprocess_exec(
                 pip_path, "list", "--outdated", "--json",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             pip_stdout, _ = await asyncio.wait_for(pip_proc.communicate(), timeout=12.0)
-            if pip_stdout:
-                pip_data = json.loads(pip_stdout.decode(errors="ignore"))
-                results = []
-                for item in pip_data:
-                    if item.get("name") == name:
-                        results.append({
-                            "name": name,
-                            "current": item.get("version", "Unknown"),
-                            "new": item.get("latest_version", "Latest")
-                        })
-                return results
-        except Exception:
-            pass
-        return []
+        except Exception as e:
+            raise RuntimeError(f"Pipx per-package update check failed for '{name}': {e}") from e
+
+        if not pip_stdout:
+            return []
+
+        try:
+            pip_data = json.loads(pip_stdout.decode(errors="ignore"))
+        except json.JSONDecodeError as e:
+            raise RuntimeError(
+                f"Pipx per-package update check failed for '{name}': malformed pip output: {e}"
+            ) from e
+
+        results = []
+        for item in pip_data:
+            if item.get("name") == name:
+                results.append({
+                    "name": name,
+                    "current": item.get("version", "Unknown"),
+                    "new": item.get("latest_version", "Latest")
+                })
+        return results
 
     async def check_updates(self) -> list[dict[str, Any]]:
         """Query Pipx for outdated packages.
@@ -90,8 +100,8 @@ class PipxManager(PackageManager):
             for result in results:
                 updates.extend(result)
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade all Pipx-managed applications.
@@ -142,37 +152,70 @@ class PipxManager(PackageManager):
     from pathlib import Path
     _INDEX_CACHE_PATH = Path.home() / ".cache" / "polyget" / "pypi_simple_index.json"
     _INDEX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 1 week
+    _index_lock = asyncio.Lock()
 
     async def _ensure_index_cached(self) -> list[str]:
-        """Download and cache the full list of PyPI package names, refreshing weekly."""
+        """Download and cache the full list of PyPI package names, refreshing weekly.
+
+        Writes are done via a temp file + atomic rename in the same directory, and a
+        shared lock prevents two concurrent callers from both downloading and racing
+        to write the cache file (which could otherwise interleave into corrupt JSON).
+        """
         import json
         import time
-        if self._INDEX_CACHE_PATH.exists():
-            age = time.time() - self._INDEX_CACHE_PATH.stat().st_mtime
-            if age < self._INDEX_MAX_AGE_SECONDS:
-                try:
-                    return json.loads(self._INDEX_CACHE_PATH.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
 
-        self._INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            # Fetch simple HTML or JSON from PyPI. PyPI simple API supports JSON simple v1 index!
-            proc = await asyncio.create_subprocess_exec(
-                "curl", "-s", "-H", "Accept: application/vnd.pypi.simple.v1+json",
-                "https://pypi.org/simple/",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-            if stdout:
-                data = json.loads(stdout.decode(errors="ignore"))
-                names = [p["name"] for p in data.get("projects", [])]
-                self._INDEX_CACHE_PATH.write_text(json.dumps(names), encoding="utf-8")
-                return names
-        except Exception:
-            pass
-        return []
+        def _read_cache_if_fresh() -> list[str] | None:
+            if not self._INDEX_CACHE_PATH.exists():
+                return None
+            age = time.time() - self._INDEX_CACHE_PATH.stat().st_mtime
+            if age >= self._INDEX_MAX_AGE_SECONDS:
+                return None
+            try:
+                return json.loads(self._INDEX_CACHE_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                return None
+
+        cached = _read_cache_if_fresh()
+        if cached is not None:
+            return cached
+
+        async with self._index_lock:
+            # Re-check after acquiring the lock: another concurrent caller may have
+            # already refreshed the cache while this one was waiting.
+            cached = _read_cache_if_fresh()
+            if cached is not None:
+                return cached
+
+            self._INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                # Fetch simple HTML or JSON from PyPI. PyPI simple API supports JSON simple v1 index!
+                proc = await asyncio.create_subprocess_exec(
+                    "curl", "-s", "-H", "Accept: application/vnd.pypi.simple.v1+json",
+                    "https://pypi.org/simple/",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+                if stdout:
+                    data = json.loads(stdout.decode(errors="ignore"))
+                    names = [p["name"] for p in data.get("projects", [])]
+
+                    fd, tmp_path = tempfile.mkstemp(
+                        dir=self._INDEX_CACHE_PATH.parent,
+                        prefix=".pypi_simple_index_",
+                        suffix=".tmp",
+                    )
+                    try:
+                        with os.fdopen(fd, "w", encoding="utf-8") as f:
+                            f.write(json.dumps(names))
+                        os.replace(tmp_path, self._INDEX_CACHE_PATH)
+                    except BaseException:
+                        os.unlink(tmp_path)
+                        raise
+                    return names
+            except Exception:
+                pass
+            return []
 
     async def _fetch_package_detail(self, name: str) -> dict[str, Any] | None:
         """Fetch a single package's description/version from PyPI's JSON API."""
@@ -213,4 +256,3 @@ class PipxManager(PackageManager):
             return [detail for detail in details if detail is not None]
         except Exception:
             return []
-

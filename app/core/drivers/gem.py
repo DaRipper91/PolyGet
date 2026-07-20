@@ -32,8 +32,8 @@ class GemManager(PackageManager):
                 if match:
                     updates.append({"name": match.group(1), "current": match.group(2), "new": match.group(3)})
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:

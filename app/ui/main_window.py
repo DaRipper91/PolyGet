@@ -71,6 +71,7 @@ class ScanWorker(QThread):
     """Worker thread to run all package manager scans concurrently using asyncio.gather."""
     log_signal = Signal(str)
     updates_signal = Signal(str, list)  # manager_name, list of updates
+    error_signal = Signal(str, str)  # manager_name, error message
     finished_all = Signal()
 
     def __init__(self, managers: list[PackageManager], parent: Any = None):
@@ -89,7 +90,7 @@ class ScanWorker(QThread):
                 self.log_signal.emit(f"✅ Scan complete for {mgr.name}. Found {len(updates)} update(s).")
             except Exception as e:
                 self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
-                self.updates_signal.emit(mgr.name, [])
+                self.error_signal.emit(mgr.name, str(e))
 
         tasks = [run_scan(mgr) for mgr in self.managers]
         if tasks:
@@ -139,7 +140,7 @@ class ExecutionWorker(QThread):
                     *run_cmd_list,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.STDOUT,
-                    preexec_fn=os.setsid
+                    start_new_session=True
                 )
                 coordinator = SubprocessCoordinator()
                 coordinator.register(proc.pid)
@@ -672,10 +673,24 @@ class MainWindow(QMainWindow):
         self.resize(1050, 700)
         self.managers: dict[str, PackageManager] = {}
         self.updates_cache: dict[str, list[dict[str, Any]]] = {}
+        self.scan_errors: dict[str, str] = {}
         self.selected_updates: dict[str, set[str]] = {}
         self.active_workers: list[QThread] = []
         self.upgrade_queue: list[tuple[PackageManager, list[str]]] = []
+        self.sync_queue: list[tuple[PackageManager, list[str]]] = []
+        self.blueprint_queue: list[tuple[PackageManager, str, list[str]]] = []
         self.upgrade_failures: list[str] = []
+        self.sync_failures: list[str] = []
+        self.blueprint_failures: list[tuple[str, str]] = []
+        self.scan_in_progress = False
+        self.scan_generation = 0
+        self.store_generation = 0
+        self.repos_generation = 0
+        self.repos_selected_manager: str | None = None
+        self.active_operation: str | None = None
+        self.installing_managers: set[str] = set()
+        self.installing_packages: set[str] = set()
+        self.repo_actions_in_flight: set[str] = set()
 
         self.setup_ui()
         self.apply_theme()
@@ -1400,17 +1415,31 @@ class MainWindow(QMainWindow):
     def load_repos_for_selected_manager(self, row: int):
         if row < 0 or row >= len(self.repos_managers):
             self.repos_list_widget.clear()
+            self.repos_selected_manager = None
             return
         mgr = self.repos_managers[row]
         self.repos_list_widget.clear()
-        
+
+        self.repos_generation += 1
+        generation = self.repos_generation
+        self.repos_selected_manager = mgr.name
+
         worker = FetchReposWorker(mgr)
-        worker.result_signal.connect(lambda repos: self.display_repos_list(repos, mgr))
+        worker.result_signal.connect(
+            lambda repos, g=generation, m=mgr: self.display_repos_list(repos, m, g)
+        )
         worker.error_signal.connect(lambda err: self.log(f"❌ Error fetching repositories: {err}"))
         self.active_workers.append(worker)
         worker.start()
 
-    def display_repos_list(self, repos: list[dict[str, Any]], mgr: PackageManager):
+    def display_repos_list(
+        self, repos: list[dict[str, Any]], mgr: PackageManager, generation: int | None = None
+    ):
+        if generation is not None and (
+            generation != self.repos_generation or mgr.name != self.repos_selected_manager
+        ):
+            return
+
         self.repos_list_widget.clear()
         for repo in repos:
             row_item = QListWidgetItem(self.repos_list_widget)
@@ -1422,16 +1451,21 @@ class MainWindow(QMainWindow):
             self.repos_list_widget.setItemWidget(row_item, row_widget)
 
     def toggle_repository_source(self, mgr: PackageManager, repo_id: str, enable: bool):
+        if repo_id in self.repo_actions_in_flight:
+            self.log(f"⚠️ An action on repository source '{repo_id}' is already in progress.")
+            return
+
         if enable:
             # Re-enabling repo (special config-manager command for DNF, or flatpak remote-add)
             cmd = ["pkexec", "dnf", "config-manager", "--set-enabled", repo_id] if mgr.name == "DNF" else mgr.get_add_repo_command(repo_id)
         else:
             # Disabling repo
             cmd = mgr.get_remove_repo_command(repo_id)
-            
+
+        self.repo_actions_in_flight.add(repo_id)
         self.log(f"⚡ Toggling repository source: {repo_id} ({' '.join(cmd)})")
         self.nav_list.setCurrentRow(2)  # Switch to console
-        
+
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
         worker.finished_signal.connect(lambda success: self.handle_repo_action_finished(success, repo_id, "modified"))
@@ -1440,10 +1474,15 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def remove_repository_source(self, mgr: PackageManager, repo_id: str):
+        if repo_id in self.repo_actions_in_flight:
+            self.log(f"⚠️ An action on repository source '{repo_id}' is already in progress.")
+            return
+
         cmd = mgr.get_remove_repo_command(repo_id)
+        self.repo_actions_in_flight.add(repo_id)
         self.log(f"⚡ Removing repository source: {repo_id} ({' '.join(cmd)})")
         self.nav_list.setCurrentRow(2)  # Switch to console
-        
+
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
         worker.finished_signal.connect(lambda success: self.handle_repo_action_finished(success, repo_id, "removed"))
@@ -1459,12 +1498,17 @@ class MainWindow(QMainWindow):
         repo_url = self.txt_add_repo.text().strip()
         if not repo_url:
             return
-            
+
+        if repo_url in self.repo_actions_in_flight:
+            self.log(f"⚠️ An action on repository source '{repo_url}' is already in progress.")
+            return
+
         cmd = mgr.get_add_repo_command(repo_url)
+        self.repo_actions_in_flight.add(repo_url)
         self.log(f"⚡ Adding repository source: {repo_url} ({' '.join(cmd)})")
         self.txt_add_repo.clear()
         self.nav_list.setCurrentRow(2)  # Switch to console
-        
+
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
         worker.finished_signal.connect(lambda success: self.handle_repo_action_finished(success, repo_url, "added"))
@@ -1473,6 +1517,7 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def handle_repo_action_finished(self, success: bool, target: str, action: str):
+        self.repo_actions_in_flight.discard(target)
         if success:
             self.log(f"✅ Successfully {action} repository source: {target}")
             self.load_repos_for_selected_manager(self.repos_mgr_list.currentRow())
@@ -1496,14 +1541,19 @@ class MainWindow(QMainWindow):
             self.managers_list.setItemWidget(row_item, row_widget)
 
     def install_manager_backend(self, entry: CatalogEntry):
+        if entry.name in self.installing_managers:
+            self.log(f"⚠️ Installation of {entry.name} is already in progress.")
+            return
+
         cmd = entry.get_self_install_command()
         if not cmd:
             self.log(f"❌ Install command not found for {entry.name} on this distro family.")
             return
-            
+
+        self.installing_managers.add(entry.name)
         self.log(f"⚡ Launching installation process for package manager: {entry.name} ({' '.join(cmd)})")
         self.nav_list.setCurrentRow(2)  # Switch to console
-        
+
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
         worker.finished_signal.connect(lambda success: self.handle_manager_install_finished(success, entry.name))
@@ -1512,6 +1562,7 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def handle_manager_install_finished(self, success: bool, name: str):
+        self.installing_managers.discard(name)
         if success:
             self.log(f"✅ Successfully installed package manager: {name}")
             # Rescan to update registry cache / available list
@@ -1553,10 +1604,19 @@ class MainWindow(QMainWindow):
             worker.deleteLater()
 
     def scan_all(self):
+        if self.scan_in_progress:
+            self.log("⚠️ A scan is already in progress.")
+            return
+
+        self.scan_in_progress = True
+        self.scan_generation += 1
+        generation = self.scan_generation
+        self.btn_scan.setEnabled(False)
         self.updates_list.clear()
         self.status_list.clear()
         self.managers.clear()
         self.updates_cache.clear()
+        self.scan_errors.clear()
         self.selected_updates.clear()
         self.console.clear()
         self.update_updates_badge()
@@ -1568,6 +1628,8 @@ class MainWindow(QMainWindow):
         if not available:
             self.lbl_summary.setText("System is up to date.")
             self.log("⚠️ No active package managers found.")
+            self.scan_in_progress = False
+            self.btn_scan.setEnabled(True)
             return
 
         for mgr in available:
@@ -1580,14 +1642,27 @@ class MainWindow(QMainWindow):
 
         worker = ScanWorker(available)
         worker.log_signal.connect(self.log)
-        worker.updates_signal.connect(self.handle_scan_results)
+        worker.updates_signal.connect(
+            lambda manager_name, updates, g=generation: self.handle_scan_results(manager_name, updates, g)
+        )
+        worker.error_signal.connect(
+            lambda manager_name, error, g=generation: self.handle_scan_error(manager_name, error, g)
+        )
+        worker.finished_all.connect(self.handle_scan_finished)
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
     @Slot(str, list)
-    def handle_scan_results(self, manager_name: str, updates: list[dict[str, Any]]):
+    def handle_scan_results(
+        self, manager_name: str, updates: list[dict[str, Any]], generation: int | None = None
+    ):
+        if generation is not None and generation != self.scan_generation:
+            return
+
+        self.scan_errors.pop(manager_name, None)
         self.updates_cache[manager_name] = updates
+        self.selected_updates.setdefault(manager_name, set())
         for pkg in updates:
             self.selected_updates[manager_name].add(pkg.get("name", ""))
         self.update_updates_badge()
@@ -1602,6 +1677,31 @@ class MainWindow(QMainWindow):
                     item.setText(f"🟢 {manager_name} ({category}) - Up to date")
 
         self.rebuild_updates_list()
+
+    def handle_scan_error(
+        self, manager_name: str, error: str, generation: int | None = None
+    ) -> None:
+        """Record a failed scan without presenting it as an up-to-date manager."""
+        if generation is not None and generation != self.scan_generation:
+            return
+
+        self.scan_errors[manager_name] = error
+        self.updates_cache[manager_name] = []
+        self.selected_updates.setdefault(manager_name, set()).clear()
+        for i in range(self.status_list.count()):
+            item = self.status_list.item(i)
+            if manager_name in item.text():
+                mgr = self.managers.get(manager_name)
+                category = mgr.category if mgr else "Unknown"
+                item.setText(f"⚠️ {manager_name} ({category}) - Scan failed")
+                break
+        self.update_updates_badge()
+        self.rebuild_updates_list()
+
+    def handle_scan_finished(self) -> None:
+        self.scan_in_progress = False
+        if self.active_operation is None:
+            self.btn_scan.setEnabled(True)
 
     def rebuild_updates_list(self):
         self.updates_list.clear()
@@ -1624,12 +1724,20 @@ class MainWindow(QMainWindow):
 
                 self.updates_list.setItemWidget(row_item, row_widget)
 
-        if total_updates == 0:
+        if total_updates == 0 and self.scan_errors:
+            self.lbl_summary.setText(
+                f"Scan failed for {len(self.scan_errors)} manager(s); see the console for details."
+            )
+            self.btn_update_selected.setEnabled(False)
+        elif total_updates == 0:
             self.lbl_summary.setText("System is up to date.")
             self.btn_update_selected.setEnabled(False)
         else:
             selected_count = sum(len(s) for s in self.selected_updates.values())
-            self.lbl_summary.setText(f"{total_updates} update(s) available ({selected_count} selected)")
+            suffix = f"; {len(self.scan_errors)} scan(s) failed" if self.scan_errors else ""
+            self.lbl_summary.setText(
+                f"{total_updates} update(s) available ({selected_count} selected){suffix}"
+            )
             self.btn_update_selected.setEnabled(selected_count > 0)
 
         nav_item = self.nav_list.item(0)
@@ -1653,6 +1761,10 @@ class MainWindow(QMainWindow):
         self.rebuild_updates_list()
 
     def start_batch_upgrade(self):
+        if self.active_operation is not None:
+            self.log(f"⚠️ Cannot start an upgrade while {self.active_operation} is active.")
+            return
+
         self.upgrade_queue.clear()
         self.upgrade_failures.clear()
         for name, manager in self.managers.items():
@@ -1663,8 +1775,10 @@ class MainWindow(QMainWindow):
         if not self.upgrade_queue:
             return
 
+        self.active_operation = "batch upgrade"
         self.btn_update_selected.setEnabled(False)
         self.btn_scan.setEnabled(False)
+        self.btn_refresh_repos.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         
@@ -1675,6 +1789,8 @@ class MainWindow(QMainWindow):
         if not self.upgrade_queue:
             self.progress.setVisible(False)
             self.btn_scan.setEnabled(True)
+            self.btn_refresh_repos.setEnabled(True)
+            self.active_operation = None
             if self.upgrade_failures:
                 failed_list = "\n".join(f"- {name}" for name in self.upgrade_failures)
                 QMessageBox.warning(
@@ -1729,9 +1845,14 @@ class MainWindow(QMainWindow):
         elif "DNF" in sel_text:
             source_filter = "DNF"
 
+        self.store_generation += 1
+        generation = self.store_generation
+
         worker = CategoryWorker(category, source_filter)
         worker.log_signal.connect(self.log)
-        worker.results_signal.connect(self.handle_store_results)
+        worker.results_signal.connect(
+            lambda results, g=generation: self.handle_store_results(results, g)
+        )
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
@@ -1763,15 +1884,23 @@ class MainWindow(QMainWindow):
         elif "Pipx" in sel_text:
             source_filter = "Pipx"
 
+        self.store_generation += 1
+        generation = self.store_generation
+
         worker = SearchWorker(query, source_filter)
         worker.log_signal.connect(self.log)
-        worker.results_signal.connect(self.handle_store_results)
+        worker.results_signal.connect(
+            lambda results, g=generation: self.handle_store_results(results, g)
+        )
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
     @Slot(list)
-    def handle_store_results(self, results: list):
+    def handle_store_results(self, results: list, generation: int | None = None):
+        if generation is not None and generation != self.store_generation:
+            return
+
         self.store_list.clear()
         if not results:
             self.lbl_store_results.setText("No search results found.")
@@ -1810,7 +1939,12 @@ class MainWindow(QMainWindow):
     def install_package(self, item: dict):
         pkg_id = item["id"]
         source = item["source"]
-        
+        install_key = f"{source}:{pkg_id}"
+
+        if install_key in self.installing_packages:
+            self.log(f"⚠️ Installation of {item['name']} via {source} is already in progress.")
+            return
+
         confirm = QMessageBox.question(
             self, "Install Confirmation",
             f"Are you sure you want to install {item['name']} via {source}?",
@@ -1835,18 +1969,23 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"No installer available for source '{source}'.")
             return
 
+        self.installing_packages.add(install_key)
         self.log(f"📦 Queueing installation of {pkg_id}...")
         self.nav_list.setCurrentRow(2)  # Switch to console
 
         # Start execution worker
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(lambda success: self.handle_install_finished(success, item["name"]))
+        worker.finished_signal.connect(
+            lambda success, k=install_key: self.handle_install_finished(success, item["name"], k)
+        )
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
-    def handle_install_finished(self, success: bool, app_name: str):
+    def handle_install_finished(self, success: bool, app_name: str, install_key: str | None = None):
+        if install_key is not None:
+            self.installing_packages.discard(install_key)
         if success:
             QMessageBox.information(self, "Installation Complete", f"{app_name} was installed successfully!")
         else:
@@ -1855,18 +1994,24 @@ class MainWindow(QMainWindow):
 
     def sync_repositories(self):
         """Build execution queue for syncing active repositories."""
-        self.upgrade_queue.clear()
+        if self.active_operation is not None:
+            self.log(f"⚠️ Cannot sync repositories while {self.active_operation} is active.")
+            return
+
+        self.sync_queue.clear()
+        self.sync_failures.clear()
         
         available = discover_managers()
         for mgr in available:
             cmd = mgr.get_sync_command()
             if cmd:
-                self.upgrade_queue.append((mgr, cmd))
+                self.sync_queue.append((mgr, cmd))
                 
-        if not self.upgrade_queue:
+        if not self.sync_queue:
             QMessageBox.information(self, "Sync Complete", "No active package managers support repository syncing.")
             return
 
+        self.active_operation = "repository sync"
         self.btn_scan.setEnabled(False)
         self.btn_refresh_repos.setEnabled(False)
         self.progress.setVisible(True)
@@ -1877,16 +2022,25 @@ class MainWindow(QMainWindow):
 
     def run_next_sync_queue(self):
         """Execute next repository sync command in the queue."""
-        if not self.upgrade_queue:
+        if not self.sync_queue:
             self.progress.setVisible(False)
             self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
-            QMessageBox.information(self, "Sync Complete", "All repository metadata has been refreshed.")
+            self.active_operation = None
+            if self.sync_failures:
+                failed = "\n".join(f"- {name}" for name in self.sync_failures)
+                QMessageBox.warning(
+                    self,
+                    "Repository Sync Finished With Errors",
+                    f"{len(self.sync_failures)} manager(s) failed to sync.\n\n{failed}",
+                )
+            else:
+                QMessageBox.information(self, "Sync Complete", "All repository metadata has been refreshed.")
             self.nav_list.setCurrentRow(0)
             self.scan_all()
             return
 
-        manager, cmd = self.upgrade_queue.pop(0)
+        manager, cmd = self.sync_queue.pop(0)
         self.log(f"🔄 Syncing repository metadata for {manager.name}...")
         
         worker = ExecutionWorker(cmd)
@@ -1902,9 +2056,15 @@ class MainWindow(QMainWindow):
             self.log(f"✅ Successfully refreshed repository for {manager_name}")
         else:
             self.log(f"❌ Failed to refresh repository for {manager_name}")
+            self.sync_failures.append(manager_name)
         self.run_next_sync_queue()
 
     def export_local_configuration(self):
+        if self.active_operation is not None:
+            self.log(f"⚠️ Cannot export while {self.active_operation} is active.")
+            return
+
+        self.active_operation = "blueprint export"
         self.btn_export_blueprint.setEnabled(False)
         self.btn_load_blueprint.setEnabled(False)
         self.btn_save_blueprint.setEnabled(False)
@@ -1926,6 +2086,7 @@ class MainWindow(QMainWindow):
             self.btn_sync_blueprint.setEnabled(True)
             self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
+            self.active_operation = None
             return
 
         worker = FetchInstalledWorker(available)
@@ -1954,6 +2115,7 @@ class MainWindow(QMainWindow):
         self.btn_sync_blueprint.setEnabled(True)
         self.btn_scan.setEnabled(True)
         self.btn_refresh_repos.setEnabled(True)
+        self.active_operation = None
 
     def load_blueprint_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -2008,6 +2170,12 @@ class MainWindow(QMainWindow):
                 "Failed to parse blueprint YAML. Please ensure the YAML is valid and contains a mapping of backends to lists of packages."
             )
             return
+
+        if self.active_operation is not None:
+            self.log(f"⚠️ Cannot sync blueprint while {self.active_operation} is active.")
+            return
+
+        self.active_operation = "blueprint sync"
 
         self.btn_export_blueprint.setEnabled(False)
         self.btn_load_blueprint.setEnabled(False)
@@ -2070,6 +2238,7 @@ class MainWindow(QMainWindow):
             self.btn_sync_blueprint.setEnabled(True)
             self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
+            self.active_operation = None
             return
 
         drift_msg = f"Found {len(missing_packages)} package(s) missing from your system:\n\n"
@@ -2094,12 +2263,14 @@ class MainWindow(QMainWindow):
             self.btn_sync_blueprint.setEnabled(True)
             self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
+            self.active_operation = None
             return
 
-        self.upgrade_queue.clear()
+        self.blueprint_queue.clear()
+        self.blueprint_failures.clear()
         for mgr, pkg in missing_packages:
             cmd = mgr.get_install_command(pkg)
-            self.upgrade_queue.append((mgr, pkg, cmd))
+            self.blueprint_queue.append((mgr, pkg, cmd))
 
         self.log(f"📦 Scheduled {len(missing_packages)} packages for installation.")
         self.blueprint_status.setText("Installing missing packages...")
@@ -2107,11 +2278,10 @@ class MainWindow(QMainWindow):
         self.run_next_blueprint_sync()
 
     def run_next_blueprint_sync(self):
-        if not self.upgrade_queue:
+        if not self.blueprint_queue:
             self.blueprint_progress.setVisible(False)
             self.blueprint_status.setText("Sync complete.")
             self.log("✅ Blueprint sync complete.")
-            QMessageBox.information(self, "Sync Complete", "All missing blueprint packages have been installed.")
             self.nav_list.setCurrentRow(3)  # Return to blueprints page
             self.btn_export_blueprint.setEnabled(True)
             self.btn_load_blueprint.setEnabled(True)
@@ -2119,9 +2289,19 @@ class MainWindow(QMainWindow):
             self.btn_sync_blueprint.setEnabled(True)
             self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
+            self.active_operation = None
+            if self.blueprint_failures:
+                failed = "\n".join(f"- {pkg} ({manager})" for manager, pkg in self.blueprint_failures)
+                QMessageBox.warning(
+                    self,
+                    "Blueprint Sync Finished With Errors",
+                    f"{len(self.blueprint_failures)} package(s) failed to install.\n\n{failed}",
+                )
+            else:
+                QMessageBox.information(self, "Sync Complete", "All missing blueprint packages have been installed.")
             return
 
-        manager, pkg, cmd = self.upgrade_queue.pop(0)
+        manager, pkg, cmd = self.blueprint_queue.pop(0)
         self.log(f"⚡ Sync-installing: {pkg} via {manager.name} ({' '.join(cmd)})")
         
         worker = ExecutionWorker(cmd)
@@ -2136,6 +2316,7 @@ class MainWindow(QMainWindow):
             self.log(f"✅ Successfully installed {pkg} via {manager.name}")
         else:
             self.log(f"❌ Failed to install {pkg} via {manager.name}")
+            self.blueprint_failures.append((manager.name, pkg))
         self.run_next_blueprint_sync()
 
     def closeEvent(self, event):

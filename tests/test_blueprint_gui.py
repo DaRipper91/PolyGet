@@ -260,6 +260,149 @@ def test_scan_worker_concurrent(qapp):
     assert "Flatpak" in results
 
 
+def test_scan_worker_reports_errors(qapp):
+    """A failed manager scan must emit an error instead of an empty success result."""
+    from app.ui.main_window import ScanWorker
+
+    manager = MagicMock(spec=PackageManager)
+    manager.name = "BrokenManager"
+    manager.check_updates = AsyncMock(side_effect=RuntimeError("registry unavailable"))
+    worker = ScanWorker([manager])
+    errors = []
+    updates = []
+    worker.error_signal.connect(lambda name, message: errors.append((name, message)))
+    worker.updates_signal.connect(lambda name, result: updates.append((name, result)))
+
+    worker.run()
+
+    assert errors == [("BrokenManager", "registry unavailable")]
+    assert updates == []
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_main_window_scan_error_is_not_up_to_date(mock_scan, qapp):
+    """The GUI should expose scan failures in its summary rather than claiming success."""
+    window = MainWindow()
+    window.managers["BrokenManager"] = MagicMock(category="Language/Dev")
+    window.selected_updates["BrokenManager"] = set()
+    window.status_list.addItem("🔍 BrokenManager - Connecting...")
+    window.scan_generation = 4
+
+    window.handle_scan_error("BrokenManager", "registry unavailable", generation=4)
+
+    assert "Scan failed" in window.lbl_summary.text()
+    assert "Up to date" not in window.lbl_summary.text()
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_handle_store_results_discards_stale_generation(mock_scan, qapp):
+    """A slow, now-stale search must not overwrite a faster, newer one (audit finding B5)."""
+    window = MainWindow()
+    window.store_generation = 2
+
+    new_item = {"name": "new-result", "id": "new-result", "source": "Flatpak",
+                "description": "", "version": "", "icon": ""}
+    stale_item = {"name": "stale-result", "id": "stale-result", "source": "Flatpak",
+                  "description": "", "version": "", "icon": ""}
+
+    # Newer search (generation 2) resolves first.
+    window.handle_store_results([new_item], 2)
+    first_pass_text = window.lbl_store_results.text()
+    assert "1 package" in first_pass_text
+
+    # Older, slower search (generation 1) arrives late and must be dropped.
+    window.handle_store_results([stale_item], 1)
+    assert window.lbl_store_results.text() == first_pass_text
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_display_repos_list_discards_stale_generation(mock_scan, qapp):
+    """A slow, now-stale repo fetch must not overwrite a newer one (audit finding B5)."""
+    window = MainWindow()
+    dnf_mgr = MagicMock(spec=PackageManager)
+    dnf_mgr.name = "DNF"
+    flatpak_mgr = MagicMock(spec=PackageManager)
+    flatpak_mgr.name = "Flatpak"
+
+    window.repos_generation = 2
+    window.repos_selected_manager = "DNF"
+
+    # Newer, currently-selected manager's result lands first.
+    window.display_repos_list([{"id": "fedora", "name": "Fedora", "url": "", "enabled": True}], dnf_mgr, 2)
+    assert window.repos_list_widget.count() == 1
+
+    # A slower fetch for a manager the user has since navigated away from arrives late.
+    window.display_repos_list([{"id": "flathub", "name": "Flathub", "url": "", "enabled": True}], flatpak_mgr, 1)
+    assert window.repos_list_widget.count() == 1
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_install_manager_backend_blocks_duplicate_launch(mock_scan, qapp):
+    """A second click on the same manager's Install button must not spawn a second
+    concurrent privileged install subprocess (audit finding B7)."""
+    from app.core.catalog import CatalogEntry
+
+    window = MainWindow()
+    entry = CatalogEntry(
+        id="paru", name="paru", category="System", description="", icon="", binary="paru",
+        has_driver=False, self_install={"arch": ["pkexec", "pacman", "-S", "--noconfirm", "paru"]}
+    )
+
+    with patch("app.core.catalog.get_distro_family", return_value="arch"), \
+         patch.object(QThread, "start"):
+        window.install_manager_backend(entry)
+        window.install_manager_backend(entry)
+
+    assert len(window.active_workers) == 1
+    assert "paru" in window.installing_managers
+
+    window.handle_manager_install_finished(True, entry.name)
+    assert "paru" not in window.installing_managers
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+@patch("app.ui.main_window.QMessageBox.question")
+@patch("app.ui.main_window.QMessageBox.information")
+def test_install_package_blocks_duplicate_launch(mock_info, mock_question, mock_scan, qapp):
+    """A second click on the same store result's Install button must not spawn a second
+    concurrent install subprocess (audit finding B7)."""
+    from PySide6.QtWidgets import QMessageBox as QMB
+    mock_question.return_value = QMB.StandardButton.Yes
+
+    window = MainWindow()
+    item = {"id": "org.gimp.GIMP", "name": "GIMP", "source": "Flatpak", "remote": "flathub"}
+
+    with patch.object(QThread, "start"):
+        window.install_package(item)
+        window.install_package(item)
+
+    assert len(window.active_workers) == 1
+    assert "Flatpak:org.gimp.GIMP" in window.installing_packages
+
+    window.handle_install_finished(True, item["name"], "Flatpak:org.gimp.GIMP")
+    assert "Flatpak:org.gimp.GIMP" not in window.installing_packages
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_toggle_repository_source_blocks_duplicate_launch(mock_scan, qapp):
+    """A second click on the same repo's enable/disable action must not spawn a second
+    concurrent subprocess (audit finding B7)."""
+    window = MainWindow()
+    mgr = MagicMock(spec=PackageManager)
+    mgr.name = "Flatpak"
+    mgr.get_remove_repo_command.return_value = ["flatpak", "remote-delete", "flathub"]
+
+    with patch.object(QThread, "start"):
+        window.toggle_repository_source(mgr, "flathub", False)
+        window.toggle_repository_source(mgr, "flathub", False)
+
+    assert len(window.active_workers) == 1
+    assert "flathub" in window.repo_actions_in_flight
+
+    window.handle_repo_action_finished(True, "flathub", "modified")
+    assert "flathub" not in window.repo_actions_in_flight
+
+
 @patch("app.ui.main_window.MainWindow.scan_all")
 @patch("app.ui.main_window.discover_managers")
 @patch("app.ui.main_window.QMessageBox.question")
@@ -356,7 +499,8 @@ def test_sync_system_to_blueprint_with_drift(mock_info, mock_question, mock_disc
     assert "Successfully installed org.mozilla.firefox" in log_content
 
 
-def test_gui_package_managers_page(qapp):
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_gui_package_managers_page(mock_scan, qapp):
     """Test the Package Managers manager interface page population and install actions."""
     from app.ui.main_window import MainWindow, ManagerItemWidget
     from PySide6.QtCore import QThread
@@ -387,7 +531,8 @@ def test_gui_package_managers_page(qapp):
     mock_start.assert_called_once()
 
 
-def test_gui_repositories_page(qapp):
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_gui_repositories_page(mock_scan, qapp):
     """Test the Repositories UI page population and actions."""
     from app.ui.main_window import MainWindow, RepoItemWidget, FetchReposWorker
     from PySide6.QtCore import QThread
@@ -445,4 +590,3 @@ def test_gui_repositories_page(qapp):
 
     assert window.nav_list.currentRow() == 2
     mock_start.assert_called_once()
-

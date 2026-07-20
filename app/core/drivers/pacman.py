@@ -25,7 +25,9 @@ class PacmanManager(PackageManager):
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
             # pacman -Qu returns 1 when there are no updates, not just when there's an error —
             # only treat it as a real failure if stdout is also empty.
-            if proc.returncode not in (0, 1) or not stdout:
+            if proc.returncode not in (0, 1):
+                raise RuntimeError("pacman update check failed")
+            if not stdout:
                 return []
 
             updates = []
@@ -35,8 +37,8 @@ class PacmanManager(PackageManager):
                 if len(parts) >= 4 and parts[2] == "->":
                     updates.append({"name": parts[0], "current": parts[1], "new": parts[3]})
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:

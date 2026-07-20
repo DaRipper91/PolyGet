@@ -70,3 +70,41 @@ def test_pipx_check_updates():
         assert updates[1] == {"name": "package2", "current": "2.0.0", "new": "2.2.0"}
 
     asyncio.run(run_test())
+
+
+def test_pipx_check_updates_surfaces_per_package_failure_not_false_negative():
+    """A broken/corrupted per-package pip check must raise, not be silently reported as
+    'up to date' (audit finding B2 — this is the actual CLAUDE.md 'fake PyPI lookup' bug)."""
+    async def run_test():
+        manager = PipxManager()
+
+        mock_pipx_list_proc = AsyncMock()
+        mock_pipx_list_proc.communicate.return_value = (b"package1 1.0.0\n", b"")
+
+        mock_pip_proc1 = AsyncMock()
+        # Malformed JSON simulates a corrupted venv / broken pip output.
+        mock_pip_proc1.communicate.return_value = (b"not valid json{{{", b"")
+
+        def create_subprocess_exec_side_effect(*args, **kwargs):
+            if args[0] == "pipx" and args[1] == "list":
+                return mock_pipx_list_proc
+            return mock_pip_proc1
+
+        with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_exec_side_effect), \
+             patch("os.path.exists", return_value=True):
+            with pytest.raises(RuntimeError):
+                await manager.check_updates()
+
+    asyncio.run(run_test())
+
+
+def test_pipx_check_package_skips_missing_venv_without_raising():
+    """A package with no venv/pip present is not checkable and correctly returns [],
+    distinct from a real per-package check failure."""
+    async def run_test():
+        manager = PipxManager()
+        with patch("os.path.exists", return_value=False):
+            result = await manager._check_package("some-package")
+        assert result == []
+
+    asyncio.run(run_test())

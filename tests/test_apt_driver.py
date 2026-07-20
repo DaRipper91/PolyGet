@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 from unittest.mock import AsyncMock, mock_open, patch
 from app.core.drivers.apt import AptManager
 
@@ -71,8 +72,8 @@ def test_apt_check_updates_empty_when_nothing_upgradable():
     asyncio.run(run_test())
 
 
-def test_apt_check_updates_returns_empty_on_failure():
-    """Test that check_updates returns [] on nonzero exit code."""
+def test_apt_check_updates_reports_failure():
+    """Test that check_updates reports a nonzero exit code to the caller."""
     async def run_test():
         manager = AptManager()
         mock_proc = AsyncMock()
@@ -80,20 +81,19 @@ def test_apt_check_updates_returns_empty_on_failure():
         mock_proc.communicate.return_value = (b"", b"some error")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            updates = await manager.check_updates()
-
-        assert updates == []
+            with pytest.raises(RuntimeError, match="APT update check failed"):
+                await manager.check_updates()
 
     asyncio.run(run_test())
 
 
-def test_apt_check_updates_returns_empty_on_exception():
-    """Test that check_updates swallows exceptions and returns []."""
+def test_apt_check_updates_reports_exception():
+    """Test that check_updates reports subprocess failures to the caller."""
     async def run_test():
         manager = AptManager()
         with patch("asyncio.create_subprocess_exec", side_effect=OSError("not found")):
-            updates = await manager.check_updates()
-        assert updates == []
+            with pytest.raises(RuntimeError, match="APT update check failed"):
+                await manager.check_updates()
 
     asyncio.run(run_test())
 
@@ -192,6 +192,86 @@ def test_apt_list_repos_handles_missing_files():
             with patch("builtins.open", side_effect=OSError("not found")):
                 repos = await manager.list_repos()
         assert repos == []
+
+    asyncio.run(run_test())
+
+
+def test_apt_list_repos_recognizes_no_space_disabled_entry():
+    """A '#deb-src ...' line (no space after #) must be surfaced as disabled, not
+    silently dropped (audit finding B10)."""
+    async def run_test():
+        mock_data = (
+            "deb http://archive.ubuntu.com/ubuntu jammy main restricted\n"
+            "#deb-src http://archive.ubuntu.com/ubuntu jammy main restricted\n"
+        )
+
+        manager = AptManager()
+        with patch("app.core.drivers.apt.glob.glob", return_value=[]):
+            with patch("builtins.open", mock_open(read_data=mock_data)):
+                repos = await manager.list_repos()
+
+        assert len(repos) == 2
+        assert repos[1]["enabled"] is False
+        assert repos[1]["id"].startswith("deb-src http://archive.ubuntu.com")
+
+    asyncio.run(run_test())
+
+
+def test_apt_list_repos_parses_deb822_sources_format():
+    """list_repos must parse deb822 .sources files (Ubuntu 24.04+/Debian 12+ default),
+    not just legacy .list files (audit finding B9)."""
+    async def run_test():
+        deb822_data = (
+            "Types: deb\n"
+            "URIs: http://archive.ubuntu.com/ubuntu/\n"
+            "Suites: noble noble-updates\n"
+            "Components: main universe\n"
+            "Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n"
+            "\n"
+            "Types: deb\n"
+            "URIs: http://security.ubuntu.com/ubuntu/\n"
+            "Suites: noble-security\n"
+            "Components: main universe\n"
+            "Enabled: no\n"
+        )
+
+        manager = AptManager()
+
+        def fake_glob(pattern):
+            if pattern.endswith("*.sources"):
+                return ["/etc/apt/sources.list.d/ubuntu.sources"]
+            return []
+
+        with patch("app.core.drivers.apt.glob.glob", side_effect=fake_glob):
+            with patch("builtins.open", mock_open(read_data=deb822_data)):
+                repos = await manager.list_repos()
+
+        assert len(repos) == 2
+        assert repos[0]["enabled"] is True
+        assert repos[0]["url"] == "http://archive.ubuntu.com/ubuntu/"
+        assert repos[1]["enabled"] is False
+        assert repos[1]["url"] == "http://security.ubuntu.com/ubuntu/"
+
+    asyncio.run(run_test())
+
+
+def test_apt_check_updates_strips_multiarch_qualifier():
+    """check_updates() must strip the ':amd64'-style multiarch qualifier so its
+    package names agree with list_installed()'s bare names (audit finding B11)."""
+    async def run_test():
+        manager = AptManager()
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (
+            b"libc6:amd64/jammy-updates 2.35-0ubuntu3.4 amd64 [upgradable from: 2.35-0ubuntu3.1]\n",
+            b""
+        )
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            updates = await manager.check_updates()
+
+        assert len(updates) == 1
+        assert updates[0]["name"] == "libc6"
 
     asyncio.run(run_test())
 

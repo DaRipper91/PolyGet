@@ -57,11 +57,13 @@ class FlatpakManager(PackageManager):
                                 "commit": commit,
                                 "alt_id": alt_id
                             }
-            except Exception:
+            except Exception as e:
                 try:
                     list_proc.kill()
+                    await list_proc.wait()
                 except Exception:
                     pass
+                raise RuntimeError(f"{self.name} installed-package query failed: {e}") from e
 
             # 2. Query Flatpak for updates
             try:
@@ -71,12 +73,13 @@ class FlatpakManager(PackageManager):
                     stderr=asyncio.subprocess.PIPE
                 )
                 stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
-            except Exception:
+            except Exception as e:
                 try:
                     proc.kill()
+                    await proc.wait()
                 except Exception:
                     pass
-                return []
+                raise RuntimeError(f"{self.name} update query failed: {e}") from e
 
             if not stdout:
                 return []
@@ -113,8 +116,8 @@ class FlatpakManager(PackageManager):
                         "new": new_ver
                     })
             return updates
-        except Exception:
-            return []
+        except Exception as e:
+            raise RuntimeError(f"{self.name} update check failed: {e}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade packages using Flatpak.
@@ -146,7 +149,7 @@ class FlatpakManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await proc.communicate()
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
             if proc.returncode != 0 or not stdout:
                 return []
             import json

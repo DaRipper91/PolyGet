@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.manager import discover_managers
@@ -17,6 +17,7 @@ def test_dnf_list_installed_and_install_cmd():
 
     async def run_test():
         mock_proc = AsyncMock()
+        mock_proc.kill = MagicMock()
         mock_proc.returncode = 0
         mock_proc.communicate.return_value = (
             b"Installed packages\n"
@@ -49,6 +50,20 @@ def test_flatpak_list_installed_and_install_cmd():
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             installed = await manager.list_installed()
         assert installed == ["org.gimp.GIMP", "org.mozilla.firefox"]
+
+    asyncio.run(run_test())
+
+
+def test_flatpak_list_installed_timeout_returns_empty():
+    """A hung flatpak list subprocess should fail open to [], not hang (audit finding B1)."""
+    manager = FlatpakManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+                result = await manager.list_installed()
+        assert result == []
 
     asyncio.run(run_test())
 
@@ -232,17 +247,19 @@ def test_active_managers_sanity():
 
 
 def test_flatpak_check_updates_timeout():
-    """Test FlatpakManager.check_updates handles execution timeouts gracefully."""
+    """Test FlatpakManager.check_updates reports execution timeouts."""
     manager = FlatpakManager()
 
     async def run_test():
         mock_proc = AsyncMock()
+        mock_proc.kill = MagicMock()
+        mock_proc.wait = AsyncMock()
         # Mock communicate to raise TimeoutError when wrapped in asyncio.wait_for
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
              patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
-            updates = await manager.check_updates()
+            with pytest.raises(RuntimeError, match="Flatpak update check failed"):
+                await manager.check_updates()
             
-        assert updates == []
         mock_proc.kill.assert_called()
 
     asyncio.run(run_test())
@@ -280,4 +297,3 @@ def test_search_packages_capability():
                 pass
 
     asyncio.run(run_test())
-

@@ -16,8 +16,33 @@ regardless of which underlying tool actually owns a given package.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python run.py
+python run.py                 # GUI
+python run.py --tui           # Textual TUI
+python run.py <command>       # headless CLI (see below)
 ```
+
+Tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest tests -q` (whole suite runs in a
+few seconds; focus with `tests/test_<area>.py` while iterating).
+
+## Headless CLI (`app/cli.py`) — use this to inspect the real system
+
+`python run.py <command> [--json]` (or just `polyget <command>` — a fish function wraps `run.py`)
+drives the same driver layer as the GUI, with no Qt import. Prefer it over ad-hoc
+`python -c "import asyncio; ..."` snippets when you need to see what a driver actually returns.
+
+- Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `audit`, `repos`,
+  `history`, `catalog`, `ignore list`. All accept `-m/--manager NAME` (repeatable,
+  case-insensitive).
+- Mutating: `upgrade`, `install`, `sync` **only print the planned commands** unless `--yes` is
+  passed. Never pass `--yes` on your own initiative; show the plan and let the user run it.
+  System managers (DNF/Pacman/APT) use `pkexec`, which fails without a TTY/polkit agent, so the
+  user should run those themselves via `! polyget upgrade -m dnf --yes`.
+- `--json` prints exactly one JSON document on stdout; progress and child-process output go to
+  stderr. Exit codes: 0 ok, 1 a manager/command failed (partial results are still printed),
+  2 usage error (unknown/uninstalled manager, bad args).
+- New subcommands go in `app/cli.py` (add to `COMMANDS` so `app/main.py` routes to it) with a
+  test in `tests/test_cli.py`, which swaps in fake managers — never hit real package managers
+  in tests.
 
 ## Design principles that shape every decision in this codebase
 
@@ -37,24 +62,25 @@ python run.py
 
 ## Project structure
 
-- `run.py` — entry point launcher
+- `run.py` — entry point launcher; `app/main.py` routes to GUI, `--tui`, or the CLI
+- `app/cli.py` — headless argparse CLI with `--json` output
 - `requirements.txt` — Python package requirements
 - `app/core/` — reusable package manager drivers and base class (adapted from `upgrader-tui`)
-- `app/ui/` — PySide6 window layouts, styling, and thread workers
+- `app/ui/` — PySide6 window layouts, styling, thread workers, and the Textual TUI (`tui.py`)
+- `app/core/history_store.py` / `ignore_store.py` — upgrade log (`~/.local/share/polyget/
+  history.jsonl`) and ignore list (`~/.config/polyget/ignored_packages.json`), shared by GUI and CLI
 - `docs/plans/` — dated design docs and implementation plans; check here first for the *why*
   behind a feature before re-deriving it from the diff
 - `tests/` — test suite
 
-## Known, previously-confirmed bugs (check these haven't regressed)
+## Previously-fixed bugs (check these haven't regressed)
 
-- **Flatpak driver**: the `-j` flag is broken in the underlying `flatpak` CLI invocation.
-- **Pipx driver**: does a fake PyPI lookup — reports success without actually checking PyPI.
-- **Pacman driver**: uses an inverted exit-code convention relative to the other drivers, which
-  can cause success/failure to be reported backwards if not specifically handled.
+- **Flatpak driver**: used a `-j` flag the `flatpak` CLI doesn't support; now uses `--json`.
+- **Pipx driver**: used to fake its PyPI lookup; now queries PyPI's simple index and JSON API.
+- **Pacman driver**: `pacman -Qu` exits 1 when there are simply no updates; treating that as a
+  failure (or the reverse) flips success/failure reporting.
 
-These were confirmed real during a prior code review, with Antigravity implementation plans
-written for each — check `docs/plans/` for the corresponding fix-plan documents before assuming
-these are still open or already fixed.
+Fix plans for each live in `docs/plans/`.
 
 ## Cloud environment limitations
 

@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import PackageManager, register_manager, describe_error
 
 
 @register_manager
@@ -26,7 +26,7 @@ class CargoManager(PackageManager):
             list[dict[str, Any]]: A list of dictionaries representing available updates.
         """
         try:
-            if shutil.which("cargo-install-update") is None:
+            if shutil.which("cargo-install-update") is None and shutil.which("cargo-update") is None:
                 return []
             proc = await asyncio.create_subprocess_exec(
                 "cargo", "install-update", "-l",
@@ -47,7 +47,36 @@ class CargoManager(PackageManager):
                         })
             return updates
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {e}") from e
+            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+
+    async def check_vulnerabilities(self) -> list[dict[str, Any]]:
+        """Query Cargo binaries for vulnerabilities using cargo-audit if installed."""
+        if shutil.which("cargo-audit") is None:
+            return []
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "cargo", "audit", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            import json
+            data = json.loads(stdout.decode(errors="ignore") or "{}")
+            results = []
+            vulnerabilities = data.get("vulnerabilities", {}).get("list", [])
+            for item in vulnerabilities:
+                pkg_name = item.get("package", {}).get("name", "")
+                advisory = item.get("advisory", {}).get("title", "")
+                severity = item.get("advisory", {}).get("severity", "high")
+                if pkg_name:
+                    results.append({
+                        "name": pkg_name,
+                        "severity": severity,
+                        "advisory": advisory
+                    })
+            return results
+        except Exception:
+            return []
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade cargo binaries.
@@ -58,7 +87,7 @@ class CargoManager(PackageManager):
         Returns:
             list[str]: The upgrade command and its arguments.
         """
-        if shutil.which("cargo-install-update") is not None:
+        if shutil.which("cargo-install-update") is not None or shutil.which("cargo-update") is not None:
             if packages:
                 return ["cargo", "install-update"] + packages
             return ["cargo", "install-update", "-a"]
@@ -71,7 +100,7 @@ class CargoManager(PackageManager):
             list[str]: A list of installed package names.
         """
         try:
-            if shutil.which("cargo-install-update") is None:
+            if shutil.which("cargo-install-update") is None and shutil.which("cargo-update") is None:
                 return []
             proc = await asyncio.create_subprocess_exec(
                 "cargo", "install-update", "-l",

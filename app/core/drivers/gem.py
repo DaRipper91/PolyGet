@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import PackageManager, register_manager, describe_error
 
 
 @register_manager
@@ -33,7 +33,7 @@ class GemManager(PackageManager):
                     updates.append({"name": match.group(1), "current": match.group(2), "new": match.group(3)})
             return updates
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {e}") from e
+            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:

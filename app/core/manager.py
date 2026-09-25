@@ -4,6 +4,14 @@ import shutil
 from typing import Type, Any
 
 
+def describe_error(e: Exception) -> str:
+    """Render an exception for display, falling back to its type name when str(e) is
+    empty — notably a bare asyncio.TimeoutError, whose str() is always '', which would
+    otherwise surface to the user as a blank, seemingly-nothing-happened error message.
+    """
+    return str(e) or type(e).__name__
+
+
 class PackageManager:
     """Base class defining the interface for all package manager drivers."""
 
@@ -27,6 +35,14 @@ class PackageManager:
                 new version).
         """
         raise NotImplementedError("Subclasses must implement check_updates()")
+
+    async def check_vulnerabilities(self) -> list[dict[str, Any]]:
+        """Optionally query the package manager or audit tool for security advisories.
+
+        Returns:
+            list[dict[str, Any]]: List of dicts with 'name', 'severity', and 'advisory'.
+        """
+        return []
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to perform the package upgrades.

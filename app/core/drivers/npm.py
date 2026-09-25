@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import PackageManager, register_manager, describe_error
 
 
 @register_manager
@@ -65,7 +65,7 @@ class NpmManager(PackageManager):
                     proc.kill()
                 except Exception:
                     pass
-            raise RuntimeError(f"{self.name} update check failed: {e}") from e
+            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
 
         # `npm outdated -g --json` reports failures (registry errors, network
         # issues, etc.) as {"error": {...}} on stdout rather than a package
@@ -85,6 +85,38 @@ class NpmManager(PackageManager):
             })
         self._last_outdated = [u["name"] for u in updates]
         return updates
+
+    async def check_vulnerabilities(self) -> list[dict[str, Any]]:
+        """Query NPM for security advisories using npm audit."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "audit", "-g", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            import json
+            data = json.loads(stdout.decode(errors="ignore") or "{}")
+            results = []
+            vulnerabilities = data.get("vulnerabilities", {})
+            if isinstance(vulnerabilities, dict):
+                for name, info in vulnerabilities.items():
+                    advisory = ""
+                    via = info.get("via")
+                    if isinstance(via, list) and via:
+                        first = via[0]
+                        if isinstance(first, dict):
+                            advisory = first.get("title", "")
+                        elif isinstance(first, str):
+                            advisory = first
+                    results.append({
+                        "name": name,
+                        "severity": info.get("severity", "unknown"),
+                        "advisory": advisory
+                    })
+            return results
+        except Exception:
+            return []
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade global NPM packages.

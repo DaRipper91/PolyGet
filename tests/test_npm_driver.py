@@ -89,6 +89,38 @@ def test_npm_check_updates_reports_registry_error():
     asyncio.run(run_test())
 
 
+def test_npm_check_updates_timeout_reports_a_real_message_not_blank():
+    """A timed-out `npm outdated -g --json` must surface as a clear error, not a blank
+    'NPM update check failed: ' with nothing after the colon — a bare asyncio.TimeoutError
+    has an empty str(), so the raw {e} interpolation used to swallow the reason entirely."""
+    async def run_test():
+        manager = NpmManager()
+
+        mock_prefix_proc = AsyncMock()
+        mock_prefix_proc.returncode = 0
+        mock_prefix_proc.communicate.return_value = (b"/usr/local\n", b"")
+
+        mock_outdated_proc = AsyncMock()
+
+        def create_subprocess_exec_side_effect(*args, **kwargs):
+            if "config" in args:
+                return mock_prefix_proc
+            return mock_outdated_proc
+
+        async def wait_for_side_effect(coro, timeout):
+            if timeout == 5.0:
+                return await coro
+            coro.close()
+            raise asyncio.TimeoutError
+
+        with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_exec_side_effect):
+            with patch("asyncio.wait_for", side_effect=wait_for_side_effect):
+                with pytest.raises(RuntimeError, match="TimeoutError"):
+                    await manager.check_updates()
+
+    asyncio.run(run_test())
+
+
 def test_npm_get_upgrade_command_cached_prefix_restricted():
     """Test upgrade command when cached prefix requires elevation."""
     manager = NpmManager()

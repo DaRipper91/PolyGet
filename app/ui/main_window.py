@@ -385,9 +385,29 @@ class UpdateItemWidget(QWidget):
         lbl_name.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffffff;")
         details_layout.addWidget(lbl_name)
 
-        version_info = f"{pkg.get('current', '')}  ➔  {pkg.get('new', '')}"
+        cur_ver = pkg.get('current', '')
+        new_ver = pkg.get('new', '')
+        version_info = f"{cur_ver}  ➔  {new_ver}"
         lbl_version = QLabel(version_info)
-        lbl_version.setStyleSheet("color: #9ca3af; font-size: 12px;")
+        
+        # Calculate Semver color (Major = Red/Pink #f38ba8, Minor = Yellow #f9e2af, Patch = Green #a6e3a1)
+        semver_color = "#9ca3af"
+        try:
+            c_clean = cur_ver.lstrip("v").split("(")[0].strip()
+            n_clean = new_ver.lstrip("v").split("(")[0].strip()
+            c_parts = [int(p) for p in c_clean.split(".") if p.isdigit()]
+            n_parts = [int(p) for p in n_clean.split(".") if p.isdigit()]
+            if c_parts and n_parts:
+                if n_parts[0] > c_parts[0]:
+                    semver_color = "#f38ba8"  # Major bump
+                elif len(n_parts) > 1 and len(c_parts) > 1 and n_parts[1] > c_parts[1]:
+                    semver_color = "#f9e2af"  # Minor bump
+                else:
+                    semver_color = "#a6e3a1"  # Patch / build bump
+        except Exception:
+            pass
+
+        lbl_version.setStyleSheet(f"color: {semver_color}; font-size: 12px;")
         details_layout.addWidget(lbl_version)
 
         layout.addLayout(details_layout)
@@ -762,6 +782,10 @@ class MainWindow(QMainWindow):
         item_repos.setIcon(QIcon.fromTheme("applications-internet"))
         self.nav_list.addItem(item_repos)
 
+        item_history = QListWidgetItem("Update History")
+        item_history.setIcon(QIcon.fromTheme("document-open-recent"))
+        self.nav_list.addItem(item_history)
+
         # A plain-text item's sizeHint (queried only once it's actually in the list — before
         # that, QListWidgetItem.sizeHint() isn't backed by a real style/delegate context) already
         # includes the ::item padding/margin QSS box. Reuse it verbatim for the widget-based row
@@ -824,6 +848,16 @@ class MainWindow(QMainWindow):
         self.lbl_summary.setObjectName("summary-label")
         updates_header.addWidget(self.lbl_summary)
         updates_header.addStretch()
+
+        self.btn_select_all = QPushButton("Select All")
+        self.btn_select_all.setObjectName("btn-scan")
+        self.btn_select_all.clicked.connect(self.select_all_updates)
+        updates_header.addWidget(self.btn_select_all)
+
+        self.btn_deselect_all = QPushButton("Deselect All")
+        self.btn_deselect_all.setObjectName("btn-scan")
+        self.btn_deselect_all.clicked.connect(self.deselect_all_updates)
+        updates_header.addWidget(self.btn_deselect_all)
 
         self.btn_update_selected = QPushButton("Update Selected")
         self.btn_update_selected.setObjectName("btn-update-all")
@@ -1101,6 +1135,23 @@ class MainWindow(QMainWindow):
         repos_layout.addWidget(repos_main)
 
         self.stacked_widget.addWidget(repos_page)
+
+        # PAGE 7: History Page
+        history_page = QWidget()
+        history_layout = QVBoxLayout(history_page)
+        history_layout.setContentsMargins(20, 20, 20, 20)
+        history_layout.setSpacing(15)
+
+        lbl_history_title = QLabel("Update Execution History")
+        lbl_history_title.setObjectName("summary-label")
+        history_layout.addWidget(lbl_history_title)
+
+        self.history_list = QListWidget()
+        self.history_list.setObjectName("updates-list")
+        history_layout.addWidget(self.history_list)
+
+        self.stacked_widget.addWidget(history_page)
+
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1401,6 +1452,25 @@ class MainWindow(QMainWindow):
                 self.populate_managers_list()
             elif index == 5:
                 self.populate_repos_managers()
+            elif index == 6:
+                self.populate_history_page()
+
+    def populate_history_page(self):
+        self.history_list.clear()
+        from app.core.history_store import load_history
+        import time
+        records = load_history()
+        if not records:
+            item = QListWidgetItem("No upgrade history recorded yet.")
+            self.history_list.addItem(item)
+            return
+        for rec in records:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.get("timestamp", 0)))
+            status = "✅ SUCCESS" if rec.get("success") else "❌ FAILED"
+            mgr = rec.get("manager", "Unknown")
+            pkgs = ", ".join(rec.get("packages", []))
+            item = QListWidgetItem(f"[{ts}] {status} - {mgr}: {pkgs}")
+            self.history_list.addItem(item)
 
     def populate_repos_managers(self):
         self.repos_mgr_list.clear()
@@ -1663,8 +1733,12 @@ class MainWindow(QMainWindow):
         self.scan_errors.pop(manager_name, None)
         self.updates_cache[manager_name] = updates
         self.selected_updates.setdefault(manager_name, set())
+        from app.core.ignore_store import IgnoreStore
+        store = IgnoreStore()
         for pkg in updates:
-            self.selected_updates[manager_name].add(pkg.get("name", ""))
+            pkg_name = pkg.get("name", "")
+            if not store.is_ignored(manager_name, pkg_name):
+                self.selected_updates[manager_name].add(pkg_name)
         self.update_updates_badge()
 
         for i in range(self.status_list.count()):
@@ -1709,6 +1783,7 @@ class MainWindow(QMainWindow):
         search_filter = self.search_bar.text().lower()
 
         for manager_name, updates in self.updates_cache.items():
+            self.selected_updates.setdefault(manager_name, set())
             for pkg in updates:
                 pkg_name = pkg.get("name", "")
                 if search_filter and search_filter not in pkg_name.lower():
@@ -1745,6 +1820,18 @@ class MainWindow(QMainWindow):
             nav_item.setText(f"System Updates ({total_updates})")
         else:
             nav_item.setText("System Updates")
+
+    def select_all_updates(self):
+        for manager_name, updates in self.updates_cache.items():
+            self.selected_updates.setdefault(manager_name, set())
+            for pkg in updates:
+                self.selected_updates[manager_name].add(pkg.get("name", ""))
+        self.rebuild_updates_list()
+
+    def deselect_all_updates(self):
+        for manager_name in self.selected_updates:
+            self.selected_updates[manager_name].clear()
+        self.rebuild_updates_list()
 
     def on_item_selection_changed(self, checked: bool, pkg_name: str, manager_name: str):
         if checked:
@@ -1793,11 +1880,22 @@ class MainWindow(QMainWindow):
             self.active_operation = None
             if self.upgrade_failures:
                 failed_list = "\n".join(f"- {name}" for name in self.upgrade_failures)
-                QMessageBox.warning(
-                    self,
+                msg_box = QMessageBox(
+                    QMessageBox.Icon.Warning,
                     "Batch Upgrade Finished With Errors",
-                    f"{len(self.upgrade_failures)} manager(s) failed to upgrade. Check the console for details.\n\n{failed_list}"
+                    f"{len(self.upgrade_failures)} manager(s) failed to upgrade. Check the console for details.\n\n{failed_list}\n\nWould you like to retry the failed manager(s)?",
+                    QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close,
+                    self
                 )
+                res = msg_box.exec()
+                if res == QMessageBox.StandardButton.Retry:
+                    retry_failures = list(self.upgrade_failures)
+                    self.nav_list.setCurrentRow(0)
+                    for name in retry_failures:
+                        if name in self.managers and name in self.selected_updates:
+                            pass
+                    self.start_batch_upgrade()
+                    return
             else:
                 QMessageBox.information(self, "Batch Upgrade Complete", "All selected package upgrades have finished.")
             self.nav_list.setCurrentRow(0)
@@ -1809,12 +1907,14 @@ class MainWindow(QMainWindow):
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(lambda success: self.handle_queue_worker_finished(success, manager.name))
+        worker.finished_signal.connect(lambda success: self.handle_queue_worker_finished(success, manager.name, packages))
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
-    def handle_queue_worker_finished(self, success: bool, manager_name: str):
+    def handle_queue_worker_finished(self, success: bool, manager_name: str, packages: list[str]):
+        from app.core.history_store import record_upgrade
+        record_upgrade(manager_name, packages, success)
         if success:
             self.log(f"✅ Successfully upgraded {manager_name}")
         else:

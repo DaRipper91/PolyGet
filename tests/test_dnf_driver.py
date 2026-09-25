@@ -94,6 +94,51 @@ def test_dnf_list_installed_timeout_returns_empty():
     asyncio.run(run_test())
 
 
+def test_dnf_check_updates_kills_leaked_json_attempt_before_fallback():
+    """A timed-out `dnf check-update --json` attempt must be killed, not abandoned —
+    otherwise it lingers in the background holding DNF's system-repository lock,
+    which blocks the fallback check right below (and any later upgrade command)
+    from ever acquiring it. This reproduces a real-world lock-contention bug where
+    the leaked --json process was still holding the lock when the user's very next
+    DNF upgrade tried to run."""
+    async def run_test():
+        manager = DnfManager()
+
+        mock_json_proc = AsyncMock()
+        mock_json_proc.returncode = None  # still "running" when we give up on it
+
+        mock_fallback_proc = AsyncMock()
+        mock_fallback_proc.returncode = 100
+        mock_fallback_proc.communicate.return_value = (
+            b"package1.x86_64                     1.1.0-1.fc40                    updates\n",
+            b""
+        )
+
+        def create_subprocess_exec_side_effect(*args, **kwargs):
+            return mock_json_proc if "--json" in args else mock_fallback_proc
+
+        call_count = 0
+
+        async def wait_for_side_effect(coro, timeout):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                coro.close()
+                raise asyncio.TimeoutError
+            return await coro
+
+        with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_exec_side_effect):
+            with patch("asyncio.wait_for", side_effect=wait_for_side_effect):
+                updates = await manager.check_updates()
+
+        mock_json_proc.kill.assert_called_once()
+        mock_json_proc.wait.assert_called_once()
+        assert len(updates) == 1
+        assert updates[0]["name"] == "package1"
+
+    asyncio.run(run_test())
+
+
 def test_dnf_check_updates_fallback():
     """Test check_updates falls back to standard dnf check-update quiet output."""
     async def run_test():

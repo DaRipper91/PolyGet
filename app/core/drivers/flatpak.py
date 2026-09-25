@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import PackageManager, register_manager, describe_error
 
 
 @register_manager
@@ -63,7 +63,7 @@ class FlatpakManager(PackageManager):
                     await list_proc.wait()
                 except Exception:
                     pass
-                raise RuntimeError(f"{self.name} installed-package query failed: {e}") from e
+                raise RuntimeError(f"{self.name} installed-package query failed: {describe_error(e)}") from e
 
             # 2. Query Flatpak for updates
             try:
@@ -79,7 +79,7 @@ class FlatpakManager(PackageManager):
                     await proc.wait()
                 except Exception:
                     pass
-                raise RuntimeError(f"{self.name} update query failed: {e}") from e
+                raise RuntimeError(f"{self.name} update query failed: {describe_error(e)}") from e
 
             if not stdout:
                 return []
@@ -117,7 +117,7 @@ class FlatpakManager(PackageManager):
                     })
             return updates
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {e}") from e
+            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade packages using Flatpak.

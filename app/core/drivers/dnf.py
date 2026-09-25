@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import PackageManager, register_manager, describe_error
 
 
 @register_manager
@@ -25,6 +25,7 @@ class DnfManager(PackageManager):
         Returns:
             list[dict[str, Any]]: A list of dictionaries representing available updates.
         """
+        proc = None
         try:
             # First try using --json option (supported in DNF 5) without sudo
             proc = await asyncio.create_subprocess_exec(
@@ -52,9 +53,19 @@ class DnfManager(PackageManager):
                 except json.JSONDecodeError:
                     pass
         except Exception:
-            pass
+            # A timed-out or otherwise-failed --json attempt must be killed here,
+            # not just abandoned — otherwise it lingers in the background holding
+            # DNF's system-repository lock, which blocks the fallback check right
+            # below (and any later upgrade command) from ever acquiring it.
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
 
         # Fallback to standard check-update parsing without sudo
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 "dnf", "check-update", "--quiet",
@@ -75,7 +86,13 @@ class DnfManager(PackageManager):
                         updates.append({"name": pkg_name, "current": "Installed", "new": parts[1]})
             return updates
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {e}") from e
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.kill()
+                    await proc.wait()
+                except Exception:
+                    pass
+            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade system packages using DNF.

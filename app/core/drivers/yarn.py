@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import PackageManager, register_manager, describe_error
 
 
 @register_manager
@@ -34,7 +34,7 @@ class YarnManager(PackageManager):
                             updates.append({"name": row[0], "current": row[1], "new": row[3]})
             return updates
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {e}") from e
+            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:

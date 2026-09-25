@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest *)",
+      "Bash(.venv/bin/python run.py managers *)",
+      "Bash(.venv/bin/python run.py outdated *)",
+      "Bash(.venv/bin/python run.py installed *)",
+      "Bash(.venv/bin/python run.py search *)",
+      "Bash(.venv/bin/python run.py audit *)",
+      "Bash(.venv/bin/python run.py repos *)",
+      "Bash(.venv/bin/python run.py history *)",
+      "Bash(.venv/bin/python run.py catalog *)",
+      "Bash(.venv/bin/python run.py --help)",
+      "Bash(.venv/bin/python run.py * --help)"
+    ]
+  }
+}

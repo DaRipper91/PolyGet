@@ -6,10 +6,11 @@ from typing import Any
 from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
-from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button
+from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button, Checkbox
 from textual.containers import Horizontal, Vertical
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
+from app.core import sudo_secret
 
 
 class HelpModal(ModalScreen[None]):
@@ -33,6 +34,7 @@ class HelpModal(ModalScreen[None]):
                 "[bold #a78bfa]r[/]      - Rescan the system for package managers\n"
                 "[bold #a78bfa]u[/]      - Upgrade selected package managers\n"
                 "[bold #a78bfa]a[/]      - Upgrade all discovered package managers\n"
+                "[bold #a78bfa]f[/]      - Forget the sudo password saved in your keyring\n"
                 "[bold #a78bfa]? / h[/]  - Show this help menu\n\n"
                 "Press [bold #8b5cf6]ESC[/], [bold #8b5cf6]Enter[/], or [bold #8b5cf6]Space[/] to return to the app."
             )
@@ -46,8 +48,12 @@ class HelpModal(ModalScreen[None]):
             self.dismiss()
 
 
-class PasswordModal(ModalScreen[str | None]):
-    """A secure modal dialog to prompt the user for a sudo password."""
+class PasswordModal(ModalScreen[tuple[str, bool] | None]):
+    """A secure modal dialog to prompt the user for a sudo password.
+
+    Dismisses with (password, remember) or None on cancel. The "remember" box
+    only appears when an OS keyring is available to store it in.
+    """
 
     BINDINGS = [
         ("escape", "cancel", "Cancel"),
@@ -60,6 +66,8 @@ class PasswordModal(ModalScreen[str | None]):
             yield Label("The upgrade command requires administrator privileges.\n"
                         "Please enter your password below:")
             yield Input(placeholder="Password", password=True, id="password-input")
+            if sudo_secret.available():
+                yield Checkbox("Remember in system keyring", id="remember-box")
             with Horizontal(id="password-buttons"):
                 yield Button("Submit", variant="primary", id="submit-btn")
                 yield Button("Cancel", id="cancel-btn")
@@ -71,14 +79,17 @@ class PasswordModal(ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
         if event.button.id == "submit-btn":
-            password = self.query_one("#password-input", Input).value
-            self.dismiss(password)
+            self._submit(self.query_one("#password-input", Input).value)
         elif event.button.id == "cancel-btn":
             self.dismiss(None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """Handle input submission events."""
-        self.dismiss(event.value)
+        self._submit(event.value)
+
+    def _submit(self, password: str) -> None:
+        boxes = self.query("#remember-box")
+        self.dismiss((password, bool(boxes) and boxes.first(Checkbox).value))
 
     def action_cancel(self) -> None:
         """Cancel the dialog and dismiss with None."""
@@ -91,6 +102,20 @@ _PKEXEC_NO_AGENT_MARKERS = (
     "not authorized",
     "cannot determine the session",
 )
+
+
+_SUDO_AUTH_FAILURE_MARKERS = (
+    "incorrect password",
+    "sorry, try again",
+    "no password was provided",
+    "a password is required",
+)
+
+
+def _looks_like_sudo_auth_failure(stderr_text: str) -> bool:
+    """sudo rejected (or never got) the password, as opposed to the command failing."""
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in _SUDO_AUTH_FAILURE_MARKERS)
 
 
 def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
@@ -117,6 +142,7 @@ class PolyGetTuiApp(App[None]):
         ("r", "rescan_managers", "Rescan"),
         ("u", "upgrade_selected", "Upgrade Selected"),
         ("a", "upgrade_all", "Upgrade All"),
+        ("f", "forget_password", "Forget Password"),
         ("question_mark", "show_help", "Help"),
         ("h", "show_help", "Help"),
     ]
@@ -384,6 +410,8 @@ class PolyGetTuiApp(App[None]):
         mgr: PackageManager,
         password: str | None = None,
         cmd_override: list[str] | None = None,
+        remember: bool = False,
+        from_keyring: bool = False,
     ) -> bool:
         """Run the upgrade command for a single package manager and stream output.
 
@@ -397,6 +425,9 @@ class PolyGetTuiApp(App[None]):
             cmd_override: Used internally to retry with a substituted `sudo` command
                 after a pkexec no-auth-agent failure, instead of re-deriving
                 `mgr.get_upgrade_command()` (which would just return `pkexec` again).
+            remember: Save `password` to the OS keyring once sudo accepts it.
+            from_keyring: `password` came from the keyring; if sudo rejects it, it is
+                deleted there and the user is prompted instead.
 
         Returns:
             bool: True if the upgrade succeeded, False otherwise.
@@ -410,6 +441,9 @@ class PolyGetTuiApp(App[None]):
         is_pkexec = cmd[0] == "pkexec"
         if is_sudo and "-S" not in cmd:
             cmd.insert(1, "-S")
+        if is_sudo and password is None:
+            password = sudo_secret.load()
+            from_keyring = password is not None
 
         log.write(f" -> Upgrading {mgr.name} using command: [bold #a78bfa]{' '.join(cmd)}[/]...")
         await self._send_phone_notification(f"Starting upgrade for {mgr.name}...")
@@ -452,44 +486,62 @@ class PolyGetTuiApp(App[None]):
             if proc.returncode == 0:
                 log.write(f" ✅ [bold green]{mgr.name} upgrade complete.[/bold green]")
                 await self._send_phone_notification(f"✅ {mgr.name} upgrade complete.")
+                if remember and password is not None and sudo_secret.save(password):
+                    log.write(" 🔐 Password saved to your system keyring (press f to forget it).")
                 return True
             else:
                 log.write(f" ❌ [bold red]{mgr.name} upgrade failed with exit code {proc.returncode}.[/bold red]")
                 await self._send_phone_notification(f"❌ {mgr.name} upgrade failed.")
 
-                needs_password_retry = (
-                    password is None
-                    and (
-                        is_sudo
-                        or (is_pkexec and _looks_like_pkexec_no_agent_failure("\n".join(stderr_lines)))
+                stderr_text = "\n".join(stderr_lines)
+                if from_keyring and _looks_like_sudo_auth_failure(stderr_text):
+                    sudo_secret.forget()
+                    log.write(" 🔑 sudo rejected the saved password — removed it from your keyring.")
+                    needs_password_retry = True
+                else:
+                    needs_password_retry = password is None and (
+                        is_sudo or (is_pkexec and _looks_like_pkexec_no_agent_failure(stderr_text))
                     )
-                )
                 if needs_password_retry:
+                    retry_cmd = ["sudo"] + cmd[1:] if is_pkexec else cmd
                     if is_pkexec:
                         log.write(
                             " ⚠️ No polkit authentication agent is bound to this session "
                             "(common over SSH or in a minimal terminal) — falling back to sudo."
                         )
+                        saved = sudo_secret.load()
+                        if saved is not None:
+                            return await self._upgrade_manager(
+                                mgr, password=saved, cmd_override=retry_cmd, from_keyring=True
+                            )
                     loop = asyncio.get_running_loop()
                     fut = loop.create_future()
 
-                    def modal_callback(user_password: str | None) -> None:
-                        fut.set_result(user_password)
+                    def modal_callback(result: tuple[str, bool] | None) -> None:
+                        fut.set_result(result)
 
                     self.push_screen(PasswordModal(), modal_callback)
-                    custom_password = await fut
+                    result = await fut
 
-                    if custom_password is not None:
+                    if result is not None:
+                        typed, remember_it = result
                         log.write(f" 🔄 Retrying {mgr.name} upgrade with custom password...")
-                        retry_cmd = ["sudo"] + cmd[1:] if is_pkexec else cmd
                         return await self._upgrade_manager(
-                            mgr, password=custom_password, cmd_override=retry_cmd
+                            mgr, password=typed, cmd_override=retry_cmd, remember=remember_it
                         )
                 return False
         except Exception as e:
             log.write(f" ❌ [bold red]Error running upgrade for {mgr.name}: {escape(str(e))}[/bold red]")
             await self._send_phone_notification(f"❌ {mgr.name} upgrade failed: {str(e)}")
             return False
+
+    def action_forget_password(self) -> None:
+        """Delete the sudo password saved in the OS keyring, if any."""
+        log = self.query_one("#terminal-log", RichLog)
+        if sudo_secret.forget():
+            log.write(" 🔑 Saved sudo password removed from your keyring.")
+        else:
+            log.write(" 🔑 No saved sudo password to forget.")
 
     async def action_upgrade_selected(self) -> None:
         """Trigger the upgrade process for all selected package managers."""

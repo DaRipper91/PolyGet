@@ -67,6 +67,7 @@ drives the same driver layer as the GUI, with no Qt import. Prefer it over ad-ho
 - `requirements.txt` — Python package requirements
 - `app/core/` — reusable package manager drivers and base class (adapted from `upgrader-tui`)
 - `app/ui/` — PySide6 window layouts, styling, thread workers, and the Textual TUI (`tui.py`)
+- `app/core/sudo_secret.py` — optional sudo password in the OS keyring (Secret Service/KWallet); TUI only, never written to disk by PolyGet
 - `app/core/history_store.py` / `ignore_store.py` — upgrade log (`~/.local/share/polyget/
   history.jsonl`) and ignore list (`~/.config/polyget/ignored_packages.json`), shared by GUI and CLI
 - `docs/plans/` — dated design docs and implementation plans; check here first for the *why*

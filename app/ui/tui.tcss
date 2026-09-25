@@ -125,6 +125,10 @@ PasswordModal {
     margin-bottom: 1;
 }
 
+#remember-box {
+    margin-bottom: 1;
+}
+
 #password-input:focus {
     border: round #8b5cf6;
 }

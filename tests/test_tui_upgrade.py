@@ -2,7 +2,28 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from app.core.manager import PackageManager
-from app.ui.tui import PolyGetTuiApp, _looks_like_pkexec_no_agent_failure
+from app.ui.tui import PolyGetTuiApp, _looks_like_pkexec_no_agent_failure, _looks_like_sudo_auth_failure
+
+
+@pytest.fixture(autouse=True)
+def fake_keyring(monkeypatch):
+    """In-memory stand-in for the OS keyring so tests never touch the real one."""
+    store: dict[str, str] = {}
+    monkeypatch.setattr("app.core.sudo_secret.available", lambda: True)
+    monkeypatch.setattr("app.core.sudo_secret.load", lambda: store.get("pw"))
+    monkeypatch.setattr("app.core.sudo_secret.save", lambda pw: store.__setitem__("pw", pw) or True)
+    monkeypatch.setattr("app.core.sudo_secret.forget", lambda: store.pop("pw", None) is not None)
+    return store
+
+
+def _proc(returncode: int, stderr: bytes = b"", pid: int = 1111) -> AsyncMock:
+    proc = AsyncMock()
+    proc.returncode = returncode
+    proc.pid = pid
+    proc.stdout.readline.side_effect = [b""]
+    proc.stderr.readline.side_effect = ([stderr] if stderr else []) + [b""]
+    proc.wait.return_value = returncode
+    return proc
 
 
 def test_looks_like_pkexec_no_agent_failure_detects_known_markers():
@@ -51,7 +72,7 @@ def test_pkexec_no_agent_failure_falls_back_to_sudo_password_retry():
 
                 def fake_push_screen(screen, callback=None):
                     if callback is not None:
-                        callback("typed-password")
+                        callback(("typed-password", False))
 
                 with patch("asyncio.create_subprocess_exec", side_effect=fake_exec), \
                      patch.object(app, "push_screen", side_effect=fake_push_screen):
@@ -99,3 +120,69 @@ def test_pkexec_failure_without_no_agent_marker_does_not_prompt_for_password():
                 assert push_screen_calls == []
 
     asyncio.run(run_test())
+
+
+def _run_sudo_upgrade(procs, modal_answer):
+    """Drive one sudo upgrade through the TUI; returns (result, argv list, modal count)."""
+    async def run_test():
+        with patch("app.ui.tui.discover_managers", return_value=[]), \
+             patch("app.ui.tui.shutil.which", return_value=None):
+            app = PolyGetTuiApp()
+            async with app.run_test():
+                mgr = MagicMock(spec=PackageManager)
+                mgr.name = "DNF"
+                mgr.get_upgrade_command.return_value = ["sudo", "dnf", "upgrade", "-y"]
+                created, modals = [], []
+
+                async def fake_exec(*args, **kwargs):
+                    created.append(args)
+                    return procs[len(created) - 1]
+
+                def fake_push_screen(screen, callback=None):
+                    modals.append(screen)
+                    callback(modal_answer)
+
+                with patch("asyncio.create_subprocess_exec", side_effect=fake_exec), \
+                     patch.object(app, "push_screen", side_effect=fake_push_screen):
+                    return await app._upgrade_manager(mgr), created, len(modals)
+
+    return asyncio.run(run_test())
+
+
+def test_looks_like_sudo_auth_failure():
+    assert _looks_like_sudo_auth_failure("sudo: 1 incorrect password attempt") is True
+    assert _looks_like_sudo_auth_failure("sudo: no password was provided") is True
+    assert _looks_like_sudo_auth_failure("Error: Failed to download metadata") is False
+
+
+def test_saved_keyring_password_is_used_without_prompting(fake_keyring):
+    fake_keyring["pw"] = "saved-pw"
+    ok = _proc(0)
+    result, created, modal_count = _run_sudo_upgrade([ok], modal_answer=None)
+    assert result is True and modal_count == 0 and len(created) == 1
+    ok.stdin.write.assert_called_once_with(b"saved-pw\n")
+
+
+def test_rejected_saved_password_is_forgotten_then_typed_one_is_remembered(fake_keyring):
+    fake_keyring["pw"] = "old-pw"
+    rejected = _proc(1, b"sudo: 1 incorrect password attempt\n")
+    ok = _proc(0, pid=2222)
+    result, created, modal_count = _run_sudo_upgrade([rejected, ok], modal_answer=("new-pw", True))
+    assert result is True and modal_count == 1
+    ok.stdin.write.assert_called_once_with(b"new-pw\n")
+    assert fake_keyring["pw"] == "new-pw"
+
+
+def test_saved_password_kept_when_command_itself_fails(fake_keyring):
+    fake_keyring["pw"] = "good-pw"
+    failed = _proc(1, b"Error: Failed to download metadata\n")
+    result, _, modal_count = _run_sudo_upgrade([failed], modal_answer=None)
+    assert result is False and modal_count == 0
+    assert fake_keyring["pw"] == "good-pw"
+
+
+def test_typed_password_not_saved_when_remember_unchecked(fake_keyring):
+    ok = _proc(0, pid=2222)
+    result, _, _ = _run_sudo_upgrade([_proc(1, b"sudo: no password was provided\n"), ok],
+                                     modal_answer=("typed", False))
+    assert result is True and "pw" not in fake_keyring

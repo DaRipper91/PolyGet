@@ -101,6 +101,7 @@ def _best_version(versions: dict[str, str]) -> tuple[str | None, str | None]:
     """
     best_mgr = None
     best_ver = None
+    has_comparable = False
     for mgr, ver in versions.items():
         if best_ver is None:
             best_mgr, best_ver = mgr, ver
@@ -108,6 +109,11 @@ def _best_version(versions: dict[str, str]) -> tuple[str | None, str | None]:
         cmp = _version_greater(mgr, ver, best_ver)
         if cmp is True:
             best_mgr, best_ver = mgr, ver
+            has_comparable = True
+        elif cmp is False:
+            has_comparable = True
+    if not has_comparable:
+        return None, None
     return best_mgr, best_ver
 
 

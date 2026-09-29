@@ -14,5 +14,10 @@ venv/
 # The final fix-plan file lands in docs/plans/ and is NOT ignored.
 .audit/
 
+# view-chain relay scratch — per-stage cold-read/adversary/converger reasoning.
+# Same category as .audit/: intermediate. The reconciled outcome is committed as
+# the plan in docs/plans/ plus a divergence note, not these transcripts.
+VIEW-CHAIN/
+
 # Local Claude Code settings (personal overrides, not shared)
 .claude/settings.local.json

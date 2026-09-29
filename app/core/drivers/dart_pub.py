@@ -29,6 +29,22 @@ class DartPubManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dart", "pub", "global", "list",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    versions[parts[0]] = parts[1]
+            return versions
+        except Exception:
+            return {}
+
     async def check_updates(self) -> list[dict[str, Any]]:
         # `dart pub global` has no built-in outdated-check across all globally
         # activated packages — only per-package via reactivation. Re-activating

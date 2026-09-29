@@ -37,6 +37,22 @@ class PoetryManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "poetry", "self", "show",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and not line.startswith(" "):
+                    versions[parts[0]] = parts[1]
+            return versions
+        except Exception:
+            return {}
+
     async def check_updates(self) -> list[dict[str, Any]]:
         return []  # no bulk outdated-check for self plugins; low churn, low value to fake
 

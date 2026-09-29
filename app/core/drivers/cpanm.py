@@ -26,6 +26,23 @@ class CpanmManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "perl", "-MExtUtils::Installed", "-e",
+                "my $inst = ExtUtils::Installed->new; for my $mod ($inst->modules) { print $mod, \" \", $inst->version($mod), \"\\n\"; }",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    versions[parts[0]] = parts[1]
+            return versions
+        except Exception:
+            return {}
+
     async def check_updates(self) -> list[dict[str, Any]]:
         # No built-in bulk outdated-check without the separate `cpan-outdated`
         # tool, which isn't a safe assumption to have installed — return []

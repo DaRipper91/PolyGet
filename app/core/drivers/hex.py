@@ -30,6 +30,25 @@ class HexManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "mix", "archive",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                line = line.strip().rstrip("*").strip()
+                if line and line.endswith(".ez"):
+                    # Format: "package-name-1.2.3.ez"
+                    name_part = line.rsplit("-", 1)[0].replace(".ez", "")
+                    version_part = line.rsplit("-", 1)[1].replace(".ez", "")
+                    versions[name_part] = version_part
+            return versions
+        except Exception:
+            return {}
+
     async def check_updates(self) -> list[dict[str, Any]]:
         # Mix archives don't have a bulk "list what's outdated" command —
         # each would need an individual hex.pm version lookup. Left empty

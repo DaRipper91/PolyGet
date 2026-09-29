@@ -30,6 +30,22 @@ class JuliaManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "julia", "-e", "using Pkg; for (k,v) in Pkg.dependencies(); println(v.name * \" \" * v.version); end",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    versions[parts[0]] = parts[1]
+            return versions
+        except Exception:
+            return {}
+
     async def check_updates(self) -> list[dict[str, Any]]:
         # Pkg.outdated() output isn't line-parseable in a stable way across
         # Julia versions without significant extra scripting — left empty

@@ -163,6 +163,33 @@ class FlatpakManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """List installed Flatpak packages with versions.
+
+        Returns:
+            dict[str, str]: Mapping of application_id -> version string.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "flatpak", "list", "--columns=application,version,branch", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if proc.returncode != 0 or not stdout:
+                return {}
+            import json
+            data = json.loads(stdout.decode(errors="ignore"))
+            versions = {}
+            for pkg in data:
+                app_id = pkg.get("application_id")
+                if app_id:
+                    version = pkg.get("version") or pkg.get("branch") or "Installed"
+                    versions[app_id] = version
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a Flatpak package.
 

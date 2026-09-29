@@ -41,6 +41,12 @@ class SettingsStore:
                 # 4.36.1 — same release, different numbering). Set False to restrict
                 # results to managers that share a version scheme.
                 "include_cross_ecosystem": True,
+                # Extra manager pairs whose version numbers are not reliably
+                # comparable, as [[managerA, managerB], ...]. Pairs known to be bad are
+                # already excluded in code (RubyGems vs any distro, npm/pnpm/yarn vs
+                # each other); add entries here for pairs you hit in the wild instead
+                # of waiting for a code change.
+                "untrusted_pairs": [],
             },
             "ui": {
                 "show_version_check_badge": True,

@@ -62,6 +62,64 @@ def _is_comparable_version(version: str) -> bool:
     return True
 
 
+def _is_trusted_pair(a: str, b: str) -> bool:
+    """True when `a` and `b` are known to number the same upstream release the same way.
+
+    Two managers can share a package name and still count versions independently, in
+    which case "higher" is an artifact of two unrelated counters rather than a real
+    difference. The live case is RubyGems: the gem `google-protobuf` is 4.36.1 while
+    Arch's `ruby-google-protobuf` is 36.1-1.1 — the same library, but RubyGems applies
+    its own major-bump scheme while the distro tracks upstream, so 36 > 4 is meaningless.
+
+    Trust is decided per *pair of managers*, not per manager, because a distro package
+    and a runtime install of the same project (pipx's uvicorn vs the distro's
+    python-uvicorn) are genuinely comparable even though one is a distro package.
+
+    This is deliberately conservative: an unlisted pair is trusted, because a
+    false negative (a missed lead) is recoverable while a false positive (a confident
+    wrong "newer version is available") erodes trust in the whole feature. Users who
+    hit a specific bad pair can add it to `untrusted_pairs` in settings rather than
+    needing a code change.
+    """
+    if a == b:
+        return True
+    return frozenset((a, b)) not in _UNTRUSTED_PAIRS
+
+
+# Manager pairs whose version numbers are NOT reliably comparable even though both
+# sides are legitimately reporting the same package name. Each entry is here because
+# of observed data, not theory — see the comment on each for the live overlap.
+_UNTRUSTED_PAIRS: set[frozenset[str]] = {
+    # Observed on CachyOS: 65 RubyGems<->Pacman overlaps, of which exactly one showed a
+    # version difference — google-protobuf (gem 4.36.1 vs Arch 36.1), a false positive.
+    # RubyGems' Gem::Version scheme and distro pkgver do not track the same counter.
+    frozenset({"RubyGems", "Pacman"}),
+    frozenset({"RubyGems", "DNF"}),
+    frozenset({"RubyGems", "APT"}),
+    # npm/pnpm/yarn all reach the same registry, so a differing version between them is a
+    # shadowed global install, not a newer release elsewhere. Marked rather than hidden
+    # because it is still worth showing (with a caveat).
+    frozenset({"NPM", "pnpm"}),
+    frozenset({"NPM", "Yarn"}),
+    frozenset({"pnpm", "Yarn"}),
+}
+
+
+def _untrusted_pairs_from_settings(settings: Any | None) -> set[frozenset[str]]:
+    """User-supplied extra untrusted pairs, as a set of frozensets."""
+    if settings is None:
+        return set()
+    try:
+        raw = settings.get("version_scan.untrusted_pairs", []) or []
+    except Exception:
+        return set()
+    pairs = set()
+    for entry in raw:
+        if isinstance(entry, (list, tuple)) and len(entry) == 2:
+            pairs.add(frozenset((str(entry[0]), str(entry[1]))))
+    return pairs
+
+
 def _comparators(a: str, b: str) -> tuple[str, str] | None:
     """Return the comparator pair to use for managers `a` and `b`, or None if the
     two are not legitimately comparable.
@@ -94,6 +152,15 @@ def _comparators(a: str, b: str) -> tuple[str, str] | None:
     if ea is None or eb is None or ea != eb:
         return None
     return a, b
+
+
+def _pair_comparable(a: str, b: str, untrusted: set[frozenset[str]] | None = None) -> bool:
+    """True when a pair may be compared at all: same scheme *and* not untrusted."""
+    if untrusted and frozenset((a, b)) in untrusted:
+        return False
+    if frozenset((a, b)) in _UNTRUSTED_PAIRS:
+        return False
+    return _comparators(a, b) is not None
 
 
 def _normalize_name(name: str) -> str:
@@ -234,6 +301,7 @@ async def cross_manager_newest(
     if settings is None:
         settings = get_settings()
     scan_settings = settings.get_version_scan_settings()
+    untrusted = _untrusted_pairs_from_settings(settings)
 
     # Gather installed versions per manager
     results: dict[str, dict[str, Any]] = {}
@@ -279,13 +347,14 @@ async def cross_manager_newest(
         if len(versions_by_mgr) < 2:
             continue
 
-        # Restrict to the set of managers that share a comparable ecosystem with at
-        # least one other. A group can hold managers from incompatible ecosystems
-        # (e.g. a Ruby stdlib gem and a PyPI package of the same name); those are
-        # dropped so a like-for-like comparison is all that remains.
+        # Restrict to managers that can be legitimately compared with at least one
+        # other. A group can hold managers from incompatible ecosystems (a Ruby gem
+        # and a PyPI package of the same name), or a pair whose two version schemes
+        # are independent (RubyGems vs a distro, same-registry JS). Both are dropped
+        # so only like-for-like comparisons remain.
         comparable_mgrs = [
             m for m in versions_by_mgr
-            if any(_comparators(m, o) is not None for o in versions_by_mgr if o != m)
+            if any(_pair_comparable(m, o, untrusted) for o in versions_by_mgr if o != m)
         ]
         if len(comparable_mgrs) < 2:
             continue
@@ -298,7 +367,7 @@ async def cross_manager_newest(
         # Confirm the best is actually higher than at least one comparable peer.
         higher_elsewhere = any(
             m != best_mgr
-            and _comparators(best_mgr, m) is not None
+            and _pair_comparable(best_mgr, m, untrusted)
             and _version_greater(best_mgr, best_ver, comparable[m]) is True
             for m in comparable
         )

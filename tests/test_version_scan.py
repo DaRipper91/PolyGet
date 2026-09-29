@@ -88,52 +88,57 @@ def test_best_version():
 
 @pytest.mark.asyncio
 async def test_cross_manager_newest_higher_elsewhere(tmp_path):
-    """Detect a package with a higher version on a different manager."""
-    mock_npm = AsyncMock(spec=NpmManager)
-    mock_npm.name = "NPM"
-    mock_npm.list_installed_versions = AsyncMock(return_value={"typescript": "5.0.0"})
+    """Detect a package with a higher version on a different manager.
 
-    mock_pnpm = AsyncMock(spec=PnpmManager)
-    mock_pnpm.name = "pnpm"
-    mock_pnpm.list_installed_versions = AsyncMock(return_value={"typescript": "5.1.0"})
+    Uses Pipx vs Pacman, a *trusted* pair: both sides track the upstream project's
+    own versioning. (npm vs pnpm would be an untrusted same-registry pair and is
+    covered by test_same_registry_pair_does_not_suggest.)
+    """
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"python-uvicorn": "0.52.4-1"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"uvicorn": "0.53.0"})
+
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path))
     assert len(result["suggestions"]) == 1
     s = result["suggestions"][0]
-    assert s["package"] == "typescript"
-    assert s["newest"]["manager"] == "pnpm"
-    assert s["newest"]["version"] == "5.1.0"
-    assert s["installed"]["NPM"] == "5.0.0"
-    assert s["installed"]["pnpm"] == "5.1.0"
+    assert s["package"] == "uvicorn"
+    assert s["newest"]["manager"] == "Pipx"
+    assert s["newest"]["version"] == "0.53.0"
+    assert s["installed"]["Pacman"] == "0.52.4-1"
+    assert s["installed"]["Pipx"] == "0.53.0"
 
 
 @pytest.mark.asyncio
 async def test_cross_manager_newest_all_equal_silent(tmp_path):
     """No suggestion when versions are equal across managers."""
-    mock_npm = AsyncMock(spec=NpmManager)
-    mock_npm.name = "NPM"
-    mock_npm.list_installed_versions = AsyncMock(return_value={"typescript": "5.0.0"})
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"python-uvicorn": "0.53.0-1"})
 
-    mock_pnpm = AsyncMock(spec=PnpmManager)
-    mock_pnpm.name = "pnpm"
-    mock_pnpm.list_installed_versions = AsyncMock(return_value={"typescript": "5.0.0"})
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"uvicorn": "0.53.0"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path))
     assert result["suggestions"] == []
 
 
 @pytest.mark.asyncio
 async def test_cross_manager_newest_unparseable_silent(tmp_path):
     """No suggestion when versions are unparseable."""
-    mock_npm = AsyncMock(spec=NpmManager)
-    mock_npm.name = "NPM"
-    mock_npm.list_installed_versions = AsyncMock(return_value={"pkg": "unknown"})
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"pkg": "unknown"})
 
-    mock_pnpm = AsyncMock(spec=PnpmManager)
-    mock_pnpm.name = "pnpm"
-    mock_pnpm.list_installed_versions = AsyncMock(return_value={"pkg": "also-unknown"})
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"pkg": "also-unknown"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path))
     assert result["suggestions"] == []
 
 
@@ -156,44 +161,45 @@ async def test_cross_manager_newest_one_failed_survives(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cross_manager_newest_unknown_names_unmatched(tmp_path):
-    """Normalized names that don't match across managers produce no suggestion."""
-    mock_npm = AsyncMock(spec=NpmManager)
-    mock_npm.name = "NPM"
-    mock_npm.list_installed_versions = AsyncMock(return_value={"python-requests": "2.31.0"})
+    """Prefix-stripped names that agree across managers do match."""
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"python-requests": "2.31.0-1"})
 
-    mock_pnpm = AsyncMock(spec=PnpmManager)
-    mock_pnpm.name = "pnpm"
-    mock_pnpm.list_installed_versions = AsyncMock(return_value={"requests": "2.32.0"})  # no prefix
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"requests": "2.32.0"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path))
     # Both normalize to "requests" - should match!
     assert len(result["suggestions"]) == 1
     assert result["suggestions"][0]["package"] == "requests"
 
 
 @pytest.mark.asyncio
-async def test_cross_manager_newest_manager_filter():
+async def test_cross_manager_newest_manager_filter(tmp_path):
     """--manager filter restricts scan to named managers."""
-    mock_npm = AsyncMock(spec=NpmManager)
-    mock_npm.name = "NPM"
-    mock_npm.list_installed_versions = AsyncMock(return_value={"pkg": "1.0.0"})
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"pkg": "1.0.0-1"})
 
-    mock_pnpm = AsyncMock(spec=PnpmManager)
-    mock_pnpm.name = "pnpm"
-    mock_pnpm.list_installed_versions = AsyncMock(return_value={"pkg": "2.0.0"})
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"pkg": "2.0.0"})
 
-    mock_cargo = AsyncMock(spec=NpmManager)
+    mock_cargo = AsyncMock(spec=object)
     mock_cargo.name = "Cargo"
     mock_cargo.list_installed_versions = AsyncMock(return_value={"pkg": "3.0.0"})
 
-    # Filter to only NPM + pnpm
+    # Filter to only Pacman + Pipx
     result = await cross_manager_newest(
-        managers=[mock_npm, mock_pnpm, mock_cargo],
-        manager_filter=["NPM", "pnpm"]
+        managers=[mock_pacman, mock_pipx, mock_cargo],
+        manager_filter=["Pacman", "Pipx"],
+        settings=_scan_settings(tmp_path),
     )
     assert "Cargo" not in result["managers"]
-    assert "NPM" in result["managers"]
-    assert "pnpm" in result["managers"]
+    assert "Pacman" in result["managers"]
+    assert "Pipx" in result["managers"]
     assert len(result["suggestions"]) == 1
 
 
@@ -349,24 +355,132 @@ async def test_distro_pair_reports_real_difference(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cross_ecosystem_suggestion_is_flagged(tmp_path):
-    """Live CachyOS case: `google-protobuf` is 4.36.1 as a Ruby gem and 36.1-1.1 in
-    the Arch repo — the same release under two numbering schemes. A numeric comparison
-    reports a 'newer' version that isn't one, so this must be marked unverified."""
+async def test_trusted_cross_ecosystem_pair_still_carries_a_caveat(tmp_path):
+    """A *trusted* distro-vs-runtime pair is reported, but still flagged as
+    cross-ecosystem because the two numbering schemes are not guaranteed to agree.
+
+    pipx vs Pacman is trusted (both track upstream's own versioning), so uvicorn is
+    still surfaced — the caveat is there so a user can judge it, not to hide it.
+    """
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"python-pydantic": "1.9.0-1"})
+
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"pydantic": "2.0.0"})
+
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path))
+    assert len(result["suggestions"]) == 1
+    s = result["suggestions"][0]
+    assert s["package"] == "pydantic"
+    assert s["newest"]["manager"] == "Pipx"
+    assert s["note"] == "cross-ecosystem-unverified"
+
+
+def test_untrusted_pairs_cover_the_observed_bad_pairs():
+    """Each entry in _UNTRUSTED_PAIRS exists because of a measured overlap."""
+    from app.core.version_scan import _UNTRUSTED_PAIRS, _pair_comparable
+
+    # RubyGems vs any distro: Gem::Version and distro pkgver are independent counters.
+    for distro in ("Pacman", "DNF", "APT"):
+        assert frozenset({"RubyGems", distro}) in _UNTRUSTED_PAIRS
+        assert not _pair_comparable("RubyGems", distro)
+        assert not _pair_comparable(distro, "RubyGems")  # order-independent
+
+    # Same-registry JS: differing versions mean a shadowed global install.
+    for pair in [("NPM", "pnpm"), ("NPM", "Yarn"), ("pnpm", "Yarn")]:
+        assert frozenset(pair) in _UNTRUSTED_PAIRS
+        assert not _pair_comparable(*pair)
+
+    # pipx vs a distro is NOT untrusted — that pair produced the one true positive.
+    assert not (frozenset({"Pipx", "Pacman"}) in _UNTRUSTED_PAIRS)
+    assert _pair_comparable("Pipx", "Pacman")
+
+
+def test_settings_can_add_untrusted_pairs(tmp_path):
+    """A user hitting a bad pair in the wild can suppress it without a code change."""
+    from app.core.version_scan import _pair_comparable, _untrusted_pairs_from_settings
+
+    settings = _scan_settings(tmp_path)
+    settings.set("version_scan.untrusted_pairs", [["Pipx", "Poetry"]])
+
+    extra = _untrusted_pairs_from_settings(settings)
+    assert frozenset({"Pipx", "Poetry"}) in extra
+    assert not _pair_comparable("Pipx", "Poetry", extra)
+
+    # Order-independent, like the built-in table.
+    assert not _pair_comparable("Poetry", "Pipx", extra)
+
+    # Untouched pairs keep working.
+    assert _pair_comparable("Pipx", "Pacman", extra)
+
+
+def test_malformed_untrusted_pairs_are_ignored(tmp_path):
+    """Bad user config must not crash the scan."""
+    from app.core.version_scan import _untrusted_pairs_from_settings
+
+    settings = _scan_settings(tmp_path)
+    settings.set("version_scan.untrusted_pairs", ["not-a-pair", {"a": 1}, None, [1, 2]])
+    assert _untrusted_pairs_from_settings(settings) == {
+        frozenset(("1", "2"))  # the only well-formed entry, coerced to str
+    }
+
+
+@pytest.mark.asyncio
+async def test_protobuf_false_positive_is_now_suppressed(tmp_path):
+    """The real CachyOS false positive must be dropped by the untrusted-pair rule.
+
+    Arch's ruby-google-protobuf is 36.1-1.1 while the gem is 4.36.1 — the same
+    library under two independent counters, so 'newer' was meaningless.
+    """
     mock_gem = AsyncMock(spec=object)
     mock_gem.name = "RubyGems"
     mock_gem.list_installed_versions = AsyncMock(return_value={"google-protobuf": "4.36.1"})
 
-    # Real pacman package name; the ruby- prefix is stripped by _normalize_name.
     mock_pacman = AsyncMock(spec=object)
     mock_pacman.name = "Pacman"
     mock_pacman.list_installed_versions = AsyncMock(return_value={"ruby-google-protobuf": "36.1-1.1"})
 
-    result = await cross_manager_newest(managers=[mock_gem, mock_pacman], settings=_scan_settings(tmp_path))
+    result = await cross_manager_newest(
+        managers=[mock_gem, mock_pacman], settings=_scan_settings(tmp_path)
+    )
+    assert result["suggestions"] == [], "untrusted pair must not produce a suggestion"
+
+
+@pytest.mark.asyncio
+async def test_uvicorn_true_positive_survives_trust_rules(tmp_path):
+    """The one genuine finding on CachyOS must still be reported."""
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"python-uvicorn": "0.52.4-1"})
+
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"uvicorn": "0.53.0"})
+
+    result = await cross_manager_newest(
+        managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path)
+    )
     assert len(result["suggestions"]) == 1
-    s = result["suggestions"][0]
-    assert s["package"] == "google-protobuf"
-    assert s["note"] == "cross-ecosystem-unverified", "must be flagged, not presented as fact"
+    assert result["suggestions"][0]["newest"] == {"manager": "Pipx", "version": "0.53.0"}
+
+
+@pytest.mark.asyncio
+async def test_same_registry_pair_does_not_suggest(tmp_path):
+    """npm/pnpm/yarn share a registry, so a version gap is a shadowed global install."""
+    mock_npm = AsyncMock(spec=object)
+    mock_npm.name = "NPM"
+    mock_npm.list_installed_versions = AsyncMock(return_value={"tool": "1.0.0"})
+
+    mock_pnpm = AsyncMock(spec=object)
+    mock_pnpm.name = "pnpm"
+    mock_pnpm.list_installed_versions = AsyncMock(return_value={"tool": "2.0.0"})
+
+    result = await cross_manager_newest(
+        managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path)
+    )
+    assert result["suggestions"] == []
 
 
 @pytest.mark.asyncio

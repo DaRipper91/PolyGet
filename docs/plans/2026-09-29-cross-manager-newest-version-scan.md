@@ -173,23 +173,23 @@ All 15 registered drivers now implement `list_installed_versions()`.
 
 ## Known limitations
 
-- **Distro-repack vs. upstream version advice is unsound, and is now flagged
-  rather than fixed.** A distro package at a lower `pkgver` is not necessarily
-  older, because distros backport fixes without moving the upstream version.
-  Worse, distros and language runtimes sometimes number the *same* release
-  independently: Arch ships `ruby-google-protobuf 36.1-1.1` while the Ruby gem
-  is `4.36.1`, so a numeric comparison reports a "newer" version that is not
-  one. Every distro-vs-runtime suggestion is therefore tagged
-  `note: "cross-ecosystem-unverified"` and printed with a caveat line, and can
-  be suppressed entirely with `version_scan.include_cross_ecosystem: false` in
-  settings. The `check_vulnerabilities()` suppression guard proposed in review
-  was **not** implemented and remains the highest-value remaining item.
-- **The cross-ecosystem caveat is deliberately over-broad.** It also tags
-  trustworthy pairs (e.g. uvicorn 0.53.0 vs 0.52.4, where both track the same
-  upstream project). Detecting scheme divergence automatically would need
-  heuristics with their own failure modes; a visible caveat that is sometimes
-  unnecessary was preferred to a silent wrong claim. On the current CachyOS
-  host this suppresses both real suggestions, which is the honest trade.
+- **Distro-repack vs. upstream version advice is unsound.** A distro package at
+  a lower `pkgver` is not necessarily older, because distros backport fixes
+  without moving the upstream version. Worse, distros and language runtimes
+  sometimes number the *same* release independently: Arch ships
+  `ruby-google-protobuf 36.1-1.1` while the Ruby gem is `4.36.1`, so a numeric
+  comparison reports a "newer" version that is not one. Handled by the untrusted
+  pair table below plus a `note: "cross-ecosystem-unverified"` caveat on
+  distro-vs-runtime results. The `check_vulnerabilities()` suppression guard
+  proposed in review was **not** implemented and remains the highest-value
+  remaining item.
+- **Trust is per manager-pair, and partly empirical.** The RubyGems-vs-distro
+  rule is derived from this host's 65 observed overlaps (exactly one of which
+  showed a version difference, and it was the false positive). The principled
+  part is that `Gem::Version` and distro `pkgver` are independent counters. If a
+  later machine shows a legitimate gem-vs-distro finding, this should become
+  per-package rather than per-manager. Users can suppress a bad pair without a
+  code change via `version_scan.untrusted_pairs` in settings.
 - **Same-registry managers are flagged but not separated.** npm, pnpm, and yarn
   all reach the npm registry, so a package installed under two of them at
   different versions is really a shadowed-global-prefix problem, not a newer
@@ -253,3 +253,45 @@ uvicorn          Pipx            0.53.0          Pacman=0.52.4-1, Pipx=0.53.0
 `uvicorn` is a true positive that was previously dropped. `google-protobuf` is
 the false positive described above, now flagged in the output rather than
 presented as fact.
+
+## Per-pair trust (`_UNTRUSTED_PAIRS`)
+
+The first fix suppressed the false positive by disabling *all* distro-vs-runtime
+comparisons, which also discarded the one genuine finding — leaving the feature
+inert on both hosts. Measuring the overlap population showed why that trade was
+bad:
+
+| Pair | Overlaps | With a version difference |
+|------|----------|---------------------------|
+| RubyGems ↔ Pacman | 65 | 1 (and it was the false positive) |
+| NPM ↔ Pacman | 4 | 0 |
+| Pacman ↔ Pipx | 2 | 1 (and it was the true positive) |
+
+The real discriminator is not "is this finding true?" but **do both sides count
+the same release the same way?** So trust is now decided per *pair of managers*:
+
+- **Trusted** — same runtime ecosystem, or a distro manager against a runtime
+  manager whose projects track upstream versioning (Pipx/Poetry ↔ distro). This
+  keeps `uvicorn 0.53.0` vs `0.52.4-1` reportable.
+- **Untrusted** — RubyGems ↔ any distro (`Gem::Version` and `pkgver` are
+  independent counters, which is what produced the `google-protobuf` false
+  positive) and npm/pnpm/yarn vs each other (same registry, so a version gap
+  means a shadowed global install, not a newer release).
+
+Unlisted pairs are trusted, because a false negative is recoverable while a
+confident wrong "newer version is available" is not. Users can suppress any
+pair they hit in the wild via `version_scan.untrusted_pairs` in settings
+(`[["Pipx", "Pacman"]]`), which needs no code change.
+
+Live result after both fixes, on CachyOS:
+
+```
+PACKAGE  NEWEST_MANAGER  NEWEST_VERSION  INSTALLED
+uvicorn  Pipx            0.53.0          Pacman=0.52.4-1, Pipx=0.53.0
+! uvicorn: Pipx 0.53.0 vs Pacman 0.52.4-1 — these managers number the same
+  release independently, so this is a lead, not a confirmed upgrade.
+```
+
+One true positive surfaced, zero known false positives. The caveat text is
+conservative — it fires for trusted pairs too, because a trusted pair is a
+judgment about *this* host's observed data, not a guarantee for every project.

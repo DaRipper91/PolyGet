@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager, describe_error
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -115,8 +115,10 @@ class NpmManager(PackageManager):
                         "advisory": advisory
                     })
             return results
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} vulnerability query failed: {describe_error(e)}"
+            ) from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade global NPM packages.
@@ -179,8 +181,10 @@ class NpmManager(PackageManager):
             data = json.loads(stdout.decode(errors="ignore"))
             dependencies = data.get("dependencies", {})
             return list(dependencies.keys())
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         """List installed global NPM packages with versions.
@@ -201,8 +205,10 @@ class NpmManager(PackageManager):
             data = json.loads(stdout.decode(errors="ignore"))
             dependencies = data.get("dependencies", {})
             return {name: info.get("version", "unknown") for name, info in dependencies.items()}
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a global NPM package.

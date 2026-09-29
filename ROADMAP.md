@@ -6,6 +6,7 @@ that file is the *why* and *how*.
 
 ## Recently shipped
 
+- [x] Distinguish an empty driver result from a failed query — `DriverError` across all 15 drivers; `check_vulnerabilities()` reports "no scanner" as unsupported
 - [x] Cross-manager newest-version scan — `list_installed_versions()` on all 15 drivers, `run.py newest`, TUI `v` binding, Qt Version Check page, ecosystem-aware comparators, per-manager-pair trust gating (`cc3f9d8`, `2a14c38`)
 - [x] Fix npm update-loop (semver `wanted` vs `latest` mismatch) and Qt UI stall on bare `sudo` (`30a12f0`)
 - [x] Surface batch-upgrade failures instead of always reporting success (`6b831c0`)
@@ -22,7 +23,7 @@ that file is the *why* and *how*.
 
 ## Improvements
 
-- [ ] **Distinguish an empty result from a failed one across the driver interface** — `list_installed()` returns `[]` and `check_vulnerabilities()` returns `[]` both for "genuinely nothing" and for "the subprocess failed / the scanner isn't installed". These collapse silently, so callers cannot tell a clean system from a broken driver. This blocks the vulnerability-scanning feature above and is the prerequisite for any correct use of `check_vulnerabilities()`. Applies to `list_installed()`, `list_installed_versions()`, and `check_vulnerabilities()` across all drivers.
+- [x] ~~Distinguish an empty result from a failed one across the driver interface~~ — shipped. `list_installed()`, `list_installed_versions()` and `check_vulnerabilities()` now raise `DriverError` on query failure (dead subprocess, missing binary, nonzero exit) instead of returning an empty collection; an empty collection now means the query ran and found nothing. `check_vulnerabilities()` raises `NotImplementedError` for managers with no scanner, which callers already treat as "unsupported" rather than "failed". `run.py audit` no longer exits 1 on a machine where only npm implements the query, and the Qt blueprint-export worker reports which managers it could not read instead of silently writing a blueprint missing them.
 - [ ] Retry action on the batch-upgrade failure dialog, instead of requiring a full reselect
 - [ ] Audit `handle_sync_worker_finished` / `handle_blueprint_sync_worker_finished` for the same silent-success pattern just fixed in the main upgrade queue
 - [ ] Parallelize independent (non-elevated) managers in the batch-upgrade queue

@@ -8,7 +8,7 @@ IS a real, single, trackable package list, so that's what this driver covers.
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, register_manager
 
 
 @register_manager
@@ -27,8 +27,10 @@ class JuliaManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             return sorted(set(line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()))
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -43,8 +45,10 @@ class JuliaManager(PackageManager):
                 if len(parts) >= 2:
                     versions[parts[0]] = parts[1]
             return versions
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     async def check_updates(self) -> list[dict[str, Any]]:
         # Pkg.outdated() output isn't line-parseable in a stable way across

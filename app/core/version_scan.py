@@ -7,7 +7,7 @@ from typing import Any
 
 from packaging.version import Version
 
-from app.core.manager import PackageManager, discover_managers
+from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.ignore_store import IgnoreStore
 from app.core.settings_store import get_settings
 
@@ -312,7 +312,15 @@ async def cross_manager_newest(
             versions = await coro
             results[name] = {"ok": True, "versions": versions}
         except NotImplementedError:
-            results[name] = {"ok": True, "versions": {}}
+            # Manager has no version data. Not a failure — but recorded explicitly so
+            # a caller can tell "this manager doesn't participate" from "this manager
+            # was queried and has nothing".
+            results[name] = {"ok": True, "unsupported": True, "versions": {}}
+        except DriverError as e:
+            # A real query failure (dead subprocess, nonzero exit). Surfaced, not
+            # folded into an empty version map, so the scan reports which managers
+            # it could not actually read.
+            results[name] = {"ok": False, "error": describe_error(e), "versions": {}}
         except Exception as e:
             results[name] = {"ok": False, "error": str(e), "versions": {}}
 

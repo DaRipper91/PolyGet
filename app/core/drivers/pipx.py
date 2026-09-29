@@ -4,7 +4,7 @@ import os
 import shutil
 import tempfile
 from typing import Any
-from app.core.manager import PackageManager, register_manager, describe_error
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -127,7 +127,10 @@ class PipxManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
             if proc.returncode != 0:
-                return []
+                raise DriverError(
+                    f"{self.name} installed-package query failed: "
+                    f"`pipx list --short` exited with status {proc.returncode}"
+                )
 
             packages = []
             for line in stdout.decode(errors="ignore").splitlines():
@@ -135,8 +138,12 @@ class PipxManager(PackageManager):
                 if len(parts) >= 2:
                     packages.append(parts[0])
             return packages
-        except Exception:
-            return []
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         """List installed pipx packages with versions.
@@ -152,7 +159,10 @@ class PipxManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
             if proc.returncode != 0:
-                return {}
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`pipx list --short` exited with status {proc.returncode}"
+                )
 
             versions = {}
             for line in stdout.decode(errors="ignore").splitlines():
@@ -163,8 +173,12 @@ class PipxManager(PackageManager):
                     version = parts[1].rstrip("*")
                     versions[name] = version
             return versions
-        except Exception:
-            return {}
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a pipx package.

@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager, describe_error
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -66,8 +66,10 @@ class YarnManager(PackageManager):
                 if name:
                     installed.append(name)
             return installed
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -84,8 +86,10 @@ class YarnManager(PackageManager):
                     if name:
                         versions[name] = version
             return versions
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         return ["yarn", "global", "add", package]

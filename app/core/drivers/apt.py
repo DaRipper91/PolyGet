@@ -4,7 +4,7 @@ import asyncio
 import glob
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, register_manager
 
 
 @register_manager
@@ -87,10 +87,17 @@ class AptManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             if proc.returncode != 0:
-                return []
+                raise DriverError(
+                    f"{self.name} installed-package query failed: "
+                    f"`apt-mark showmanual` exited with status {proc.returncode}"
+                )
             return [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
-        except Exception:
-            return []
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         """List manually installed APT packages with versions.
@@ -107,7 +114,10 @@ class AptManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             if proc.returncode != 0:
-                return {}
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`apt-mark showmanual` exited with status {proc.returncode}"
+                )
             
             packages = [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
             if not packages:
@@ -121,7 +131,10 @@ class AptManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                return {}
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`apt-cache policy` exited with status {proc.returncode}"
+                )
 
             # Parse apt-cache policy output for installed versions
             versions = {}
@@ -143,8 +156,12 @@ class AptManager(PackageManager):
                         versions[current_pkg.split(":", 1)[0]] = ver
                     current_pkg = None
             return versions
-        except Exception:
-            return {}
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install an APT package.

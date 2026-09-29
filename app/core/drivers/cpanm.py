@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, register_manager
 
 
 @register_manager
@@ -23,8 +23,10 @@ class CpanmManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             return [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -40,8 +42,10 @@ class CpanmManager(PackageManager):
                 if len(parts) >= 2:
                     versions[parts[0]] = parts[1]
             return versions
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     async def check_updates(self) -> list[dict[str, Any]]:
         # No built-in bulk outdated-check without the separate `cpan-outdated`

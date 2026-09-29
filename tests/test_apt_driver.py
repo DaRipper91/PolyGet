@@ -2,6 +2,7 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, mock_open, patch
 from app.core.drivers.apt import AptManager
+from app.core.manager import DriverError
 
 
 def test_apt_driver_imports():
@@ -134,13 +135,32 @@ def test_apt_list_installed():
     asyncio.run(run_test())
 
 
-def test_apt_list_installed_returns_empty_on_failure():
-    """Test list_installed returns [] on nonzero exit code."""
+def test_apt_list_installed_raises_on_failure():
+    """A nonzero exit must raise DriverError, not report an empty install list.
+
+    Returning [] made a broken query indistinguishable from a clean system, which
+    is the whole point of the DriverError contract.
+    """
     async def run_test():
         manager = AptManager()
         mock_proc = AsyncMock()
         mock_proc.returncode = 1
         mock_proc.communicate.return_value = (b"", b"error")
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(DriverError):
+                await manager.list_installed()
+
+    asyncio.run(run_test())
+
+
+def test_apt_list_installed_returns_empty_when_genuinely_empty():
+    """A successful query with no results must still return []."""
+    async def run_test():
+        manager = AptManager()
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"", b"")
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             installed = await manager.list_installed()

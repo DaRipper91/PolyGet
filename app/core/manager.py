@@ -12,6 +12,22 @@ def describe_error(e: Exception) -> str:
     return str(e) or type(e).__name__
 
 
+class DriverError(RuntimeError):
+    """A driver query failed for a reason the user should be told about.
+
+    Distinguishes "this manager has nothing to report" from "this manager's query
+    broke". Historically every driver ended these queries in `except Exception:
+    return []`, which made a hung subprocess, a missing binary, and a genuinely empty
+    result all look identical to callers — a scan could report a clean system while
+    the driver was in fact dead.
+
+    Drivers raise this instead of returning an empty collection when the query
+    failed, and return the empty collection only when the query genuinely succeeded
+    with nothing to report. Callers that need the distinction can use
+    `NotImplementedError` (query not supported by this manager) as they already do.
+    """
+
+
 class PackageManager:
     """Base class defining the interface for all package manager drivers."""
 
@@ -41,8 +57,17 @@ class PackageManager:
 
         Returns:
             list[dict[str, Any]]: List of dicts with 'name', 'severity', and 'advisory'.
+                An empty list means the query ran and found nothing.
+
+        Raises:
+            NotImplementedError: This manager exposes no vulnerability data. Callers
+                already treat this as "unsupported" rather than "failed".
+            DriverError: A scanner was available but the query failed, OR no scanner
+                is installed. Both matter: "no scanner" must not read as "no
+                vulnerabilities", which is the failure this distinction exists to
+                prevent.
         """
-        return []
+        raise NotImplementedError(f"{self.name} does not support vulnerability scanning")
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to perform the package upgrades.
@@ -67,7 +92,12 @@ class PackageManager:
         """Get a list of installed package names.
 
         Returns:
-            list[str]: A list of installed package names.
+            list[str]: A list of installed package names. An empty list means the
+                query ran and found nothing installed.
+
+        Raises:
+            DriverError: The query failed. Drivers must not return an empty list on
+                failure — that is indistinguishable from a clean system.
         """
         raise NotImplementedError("Subclasses must implement list_installed()")
 
@@ -75,9 +105,11 @@ class PackageManager:
         """Get a mapping of installed package names to their versions.
 
         Returns:
-            dict[str, str]: A dict mapping package name -> version string.
-            Default implementation returns an empty dict; drivers that can
-            extract versions from their list output should override.
+            dict[str, str]: A dict mapping package name -> version string. An empty
+                dict means the query ran and found nothing.
+
+        Raises:
+            DriverError: The query failed.
         """
         return {}
 

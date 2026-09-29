@@ -246,8 +246,18 @@ def cmd_audit(args: argparse.Namespace) -> int:
     managers = _select_managers(args.manager)
     results = asyncio.run(_gather_per_manager(managers, "check_vulnerabilities"))
     rows = [{"manager": n, **v} for n, r in results.items() if r["ok"] for v in r["result"]]
-    _emit(args, rows, _table(rows, ["manager", "name", "severity", "advisory"]) + _errors_text(results))
-    return EXIT_FAILED if any(not r["ok"] for r in results.values()) else EXIT_OK
+    # Managers with no vulnerability scanner are expected, not failures — the base
+    # class raises NotImplementedError for them. Only a manager that *has* a scanner
+    # and failed to use it is a real error. This mirrors cmd_search's treatment of
+    # unsupported, and keeps `audit` from exiting 1 on a machine where only npm
+    # implements the query.
+    errors = {n: r for n, r in results.items() if not r["ok"] and not r.get("unsupported")}
+    _emit(
+        args,
+        {"results": rows, "errors": {n: r["error"] for n, r in errors.items()}},
+        _table(rows, ["manager", "name", "severity", "advisory"]) + _errors_text(errors),
+    )
+    return EXIT_FAILED if errors else EXIT_OK
 
 
 def cmd_repos(args: argparse.Namespace) -> int:

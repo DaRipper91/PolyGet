@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 import pytest
 from app.core.drivers.dnf import DnfManager
+from app.core.manager import DriverError
 
 
 def test_dnf_driver_imports():
@@ -79,8 +80,9 @@ def test_dnf_check_updates_timeout_raises_not_hangs():
     asyncio.run(run_test())
 
 
-def test_dnf_list_installed_timeout_returns_empty():
-    """A hung dnf list --installed subprocess should fail open to [], not hang (audit finding B1)."""
+def test_dnf_list_installed_timeout_raises_not_hangs():
+    """A hung dnf list --installed subprocess must raise, not hang (audit finding B1),
+    and must not report an empty install list as if the query had succeeded."""
     async def run_test():
         manager = DnfManager()
 
@@ -88,8 +90,8 @@ def test_dnf_list_installed_timeout_returns_empty():
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
-                result = await manager.list_installed()
-                assert result == []
+                with pytest.raises(DriverError):
+                    await manager.list_installed()
 
     asyncio.run(run_test())
 

@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, register_manager
 
 
 @register_manager
@@ -27,8 +27,10 @@ class HexManager(PackageManager):
                 if line and line.endswith(".ez"):
                     installed.append(line.rsplit("-", 1)[0].replace(".ez", ""))
             return installed
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -46,8 +48,10 @@ class HexManager(PackageManager):
                     version_part = line.rsplit("-", 1)[1].replace(".ez", "")
                     versions[name_part] = version_part
             return versions
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     async def check_updates(self) -> list[dict[str, Any]]:
         # Mix archives don't have a bulk "list what's outdated" command —

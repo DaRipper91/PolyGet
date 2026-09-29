@@ -10,7 +10,7 @@ to surface arbitrary project dependencies.
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, register_manager
 
 
 @register_manager
@@ -34,8 +34,10 @@ class PoetryManager(PackageManager):
                 if parts and parts[0] and not line.startswith(" "):
                     installed.append(parts[0])
             return installed
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -50,8 +52,10 @@ class PoetryManager(PackageManager):
                 if len(parts) >= 2 and not line.startswith(" "):
                     versions[parts[0]] = parts[1]
             return versions
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     async def check_updates(self) -> list[dict[str, Any]]:
         return []  # no bulk outdated-check for self plugins; low churn, low value to fake

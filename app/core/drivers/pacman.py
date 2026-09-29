@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager, describe_error
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -56,10 +56,17 @@ class PacmanManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
             if proc.returncode != 0:
-                return []
+                raise DriverError(
+                    f"{self.name} installed-package query failed: "
+                    f"`pacman -Q` exited with status {proc.returncode}"
+                )
             return [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
-        except Exception:
-            return []
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -69,15 +76,22 @@ class PacmanManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
             if proc.returncode != 0:
-                return {}
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`pacman -Q` exited with status {proc.returncode}"
+                )
             versions = {}
             for line in stdout.decode(errors="ignore").splitlines():
                 parts = line.strip().split()
                 if len(parts) >= 2:
                     versions[parts[0]] = parts[1]
             return versions
-        except Exception:
-            return {}
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         return ["pkexec", "pacman", "-S", "--noconfirm", package]

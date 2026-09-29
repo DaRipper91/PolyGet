@@ -341,7 +341,8 @@ class CategoryWorker(QThread):
 class FetchInstalledWorker(QThread):
     """Worker thread to query installed packages across all available managers."""
     log_signal = Signal(str)
-    result_signal = Signal(dict)
+    result_signal = Signal(dict)  # manager -> package names (succeeded only)
+    error_signal = Signal(dict)   # manager -> error message (failed)
 
     def __init__(self, managers: list[PackageManager], parent: Any = None):
         super().__init__(parent)
@@ -353,25 +354,32 @@ class FetchInstalledWorker(QThread):
         
         self.log_signal.emit("🔍 Querying installed packages across all managers...")
         results = {}
+        errors = {}
         
         async def fetch_installed(mgr: PackageManager):
             self.log_signal.emit(f"📦 Querying installed packages from {mgr.name}...")
             try:
                 pkgs = await mgr.list_installed()
                 self.log_signal.emit(f"✅ Found {len(pkgs)} installed packages for {mgr.name}.")
-                return mgr.name, pkgs
+                return mgr.name, pkgs, None
             except Exception as e:
+                # Record the failure instead of folding it into an empty list: a dead
+                # driver and a manager with nothing installed must not look alike.
                 self.log_signal.emit(f"❌ Error querying {mgr.name}: {str(e)}")
-                return mgr.name, []
+                return mgr.name, None, str(e)
 
         tasks = [fetch_installed(mgr) for mgr in self.managers]
         done = loop.run_until_complete(asyncio.gather(*tasks))
         loop.close()
         
-        for name, pkgs in done:
-            results[name] = pkgs
+        for name, pkgs, err in done:
+            if err is not None:
+                errors[name] = err
+            else:
+                results[name] = pkgs or []
             
         self.result_signal.emit(results)
+        self.error_signal.emit(errors)
 
 
 class UpdateItemWidget(QWidget):
@@ -2433,6 +2441,12 @@ class MainWindow(QMainWindow):
         worker = FetchInstalledWorker(available)
         worker.log_signal.connect(self.log)
         worker.result_signal.connect(self.handle_export_results)
+        worker.error_signal.connect(
+            lambda errs: self.log(
+                "⚠️ Blueprint is incomplete — these managers could not be queried: "
+                + ", ".join(sorted(errs))
+            )
+        )
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
@@ -2535,6 +2549,12 @@ class MainWindow(QMainWindow):
         worker = FetchInstalledWorker(available)
         worker.log_signal.connect(self.log)
         worker.result_signal.connect(self.handle_sync_check_results)
+        worker.error_signal.connect(
+            lambda errs: self.log(
+                "⚠️ Sync check is incomplete — these managers could not be queried: "
+                + ", ".join(sorted(errs))
+            )
+        )
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()

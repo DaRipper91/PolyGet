@@ -5,6 +5,7 @@ import stat
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.core.drivers.pnpm import PnpmManager
+from app.core.manager import DriverError
 
 def test_pnpm_check_updates():
     manager = PnpmManager()
@@ -43,16 +44,17 @@ def test_pnpm_check_updates_timeout_raises_not_hangs():
     asyncio.run(run_test())
 
 
-def test_pnpm_list_installed_timeout_returns_empty():
-    """A hung pnpm list subprocess should fail open to [], not hang (audit finding B1)."""
+def test_pnpm_list_installed_timeout_raises_not_hangs():
+    """A hung pnpm list subprocess must raise, not hang (audit finding B1), and must
+    not report an empty install list as if the query had succeeded."""
     manager = PnpmManager()
 
     async def run_test():
         mock_proc = AsyncMock()
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
-                result = await manager.list_installed()
-                assert result == []
+                with pytest.raises(DriverError):
+                    await manager.list_installed()
 
     asyncio.run(run_test())
 

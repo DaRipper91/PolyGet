@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager, describe_error
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -48,14 +48,21 @@ class GemManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                return []
+                raise DriverError(
+                    f"{self.name} installed-package query failed: "
+                    f"`gem list --local` exited with status {proc.returncode}"
+                )
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 if line.strip() and "(" in line:
                     installed.append(line.split("(")[0].strip())
             return installed
-        except Exception:
-            return []
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
@@ -65,7 +72,10 @@ class GemManager(PackageManager):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                return {}
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`gem list --local` exited with status {proc.returncode}"
+                )
             versions = {}
             for line in stdout.decode(errors="ignore").splitlines():
                 if line.strip() and "(" in line:
@@ -74,8 +84,12 @@ class GemManager(PackageManager):
                     ver_str = line.split("(")[1].rstrip(")").split(",")[0].strip()
                     versions[name] = ver_str
             return versions
-        except Exception:
-            return {}
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         return ["gem", "install", package]

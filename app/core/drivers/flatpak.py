@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import PackageManager, register_manager, describe_error
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -160,8 +160,10 @@ class FlatpakManager(PackageManager):
                 if app_id:
                     installed.append(app_id)
             return installed
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-package query failed: {describe_error(e)}"
+            ) from e
 
     async def list_installed_versions(self) -> dict[str, str]:
         """List installed Flatpak packages with versions.
@@ -187,8 +189,10 @@ class FlatpakManager(PackageManager):
                     version = pkg.get("version") or pkg.get("branch") or "Installed"
                     versions[app_id] = version
             return versions
-        except Exception:
-            return {}
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} installed-version query failed: {describe_error(e)}"
+            ) from e
 
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a Flatpak package.

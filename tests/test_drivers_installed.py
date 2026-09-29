@@ -2,7 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
-from app.core.manager import discover_managers
+from app.core.manager import DriverError, discover_managers
 from app.core.drivers.dnf import DnfManager
 from app.core.drivers.flatpak import FlatpakManager
 from app.core.drivers.pipx import PipxManager
@@ -54,16 +54,17 @@ def test_flatpak_list_installed_and_install_cmd():
     asyncio.run(run_test())
 
 
-def test_flatpak_list_installed_timeout_returns_empty():
-    """A hung flatpak list subprocess should fail open to [], not hang (audit finding B1)."""
+def test_flatpak_list_installed_timeout_raises_not_hangs():
+    """A hung flatpak list subprocess must raise, not hang (audit finding B1), and must
+    not look like a clean empty result."""
     manager = FlatpakManager()
 
     async def run_test():
         mock_proc = AsyncMock()
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
-                result = await manager.list_installed()
-        assert result == []
+                with pytest.raises(DriverError):
+                    await manager.list_installed()
 
     asyncio.run(run_test())
 

@@ -508,8 +508,8 @@ def test_gui_package_managers_page(mock_scan, qapp):
 
     window = MainWindow()
 
-    # 1. Switch to Package Managers tab (index 4)
-    window.nav_list.setCurrentRow(4)
+    # 1. Switch to Package Managers tab (index 5, shifted by Version Check at index 1)
+    window.nav_list.setCurrentRow(5)
     
     # 2. Check that the managers list was populated
     assert window.managers_list.count() > 0
@@ -526,8 +526,8 @@ def test_gui_package_managers_page(mock_scan, qapp):
     with patch.object(QThread, "start", mock_start):
         window.install_manager_backend(row_widget.entry)
 
-    # Verify transition to console (row 2)
-    assert window.nav_list.currentRow() == 2
+    # Verify transition to console (row 3, shifted by Version Check at index 1)
+    assert window.nav_list.currentRow() == 3
     mock_start.assert_called_once()
 
 
@@ -552,8 +552,8 @@ def test_gui_repositories_page(mock_scan, qapp):
     fake_non_repo_mgr.supports_repos = False
 
     with patch("app.core.manager.discover_managers", return_value=[fake_repo_mgr, fake_non_repo_mgr]):
-        # 1. Switch to Repositories tab (index 5)
-        window.nav_list.setCurrentRow(5)
+        # 1. Switch to Repositories tab (index 6, shifted by Version Check at index 1)
+        window.nav_list.setCurrentRow(6)
 
         # Check that managers listing is populated with only repo-capable managers
         assert window.repos_mgr_list.count() > 0

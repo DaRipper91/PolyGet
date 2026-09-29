@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
+from app.core.version_scan import cross_manager_newest
 
 
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
@@ -97,6 +98,31 @@ class ScanWorker(QThread):
             loop.run_until_complete(asyncio.gather(*tasks))
         loop.close()
         self.finished_all.emit()
+
+
+class VersionCheckWorker(QThread):
+    """Worker thread to run the cross-manager newest-version scan."""
+    log_signal = Signal(str)
+    suggestions_signal = Signal(list)  # list of suggestion dicts
+    error_signal = Signal(str)  # error message
+
+    def __init__(self, managers: list[PackageManager], parent: Any = None):
+        super().__init__(parent)
+        self.managers = managers
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            self.log_signal.emit("🔍 Running cross-manager version scan...")
+            result = loop.run_until_complete(cross_manager_newest(self.managers))
+            suggestions = result.get("suggestions", [])
+            self.suggestions_signal.emit(suggestions)
+            self.log_signal.emit(f"✅ Version scan complete. Found {len(suggestions)} suggestion(s).")
+        except Exception as e:
+            self.error_signal.emit(str(e))
+        finally:
+            loop.close()
 
 
 class FetchReposWorker(QThread):
@@ -799,6 +825,16 @@ class MainWindow(QMainWindow):
         )
         self.nav_list.setItemWidget(item_updates, updates_row)
         item_updates.setSizeHint(native_row_size)
+
+        # VERSION CHECK row (index 1)
+        item_version_check = QListWidgetItem()
+        self.nav_list.insertItem(1, item_version_check)
+        version_check_row, self.nav_version_check_label, self.nav_version_check_badge = self._create_nav_row(
+            "view-refresh", "Version Check"
+        )
+        self.nav_list.setItemWidget(item_version_check, version_check_row)
+        item_version_check.setSizeHint(native_row_size)
+
         # setCurrentRow(0) below fires before currentRowChanged is connected, so change_page(0)
         # never runs on startup — style this row as selected up front to match.
         self._style_nav_row_text(self.nav_updates_label, selected=True)
@@ -877,7 +913,40 @@ class MainWindow(QMainWindow):
 
         self.stacked_widget.addWidget(updates_page)
 
-        # PAGE 2: Browse Store
+        # PAGE 2: Version Check
+        version_check_page = QWidget()
+        version_check_layout = QVBoxLayout(version_check_page)
+        version_check_layout.setContentsMargins(20, 20, 20, 20)
+        version_check_layout.setSpacing(15)
+
+        version_check_header = QHBoxLayout()
+        self.lbl_version_check_summary = QLabel("Run a cross-manager version scan to find packages with newer versions on other managers.")
+        self.lbl_version_check_summary.setObjectName("summary-label")
+        version_check_header.addWidget(self.lbl_version_check_summary)
+        version_check_header.addStretch()
+
+        self.btn_version_check = QPushButton("Run Version Scan")
+        self.btn_version_check.setObjectName("btn-scan")
+        self.btn_version_check.clicked.connect(self.run_version_check)
+        version_check_header.addWidget(self.btn_version_check)
+
+        self.btn_version_check_refresh = QPushButton("Refresh")
+        self.btn_version_check_refresh.setObjectName("btn-scan")
+        self.btn_version_check_refresh.clicked.connect(self.run_version_check)
+        version_check_header.addWidget(self.btn_version_check_refresh)
+        version_check_layout.addLayout(version_check_header)
+
+        self.version_check_list = QListWidget()
+        self.version_check_list.setObjectName("updates-list")
+        version_check_layout.addWidget(self.version_check_list)
+
+        self.version_check_progress = QProgressBar()
+        self.version_check_progress.setVisible(False)
+        version_check_layout.addWidget(self.version_check_progress)
+
+        self.stacked_widget.addWidget(version_check_page)
+
+        # PAGE 3: Browse Store
         store_page = QWidget()
         store_layout = QHBoxLayout(store_page)
         store_layout.setContentsMargins(0, 0, 0, 0)
@@ -1444,15 +1513,100 @@ class MainWindow(QMainWindow):
         else:
             self.nav_updates_badge.setVisible(False)
 
+    def update_version_check_badge(self, count: int) -> None:
+        """Refresh the version-check suggestions count badge."""
+        if count > 0:
+            self.nav_version_check_badge.setText(str(count))
+            self.nav_version_check_badge.setStyleSheet(
+                "background-color: #f9e2af; color: #11111b; border-radius: 9px; "
+                "padding: 1px 7px; font-weight: bold; font-size: 11px;"
+            )
+            self.nav_version_check_badge.setVisible(True)
+        else:
+            self.nav_version_check_badge.setVisible(False)
+
     def change_page(self, index: int):
         if index >= 0:
             self.stacked_widget.setCurrentIndex(index)
             self._style_nav_row_text(self.nav_updates_label, selected=(index == 0))
-            if index == 4:
+            if index == 1:
+                self._style_nav_row_text(self.nav_version_check_label, selected=True)
+            else:
+                self._style_nav_row_text(self.nav_version_check_label, selected=False)
+            if index == 5:
                 self.populate_managers_list()
-            elif index == 5:
-                self.populate_repos_managers()
             elif index == 6:
+                self.populate_repos_managers()
+            elif index == 7:
+                self.populate_history_page()
+
+    def run_version_check(self) -> None:
+        """Run the cross-manager version check scan in a worker thread."""
+        self.version_check_list.clear()
+        self.version_check_progress.setVisible(True)
+        self.version_check_progress.setRange(0, 0)  # Indeterminate
+        self.btn_version_check.setEnabled(False)
+        self.lbl_version_check_summary.setText("Scanning for cross-manager version differences...")
+
+        worker = VersionCheckWorker(self.managers)
+        worker.log_signal.connect(self.log)
+        worker.suggestions_signal.connect(self.handle_version_check_results)
+        worker.error_signal.connect(self.handle_version_check_error)
+        worker.finished.connect(self._on_version_check_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    @Slot(list)
+    def handle_version_check_results(self, suggestions: list[dict[str, Any]]) -> None:
+        """Display version check suggestions in the list."""
+        self.version_check_list.clear()
+        if not suggestions:
+            item = QListWidgetItem("✅ No packages found with newer versions on other managers.")
+            item.setForeground(Qt.GlobalColor.green)
+            self.version_check_list.addItem(item)
+            self.update_version_check_badge(0)
+            self.lbl_version_check_summary.setText("No cross-manager version differences found.")
+            return
+
+        self.update_version_check_badge(len(suggestions))
+        self.lbl_version_check_summary.setText(f"Found {len(suggestions)} package(s) with a newer version on another manager:")
+
+        for s in suggestions:
+            newest = s["newest"]
+            installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
+            text = f"{s['package']} — newest: {newest['manager']} {newest['version']} (installed: {installed_str})"
+            item = QListWidgetItem(text)
+            self.version_check_list.addItem(item)
+
+    @Slot(str)
+    def handle_version_check_error(self, error: str) -> None:
+        """Handle version check scan error."""
+        self.log(f"❌ Version check scan failed: {error}")
+        self.version_check_list.clear()
+        item = QListWidgetItem(f"❌ Scan failed: {error}")
+        item.setForeground(Qt.GlobalColor.red)
+        self.version_check_list.addItem(item)
+        self.update_version_check_badge(0)
+        self.lbl_version_check_summary.setText("Version scan failed — see log for details.")
+
+    def _on_version_check_finished(self) -> None:
+        """Clean up after version check worker finishes."""
+        self.version_check_progress.setVisible(False)
+        self.btn_version_check.setEnabled(True)
+
+    def populate_history_page(self):
+        if index >= 0:
+            self.stacked_widget.setCurrentIndex(index)
+            self._style_nav_row_text(self.nav_updates_label, selected=(index == 0))
+            if index == 1:
+                self._style_nav_row_text(self.nav_version_check_label, selected=True)
+            else:
+                self._style_nav_row_text(self.nav_version_check_label, selected=False)
+            if index == 5:
+                self.populate_managers_list()
+            elif index == 6:
+                self.populate_repos_managers()
+            elif index == 7:
                 self.populate_history_page()
 
     def populate_history_page(self):
@@ -1622,7 +1776,7 @@ class MainWindow(QMainWindow):
 
         self.installing_managers.add(entry.name)
         self.log(f"⚡ Launching installation process for package manager: {entry.name} ({' '.join(cmd)})")
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(3)  # Switch to console (index 3 with Version Check at 1)
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)

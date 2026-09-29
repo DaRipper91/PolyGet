@@ -11,6 +11,7 @@ from textual.containers import Horizontal, Vertical
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
+from app.core.version_scan import cross_manager_newest
 
 
 class HelpModal(ModalScreen[None]):
@@ -142,6 +143,7 @@ class PolyGetTuiApp(App[None]):
         ("r", "rescan_managers", "Rescan"),
         ("u", "upgrade_selected", "Upgrade Selected"),
         ("a", "upgrade_all", "Upgrade All"),
+        ("v", "version_check", "Version Check"),
         ("f", "forget_password", "Forget Password"),
         ("question_mark", "show_help", "Help"),
         ("h", "show_help", "Help"),
@@ -601,3 +603,39 @@ class PolyGetTuiApp(App[None]):
         else:
             log.write("[bold green]🎉 Full system upgrade completed successfully.[/bold green]")
             await self._send_phone_notification("🎉 Full system upgrades completed.")
+
+    async def action_version_check(self) -> None:
+        """Run the cross-manager newest-version scan and display suggestions."""
+        log = self.query_one("#terminal-log", RichLog)
+
+        log.write("[bold #8b5cf6]🔍 Running cross-manager version scan...[/]")
+
+        try:
+            result = await cross_manager_newest(self.managers)
+        except Exception as e:
+            log.write(f" ❌ [bold red]Version scan failed: {escape(str(e))}[/bold red]")
+            return
+
+        suggestions = result.get("suggestions", [])
+        manager_status = result.get("managers", {})
+
+        if not suggestions:
+            log.write(" ✅ [bold green]No packages found with newer versions on other managers.[/bold green]")
+            # Show which managers were scanned
+            scanned = [name for name, status in manager_status.items() if status.get("ok")]
+            if scanned:
+                log.write(f"    Scanned: {', '.join(scanned)}")
+            failed = [name for name, status in manager_status.items() if not status.get("ok")]
+            if failed:
+                failed_strs = []
+                for n in failed:
+                    err = manager_status[n].get("error", "unknown")
+                    failed_strs.append(f"{n} ({err})")
+                log.write(f"    Failed: {', '.join(failed_strs)}")
+            return
+
+        log.write(f" [bold #fbbf24]📋 Found {len(suggestions)} package(s) with newer version elsewhere:[/]")
+        for s in suggestions:
+            newest = s["newest"]
+            installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
+            log.write(f"  • [bold]{s['package']}[/] — newest: [bold #34d399]{newest['manager']} {newest['version']}[/] (installed: {installed_str})")

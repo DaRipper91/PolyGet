@@ -219,7 +219,7 @@ A concrete false negative from the live probe:
 uvicorn: {'Pacman': '0.52.4-1', 'Pipx': '0.53.0'} -> best=None  [dropped]
 ```
 
-## What changed (`2dd25b5`)
+## What changed (`cc3f9d8`)
 
 - **Generic runtime comparator.** Every non-distro ecosystem now routes through
   `_parse_semver`, which tolerates Cargo's `v4.2.0` prefix, drops semver build

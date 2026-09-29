@@ -9,6 +9,7 @@ from packaging.version import Version
 
 from app.core.manager import PackageManager, discover_managers
 from app.core.ignore_store import IgnoreStore
+from app.core.settings_store import get_settings
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -124,12 +125,16 @@ def _best_version(versions: dict[str, str]) -> tuple[str | None, str | None]:
 async def cross_manager_newest(
     managers: list[PackageManager] | None = None,
     manager_filter: list[str] | None = None,
+    include_ignored: bool = False,
+    settings: Any | None = None,
 ) -> dict[str, Any]:
     """Scan installed packages across managers and find cross-manager version differences.
 
     Args:
         managers: Optional list of managers to scan. Defaults to all discovered.
         manager_filter: Optional list of manager names to restrict scan to.
+        include_ignored: If False, filter out suggestions where all versions are ignored.
+        settings: Optional SettingsStore instance for alias map and scan policies.
 
     Returns:
         Dict with keys:
@@ -143,7 +148,12 @@ async def cross_manager_newest(
         filter_set = set(manager_filter)
         managers = [m for m in managers if m.name in filter_set]
 
-    # Gather installed versions per manager (reusing _gather_per_manager pattern)
+    # Load settings
+    if settings is None:
+        settings = get_settings()
+    scan_settings = settings.get_version_scan_settings()
+
+    # Gather installed versions per manager
     results: dict[str, dict[str, Any]] = {}
     awaitable_map = {m.name: m.list_installed_versions() for m in managers}
 
@@ -156,13 +166,23 @@ async def cross_manager_newest(
         except Exception as e:
             results[name] = {"ok": False, "error": str(e), "versions": {}}
 
-    # Group by normalized name across managers
+    # Build alias resolution map from settings
+    alias_map = settings.get_alias_map()
+
+    def resolve_alias(manager: str, actual_name: str) -> str:
+        """Resolve an actual package name to its normalized form using alias map."""
+        for norm_name, managers in alias_map.items():
+            if managers.get(manager) == actual_name:
+                return norm_name
+        return _normalize_name(actual_name)
+
+    # Group by normalized name across managers (with alias resolution)
     groups: dict[str, dict[str, str]] = {}  # norm_name -> {manager: version}
     for mgr_name, res in results.items():
         if not res.get("ok"):
             continue
         for pkg_name, version in res.get("versions", {}).items():
-            norm = _normalize_name(pkg_name)
+            norm = resolve_alias(mgr_name, pkg_name)
             groups.setdefault(norm, {})[mgr_name] = version
 
     # Build suggestions: packages present on ≥2 managers with a strictly higher version elsewhere
@@ -178,41 +198,36 @@ async def cross_manager_newest(
                 continue
             cmp = _version_greater(mgr, best_ver, ver)
             if cmp is True:
+                # Build installed versions dict with actual names
+                installed_actual = {}
+                for m in versions_by_mgr:
+                    actual = settings.reverse_resolve(norm_name, m) or norm_name
+                    installed_actual[m] = versions_by_mgr[m]
                 suggestions.append({
                     "package": norm_name,
-                    "installed": {m: versions_by_mgr[m] for m in versions_by_mgr},
+                    "installed": installed_actual,
                     "newest": {"manager": best_mgr, "version": best_ver},
-                    "note": None,
+                    "note": "alias-matched" if norm_name in alias_map else None,
                 })
                 break  # one suggestion per package (the best one)
+
+    # Filter ignored suggestions (per-manager)
+    if not include_ignored and not scan_settings.get("include_ignored", False):
+        store = IgnoreStore()
+        filtered = []
+        for s in suggestions:
+            # A suggestion is ignored if ALL its installed versions are ignored per-manager
+            ignored = all(
+                store.is_ignored(mgr, s["package"]) for mgr in s["installed"]
+            )
+            if not ignored:
+                filtered.append(s)
+        suggestions = filtered
 
     return {
         "suggestions": suggestions,
         "managers": {name: res for name, res in results.items()},
     }
-
-
-async def _scan_with_ignore(
-    managers: list[PackageManager] | None = None,
-    manager_filter: list[str] | None = None,
-    include_ignored: bool = False,
-) -> dict[str, Any]:
-    """Internal: run cross_manager_newest and filter by IgnoreStore (per-manager)."""
-    result = await cross_manager_newest(managers, manager_filter)
-    if include_ignored:
-        return result
-
-    store = IgnoreStore()
-    filtered = []
-    for s in result["suggestions"]:
-        # A suggestion is ignored if ALL its installed versions are ignored per-manager
-        ignored = all(
-            store.is_ignored(mgr, s["package"]) for mgr in s["installed"]
-        )
-        if not ignored:
-            filtered.append(s)
-    result["suggestions"] = filtered
-    return result
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -227,7 +242,7 @@ async def cmd_newest(
     include_ignored = getattr(args, "include_ignored", False)
     manager_filter = getattr(args, "manager", None)
 
-    result = await _scan_with_ignore(
+    result = await cross_manager_newest(
         managers=managers,
         manager_filter=manager_filter,
         include_ignored=include_ignored,

@@ -9,7 +9,8 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
-    QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog
+    QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
+    QTreeWidget, QTreeWidgetItem, QHeaderView
 )
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
@@ -103,7 +104,7 @@ class ScanWorker(QThread):
 class VersionCheckWorker(QThread):
     """Worker thread to run the cross-manager newest-version scan."""
     log_signal = Signal(str)
-    suggestions_signal = Signal(list)  # list of suggestion dicts
+    suggestions_signal = Signal(list, dict)  # suggestions, manager_status
     error_signal = Signal(str)  # error message
 
     def __init__(self, managers: list[PackageManager], parent: Any = None):
@@ -115,9 +116,11 @@ class VersionCheckWorker(QThread):
         asyncio.set_event_loop(loop)
         try:
             self.log_signal.emit("🔍 Running cross-manager version scan...")
-            result = loop.run_until_complete(cross_manager_newest(self.managers))
+            from app.core.settings_store import get_settings
+            result = loop.run_until_complete(cross_manager_newest(self.managers, settings=get_settings()))
             suggestions = result.get("suggestions", [])
-            self.suggestions_signal.emit(suggestions)
+            manager_status = result.get("managers", {})
+            self.suggestions_signal.emit(suggestions, manager_status)
             self.log_signal.emit(f"✅ Version scan complete. Found {len(suggestions)} suggestion(s).")
         except Exception as e:
             self.error_signal.emit(str(e))
@@ -936,9 +939,36 @@ class MainWindow(QMainWindow):
         version_check_header.addWidget(self.btn_version_check_refresh)
         version_check_layout.addLayout(version_check_header)
 
-        self.version_check_list = QListWidget()
-        self.version_check_list.setObjectName("updates-list")
-        version_check_layout.addWidget(self.version_check_list)
+        # Toolbar for version check actions
+        vc_toolbar = QHBoxLayout()
+        self.chk_show_ignored = QCheckBox("Show ignored")
+        self.chk_show_ignored.setToolTip("Include suggestions where all versions are in ignore list")
+        self.chk_show_ignored.stateChanged.connect(self.run_version_check)
+        vc_toolbar.addWidget(self.chk_show_ignored)
+
+        self.chk_show_alias = QCheckBox("Show alias-matched")
+        self.chk_show_alias.setToolTip("Include suggestions matched via alias map")
+        self.chk_show_alias.setChecked(True)
+        self.chk_show_alias.stateChanged.connect(self.run_version_check)
+        vc_toolbar.addWidget(self.chk_show_alias)
+        vc_toolbar.addStretch()
+        version_check_layout.addLayout(vc_toolbar)
+
+        # Tree widget for expandable suggestions
+        self.version_check_tree = QTreeWidget()
+        self.version_check_tree.setObjectName("version-check-tree")
+        self.version_check_tree.setHeaderLabels(["Package", "Newest Manager", "Newest Version", "Installed Versions", "Note"])
+        self.version_check_tree.setAlternatingRowColors(True)
+        self.version_check_tree.setRootIsDecorated(True)
+        self.version_check_tree.setExpandsOnDoubleClick(True)
+        self.version_check_tree.header().setStretchLastSection(False)
+        self.version_check_tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.version_check_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.version_check_tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.version_check_tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.version_check_tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.version_check_tree.itemDoubleClicked.connect(self.show_version_check_detail)
+        version_check_layout.addWidget(self.version_check_tree)
 
         self.version_check_progress = QProgressBar()
         self.version_check_progress.setVisible(False)
@@ -1556,16 +1586,35 @@ class MainWindow(QMainWindow):
         self.active_workers.append(worker)
         worker.start()
 
-    @Slot(list)
-    def handle_version_check_results(self, suggestions: list[dict[str, Any]]) -> None:
-        """Display version check suggestions in the list."""
-        self.version_check_list.clear()
+    def run_version_check(self) -> None:
+        """Run the cross-manager version check scan in a worker thread."""
+        self.version_check_tree.clear()
+        self.version_check_progress.setVisible(True)
+        self.version_check_progress.setRange(0, 0)  # Indeterminate
+        self.btn_version_check.setEnabled(False)
+        self.lbl_version_check_summary.setText("Scanning for cross-manager version differences...")
+
+        worker = VersionCheckWorker(self.managers)
+        worker.log_signal.connect(self.log)
+        worker.suggestions_signal.connect(self.handle_version_check_results)
+        worker.error_signal.connect(self.handle_version_check_error)
+        worker.finished.connect(self._on_version_check_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    @Slot(list, dict)
+    def handle_version_check_results(self, suggestions: list[dict[str, Any]], manager_status: dict) -> None:
+        """Display version check suggestions in the tree."""
+        self.version_check_tree.clear()
         if not suggestions:
-            item = QListWidgetItem("✅ No packages found with newer versions on other managers.")
-            item.setForeground(Qt.GlobalColor.green)
-            self.version_check_list.addItem(item)
+            item = QTreeWidgetItem(["✅ No packages found with newer versions on other managers.", "", "", "", ""])
+            item.setForeground(0, Qt.GlobalColor.green)
+            self.version_check_tree.addTopLevelItem(item)
             self.update_version_check_badge(0)
             self.lbl_version_check_summary.setText("No cross-manager version differences found.")
+            scanned = [name for name, status in manager_status.items() if status.get("ok")]
+            if scanned:
+                self.lbl_version_check_summary.setText(f"Scanned {len(scanned)} managers. No cross-manager version differences found.")
             return
 
         self.update_version_check_badge(len(suggestions))
@@ -1574,9 +1623,47 @@ class MainWindow(QMainWindow):
         for s in suggestions:
             newest = s["newest"]
             installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
-            text = f"{s['package']} — newest: {newest['manager']} {newest['version']} (installed: {installed_str})"
-            item = QListWidgetItem(text)
-            self.version_check_list.addItem(item)
+            note = s.get("note", "")
+            
+            # Top-level item
+            top_item = QTreeWidgetItem([
+                s["package"],
+                newest["manager"],
+                newest["version"],
+                installed_str,
+                note
+            ])
+            top_item.setToolTip(0, f"Double-click for details")
+            self.version_check_tree.addTopLevelItem(top_item)
+            
+            # Child items for each installed version (expandable)
+            for mgr, ver in s["installed"].items():
+                child = QTreeWidgetItem(["", mgr, ver, "", ""])
+                top_item.addChild(child)
+            top_item.setExpanded(False)  # Collapsed by default
+
+        self.version_check_tree.resizeColumnToContents(0)
+        self.version_check_tree.resizeColumnToContents(1)
+        self.version_check_tree.resizeColumnToContents(2)
+        self.version_check_tree.resizeColumnToContents(4)
+
+    def show_version_check_detail(self, item: QTreeWidgetItem, column: int) -> None:
+        """Show detail dialog for a version check suggestion."""
+        # Only show detail for top-level items (suggestions)
+        if item.parent() is None:
+            pkg = item.text(0)
+            newest_mgr = item.text(1)
+            newest_ver = item.text(2)
+            installed = item.text(3)
+            note = item.text(4)
+            
+            detail_text = f"<b>Package:</b> {pkg}<br/>"
+            detail_text += f"<b>Newest:</b> {newest_mgr} {newest_ver}<br/>"
+            detail_text += f"<b>Installed:</b> {installed}<br/>"
+            if note:
+                detail_text += f"<b>Note:</b> {note}<br/>"
+            
+            QMessageBox.information(self, f"Version Check: {pkg}", detail_text)
 
     @Slot(str)
     def handle_version_check_error(self, error: str) -> None:

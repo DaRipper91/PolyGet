@@ -6,12 +6,14 @@ from typing import Any
 from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
-from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button, Checkbox
+from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button, Checkbox, DataTable
 from textual.containers import Horizontal, Vertical
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
 from app.core.version_scan import cross_manager_newest
+from app.core.settings_store import get_settings
+from app.core.ignore_store import IgnoreStore
 
 
 class HelpModal(ModalScreen[None]):
@@ -104,8 +106,143 @@ _PKEXEC_NO_AGENT_MARKERS = (
     "cannot determine the session",
 )
 
-
 _SUDO_AUTH_FAILURE_MARKERS = (
+    "incorrect password",
+    "sorry, try again",
+    "no password was provided",
+    "a password is required",
+)
+
+
+def _looks_like_sudo_auth_failure(stderr_text: str) -> bool:
+    """sudo rejected (or never got) the password, as opposed to the command failing."""
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in _SUDO_AUTH_FAILURE_MARKERS)
+
+
+def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
+    """Heuristic: pkexec failed because no polkit authentication agent is bound to
+    this session (e.g. a bare terminal/SSH session with no desktop running), rather
+    than because the privileged command itself failed for an unrelated reason. This
+    is reasoned from documented polkit behavior, not verified against every polkit
+    version — it deliberately requires a stderr marker rather than treating any
+    nonzero pkexec exit as "needs a password," so real command failures (e.g. an
+    unreachable mirror, a genuinely missing package) aren't masked as an auth issue.
+    """
+    lowered = stderr_text.lower()
+    return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
+
+
+class VersionCheckModal(ModalScreen[None]):
+    """Interactive modal showing cross-manager version suggestions."""
+
+    BINDINGS = [
+        ("escape", "dismiss", "Dismiss"),
+        ("q", "dismiss", "Dismiss"),
+        ("up", "cursor_up", "Up"),
+        ("down", "cursor_down", "Down"),
+        ("enter", "view_details", "View Details"),
+        ("i", "toggle_ignored", "Toggle Ignored"),
+        ("a", "toggle_alias", "Toggle Alias"),
+    ]
+
+    def __init__(self, suggestions: list[dict], manager_status: dict, settings: Any):
+        super().__init__()
+        self.suggestions = suggestions
+        self.manager_status = manager_status
+        self.settings = settings
+        self._ignored_count = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="version-check-dialog"):
+            yield Label("🔍 [bold #c084fc]Cross-Manager Version Check[/]")
+            
+            # Summary bar
+            scanned = [name for name, status in self.manager_status.items() if status.get("ok")]
+            failed = [name for name, status in self.manager_status.items() if not status.get("ok")]
+            with Horizontal(id="vc-summary"):
+                yield Label(f"Scanned: {len(scanned)} managers", id="vc-scanned")
+                yield Label(f"Suggestions: {len(self.suggestions)}", id="vc-suggestions")
+                if failed:
+                    yield Label(f"Failed: {len(failed)}", id="vc-failed")
+            
+            # Suggestions table
+            table = DataTable(id="vc-table", cursor_type="row")
+            table.add_columns("Package", "Newest Manager", "Newest Version", "Installed Versions")
+            for s in self.suggestions:
+                newest = s["newest"]
+                installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
+                table.add_row(s["package"], newest["manager"], newest["version"], installed_str)
+            yield table
+            
+            # Footer with key hints
+            hint_text = "[dim]↑/↓ Navigate  •  Enter Details  •  i Toggle Ignored  •  a Toggle Alias  •  ESC/q Dismiss[/]"
+            yield Label(hint_text, id="vc-hint")
+
+    def action_view_details(self) -> None:
+        """Show detailed view of the selected suggestion."""
+        table = self.query_one("#vc-table", DataTable)
+        if table.cursor_row < len(self.suggestions):
+            s = self.suggestions[table.cursor_row]
+            newest = s["newest"]
+            installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
+            note = s.get("note", "")
+            detail = (
+                f"Package: {s['package']}\n"
+                f"Newest: {newest['manager']} {newest['version']}\n"
+                f"Installed: {installed_str}\n"
+            )
+            if note:
+                detail += f"Note: {note}\n"
+            self.app.push_screen(DetailModal(detail))
+
+    def action_toggle_ignored(self) -> None:
+        """Toggle include_ignored setting."""
+        scan_settings = self.settings.get_version_scan_settings()
+        current = scan_settings.get("include_ignored", False)
+        self.settings.set_version_scan_setting("include_ignored", not current)
+        self.app.notify(f"Ignore filter: {'ON' if not current else 'OFF'}", severity="info")
+
+    def action_toggle_alias(self) -> None:
+        """Toggle strict matching setting (alias map)."""
+        scan_settings = self.settings.get_version_scan_settings()
+        current = scan_settings.get("strict_matching", True)
+        self.settings.set_version_scan_setting("strict_matching", not current)
+        self.app.notify(f"Strict matching: {'ON' if not current else 'OFF'}", severity="info")
+
+
+class DetailModal(ModalScreen[None]):
+    """Simple detail view modal."""
+
+    BINDINGS = [
+        ("escape", "dismiss", "Dismiss"),
+        ("q", "dismiss", "Dismiss"),
+        ("enter", "dismiss", "Dismiss"),
+    ]
+
+    def __init__(self, content: str):
+        super().__init__()
+        self.content = content
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="detail-dialog"):
+            yield Label("ℹ️ [bold #c084fc]Details[/]")
+            yield Label(self.content, id="detail-text")
+            with Horizontal(id="detail-buttons"):
+                yield Button("Close", variant="primary", id="close-btn")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "close-btn":
+            self.dismiss()
+
+    _PKEXEC_NO_AGENT_MARKERS = (
+        "authentication agent",
+        "no session for cookie",
+        "not authorized",
+        "cannot determine the session",
+    )
+
+    _SUDO_AUTH_FAILURE_MARKERS = (
     "incorrect password",
     "sorry, try again",
     "no password was provided",
@@ -605,13 +742,13 @@ class PolyGetTuiApp(App[None]):
             await self._send_phone_notification("🎉 Full system upgrades completed.")
 
     async def action_version_check(self) -> None:
-        """Run the cross-manager newest-version scan and display suggestions."""
+        """Run the cross-manager newest-version scan and display suggestions in a modal."""
         log = self.query_one("#terminal-log", RichLog)
 
         log.write("[bold #8b5cf6]🔍 Running cross-manager version scan...[/]")
 
         try:
-            result = await cross_manager_newest(self.managers)
+            result = await cross_manager_newest(self.managers, settings=get_settings())
         except Exception as e:
             log.write(f" ❌ [bold red]Version scan failed: {escape(str(e))}[/bold red]")
             return
@@ -634,8 +771,6 @@ class PolyGetTuiApp(App[None]):
                 log.write(f"    Failed: {', '.join(failed_strs)}")
             return
 
-        log.write(f" [bold #fbbf24]📋 Found {len(suggestions)} package(s) with newer version elsewhere:[/]")
-        for s in suggestions:
-            newest = s["newest"]
-            installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
-            log.write(f"  • [bold]{s['package']}[/] — newest: [bold #34d399]{newest['manager']} {newest['version']}[/] (installed: {installed_str})")
+        # Show interactive modal with suggestions
+        settings = get_settings()
+        self.push_screen(VersionCheckModal(suggestions, manager_status, settings))

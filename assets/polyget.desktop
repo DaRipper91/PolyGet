@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=PolyGet
+GenericName=Package Manager
+Comment=Unified package manager for every backend on your system
+Exec=/home/daripper/Projects/Polyget/.venv/bin/python /home/daripper/Projects/Polyget/run.py %f
+TryExec=/home/daripper/Projects/Polyget/.venv/bin/python
+Icon=polyget
+Terminal=false
+Categories=System;PackageManager;
+Keywords=package;manager;upgrade;update;apt;dnf;pacman;npm;pipx;flatpak;cargo;
+StartupNotify=true
+StartupWMClass=PolyGet

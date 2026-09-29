@@ -16,6 +16,7 @@ import sys
 from typing import Any
 
 from app.core.manager import PackageManager, describe_error, discover_managers, get_all_managers
+from app.core.version_scan import cmd_newest
 
 VERSION = "1.0.0"
 EXIT_OK = 0
@@ -24,7 +25,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "sync", "history", "ignore", "catalog",
+    "upgrade", "install", "sync", "history", "ignore", "catalog", "newest",
 )
 
 
@@ -196,7 +197,7 @@ async def _scan_outdated(managers: list[PackageManager], include_ignored: bool) 
 
 
 def _errors_text(results: dict[str, dict]) -> str:
-    lines = [f"! {name}: {res['error']}" for name, res in results.items() if not res["ok"]]
+    lines = [f"! {name}: {res.get('error', 'unknown error')}" for name, res in results.items() if not res.get("ok", False)]
     return ("\n" + "\n".join(lines)) if lines else ""
 
 
@@ -356,6 +357,33 @@ def cmd_catalog(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+async def _cmd_newest_async(args: argparse.Namespace) -> int:
+    managers = _select_managers(args.manager)
+    exit_code, result = await cmd_newest(args, managers)
+    # Build rows for human output
+    rows = []
+    for s in result["suggestions"]:
+        newest = s["newest"]
+        installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
+        rows.append({
+            "package": s["package"],
+            "newest_manager": newest["manager"],
+            "newest_version": newest["version"],
+            "installed": installed_str,
+        })
+    payload = {
+        "suggestions": result["suggestions"],
+        "managers": result["managers"],
+    }
+    columns = ["package", "newest_manager", "newest_version", "installed"]
+    _emit(args, payload, _table(rows, columns) + _errors_text(result["managers"]))
+    return exit_code
+
+
+def cmd_newest_cli(args: argparse.Namespace) -> int:
+    return asyncio.run(_cmd_newest_async(args))
+
+
 # --- Parser -----------------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
@@ -432,6 +460,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("package", nargs="?")
 
     add("catalog", cmd_catalog, "list every cataloged manager, installed or not")
+
+    p = add("newest", cmd_newest_cli, "show packages installed on multiple managers with a newer version elsewhere")
+    manager_filter(p)
+    p.add_argument("--include-ignored", action="store_true", help="also show ignored packages")
     return parser
 
 

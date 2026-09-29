@@ -182,6 +182,28 @@ class NpmManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """List installed global NPM packages with versions.
+
+        Returns:
+            dict[str, str]: Mapping of package name -> version string.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "list", "-g", "--depth=0", "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if not stdout:
+                return {}
+            import json
+            data = json.loads(stdout.decode(errors="ignore"))
+            dependencies = data.get("dependencies", {})
+            return {name: info.get("version", "unknown") for name, info in dependencies.items()}
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a global NPM package.
 

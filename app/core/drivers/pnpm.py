@@ -101,6 +101,18 @@ class PnpmManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            _, stdout = await self._run(
+                self._pnpm_argv("list", "--global", "--depth=0", "--json"), timeout=10.0
+            )
+            import json
+            data = json.loads(stdout.decode(errors="ignore") or "[]")
+            deps = data[0].get("dependencies", {}) if data else {}
+            return {name: info.get("version", "unknown") for name, info in deps.items()}
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         return self._pnpm_argv("add", "--global", package)
 

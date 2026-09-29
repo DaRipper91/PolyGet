@@ -71,6 +71,16 @@ class PackageManager:
         """
         raise NotImplementedError("Subclasses must implement list_installed()")
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """Get a mapping of installed package names to their versions.
+
+        Returns:
+            dict[str, str]: A dict mapping package name -> version string.
+            Default implementation returns an empty dict; drivers that can
+            extract versions from their list output should override.
+        """
+        return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command list to install a package.
 

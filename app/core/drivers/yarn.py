@@ -69,6 +69,24 @@ class YarnManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            _, stdout = await self._run(["yarn", "global", "list", "--depth=0"], timeout=10.0)
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                line = line.strip()
+                if line.startswith("info") or "@" not in line:
+                    continue
+                # Format: '- packagename@version'
+                parts = line.lstrip("- ").rsplit("@", 1)
+                if len(parts) == 2:
+                    name, version = parts
+                    if name:
+                        versions[name] = version
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         return ["yarn", "global", "add", package]
 

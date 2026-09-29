@@ -3,3 +3,4 @@ textual==8.2.7
 rich>=13.0.0,<15.1.0
 PyYAML>=6.0.0,<6.1.0
 keyring>=24.0
+packaging>=23.0

@@ -36,6 +36,11 @@ class SettingsStore:
                 "include_ignored": False,
                 "show_suppressed": False,
                 "strict_matching": True,  # exact normalized-name only, no aliases
+                # Distro-vs-runtime version comparisons span two independent version
+                # schemes and can be wrong (Arch ships protobuf 36.1, the Ruby gem is
+                # 4.36.1 — same release, different numbering). Set False to restrict
+                # results to managers that share a version scheme.
+                "include_cross_ecosystem": True,
             },
             "ui": {
                 "show_version_check_badge": True,

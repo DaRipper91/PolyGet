@@ -20,6 +20,82 @@ _JS_MANAGERS = {"NPM", "pnpm", "Yarn"}  # managers with semver versions
 _SYSTEM_MANAGERS = {"Pacman", "DNF", "APT"}  # managers with pkgver-pkgrel/epoch versions
 
 
+# Managers whose versions are a *system-wide distribution copy* of a package that a
+# language-runtime manager may also provide. Comparing these against a runtime manager
+# is meaningful (pipx's uvicorn vs the distro's python-uvicorn really are the same
+# software) even though the version grammars differ.
+_DISTRO_MANAGERS = _SYSTEM_MANAGERS
+
+# Language-runtime managers, grouped by ecosystem. Two different runtimes are never
+# comparable: a gem named `yaml` and a PyPI package named `yaml` are unrelated
+# software that merely share a name, so ranking them against each other would
+# produce a confident, wrong suggestion.
+_RUNTIME_ECOSYSTEMS: dict[str, str] = {
+    "NPM": "js", "pnpm": "js", "Yarn": "js",
+    "Pipx": "python", "Poetry": "python",
+    "Cargo": "rust",
+    "RubyGems": "ruby",
+    "Dart Pub": "dart", "Hex": "elixir", "Julia": "julia", "cpanm": "perl",
+}
+
+# Managers with no meaningful cross-ecosystem comparison. Flatpak versions are app
+# versions chosen by the packager, not upstream semver, and every runtime ecosystem
+# here is distinct, so a Flatpak app id will never legitimately rank against another
+# manager's version. The members are still reported (their versions are scanned and
+# listed) — they just never produce a suggestion.
+_UNCOMPARABLE_MANAGERS = {"Flatpak"}
+
+# Version strings that must never be compared. RubyGems reports interpreter-bundled
+# gems as `default: 0.4.0` — that version tracks the Ruby stdlib, is not separately
+# installable, and routinely differs from the distro package of the same name.
+_UNCOMPARABLE_VERSION_RE = re.compile(
+    r"^\s*(default\s*:|unknown\b|not installed|none\b|\(none\))", re.IGNORECASE
+)
+
+
+def _is_comparable_version(version: str) -> bool:
+    """True when a version string is a real, rankable release number."""
+    if not version or not version.strip():
+        return False
+    if _UNCOMPARABLE_VERSION_RE.match(version):
+        return False
+    return True
+
+
+def _comparators(a: str, b: str) -> tuple[str, str] | None:
+    """Return the comparator pair to use for managers `a` and `b`, or None if the
+    two are not legitimately comparable.
+
+    Same runtime ecosystem, or a distro manager against any runtime (the system copy
+    of a package the runtime also ships), are comparable. Two *different* runtime
+    ecosystems are not.
+    """
+    if a == b:
+        # Same manager: use its own ecosystem's comparator.
+        return a, a
+
+    if a in _UNCOMPARABLE_MANAGERS or b in _UNCOMPARABLE_MANAGERS:
+        return None
+
+    a_distro = a in _DISTRO_MANAGERS
+    b_distro = b in _DISTRO_MANAGERS
+
+    if a_distro or b_distro:
+        # Distro-vs-runtime (or distro-vs-distro). Route through the *runtime's*
+        # comparator so a pipx semver isn't ranked with a dpkg epoch grammar.
+        runtime = b if a_distro else a
+        if runtime in _RUNTIME_ECOSYSTEMS:
+            return runtime, runtime
+        # distro vs distro, or distro vs a manager with no known runtime ecosystem
+        return a, a if not a_distro else b
+
+    ea = _RUNTIME_ECOSYSTEMS.get(a)
+    eb = _RUNTIME_ECOSYSTEMS.get(b)
+    if ea is None or eb is None or ea != eb:
+        return None
+    return a, b
+
+
 def _normalize_name(name: str) -> str:
     """Normalize package name for cross-manager matching.
 
@@ -34,14 +110,21 @@ def _normalize_name(name: str) -> str:
 
 
 def _parse_semver(version: str) -> Version | None:
-    """Parse a semver version string using packaging.version.Version.
+    """Parse a semver version string.
 
-    Returns None on parse failure (caller should fall back to string equality).
+    Tolerates a leading `v` (Cargo reports `v4.2.0`) and PEP 440 pre-release
+    spellings that `packaging` understands (`1.0.0rc1`) as well as semver's
+    (`1.0.0-rc.1`). Returns None on parse failure.
     """
-    if not version or version == "unknown":
+    if not _is_comparable_version(version):
         return None
+    candidate = version.strip()
+    if candidate[:1] in ("v", "V"):
+        candidate = candidate[1:]
+    # Build metadata is not ordered per the semver spec; drop it.
+    candidate = candidate.split("+", 1)[0]
     try:
-        return Version(version)
+        return Version(candidate)
     except Exception:
         return None
 
@@ -53,15 +136,12 @@ def _parse_system_version(version: str) -> tuple[int, ...] | None:
     Returns a tuple of ints (major, minor, patch, ...) for component-wise comparison,
     or None if parsing fails.
     """
-    if not version or version == "unknown":
+    if not _is_comparable_version(version):
         return None
-    # Strip dpkg epoch (e.g. "1:2.0-1" -> "2.0-1")
     if ":" in version:
         version = version.split(":", 1)[1]
-    # Strip pkgrel (e.g. "5.0.4-1" -> "5.0.4")
     if "-" in version:
         version = version.rsplit("-", 1)[0]
-    # Split into numeric components
     parts = re.split(r"[.\-]", version)
     nums = []
     for p in parts:
@@ -76,29 +156,31 @@ def _parse_system_version(version: str) -> tuple[int, ...] | None:
 def _version_greater(manager_name: str, v1: str, v2: str) -> bool | None:
     """Return True if v1 > v2 for the given manager's ecosystem.
 
-    Returns None if comparison is not possible (unparseable versions),
-    in which case the caller should treat versions as incomparable.
+    Returns None when the versions are not comparable — an unparseable version, a
+    stdlib-bundled `default:` gem, or a manager with no ordering defined — in which
+    case the caller must treat the versions as incomparable rather than guess.
     """
-    if manager_name in _JS_MANAGERS:
-        p1 = _parse_semver(v1)
-        p2 = _parse_semver(v2)
-        if p1 is not None and p2 is not None:
-            return p1 > p2
-        return None
     if manager_name in _SYSTEM_MANAGERS:
         p1 = _parse_system_version(v1)
         p2 = _parse_system_version(v2)
-        if p1 is not None and p2 is not None:
-            return p1 > p2
-        return None
-    # Unknown manager — conservative: don't guess
+    else:
+        # Every runtime ecosystem (js, python, rust, ruby, dart, elixir, julia,
+        # perl) publishes semver, and packaging handles the Python-specific
+        # spellings. This is the generic fallback that replaced the old
+        # hardcoded JS-only whitelist.
+        p1 = _parse_semver(v1)
+        p2 = _parse_semver(v2)
+    if p1 is not None and p2 is not None:
+        return p1 > p2
     return None
 
 
 def _best_version(versions: dict[str, str]) -> tuple[str | None, str | None]:
-    """Return (manager_with_best_version, best_version) from a {manager: version} mapping.
+    """Pick the highest version from a {manager: version} mapping.
 
-    Returns (None, None) if no comparable versions.
+    Only managers that hold a comparable version participate. Returns
+    (None, None) when nothing is comparable, or when no manager is *strictly*
+    higher than another (equal versions are not a finding).
     """
     best_mgr = None
     best_ver = None
@@ -176,40 +258,87 @@ async def cross_manager_newest(
                 return norm_name
         return _normalize_name(actual_name)
 
-    # Group by normalized name across managers (with alias resolution)
+    # Group by normalized name across managers (with alias resolution).
+    # Versions that are not real release numbers (RubyGems' `default:` stdlib gems,
+    # driver placeholders) are dropped here rather than carried into the grouping, so
+    # they can never win a comparison.
     groups: dict[str, dict[str, str]] = {}  # norm_name -> {manager: version}
     for mgr_name, res in results.items():
         if not res.get("ok"):
             continue
         for pkg_name, version in res.get("versions", {}).items():
+            if not _is_comparable_version(version):
+                continue
             norm = resolve_alias(mgr_name, pkg_name)
             groups.setdefault(norm, {})[mgr_name] = version
 
-    # Build suggestions: packages present on ≥2 managers with a strictly higher version elsewhere
+    # Build suggestions: packages present on ≥2 *comparable* managers, where one
+    # manager holds a strictly higher version.
     suggestions = []
     for norm_name, versions_by_mgr in groups.items():
         if len(versions_by_mgr) < 2:
             continue
-        best_mgr, best_ver = _best_version(versions_by_mgr)
+
+        # Restrict to the set of managers that share a comparable ecosystem with at
+        # least one other. A group can hold managers from incompatible ecosystems
+        # (e.g. a Ruby stdlib gem and a PyPI package of the same name); those are
+        # dropped so a like-for-like comparison is all that remains.
+        comparable_mgrs = [
+            m for m in versions_by_mgr
+            if any(_comparators(m, o) is not None for o in versions_by_mgr if o != m)
+        ]
+        if len(comparable_mgrs) < 2:
+            continue
+        comparable = {m: versions_by_mgr[m] for m in comparable_mgrs}
+
+        best_mgr, best_ver = _best_version(comparable)
         if best_mgr is None:
             continue
-        for mgr, ver in versions_by_mgr.items():
-            if mgr == best_mgr:
-                continue
-            cmp = _version_greater(mgr, best_ver, ver)
-            if cmp is True:
-                # Build installed versions dict with actual names
-                installed_actual = {}
-                for m in versions_by_mgr:
-                    actual = settings.reverse_resolve(norm_name, m) or norm_name
-                    installed_actual[m] = versions_by_mgr[m]
-                suggestions.append({
-                    "package": norm_name,
-                    "installed": installed_actual,
-                    "newest": {"manager": best_mgr, "version": best_ver},
-                    "note": "alias-matched" if norm_name in alias_map else None,
-                })
-                break  # one suggestion per package (the best one)
+
+        # Confirm the best is actually higher than at least one comparable peer.
+        higher_elsewhere = any(
+            m != best_mgr
+            and _comparators(best_mgr, m) is not None
+            and _version_greater(best_mgr, best_ver, comparable[m]) is True
+            for m in comparable
+        )
+        if not higher_elsewhere:
+            continue
+
+        # A distro manager and a runtime manager number the same release
+        # independently, so their versions are not reliably orderable. Report these
+        # only when the setting allows it, and always flag them when reported.
+        cross_ecosystem = any(
+            (m in _DISTRO_MANAGERS) != (best_mgr in _DISTRO_MANAGERS)
+            for m in comparable
+        )
+        if cross_ecosystem and not scan_settings.get("include_cross_ecosystem", True):
+            continue
+
+        installed_actual = {}
+        for m in versions_by_mgr:
+            actual = settings.reverse_resolve(norm_name, m) or norm_name
+            installed_actual[m] = versions_by_mgr[m]
+
+        note = "alias-matched" if norm_name in alias_map else None
+        if note is None and _RUNTIME_ECOSYSTEMS.get(best_mgr) == "js":
+            if any(_RUNTIME_ECOSYSTEMS.get(m) == "js" for m in comparable if m != best_mgr):
+                note = "same-registry"
+
+        # Distro-vs-runtime comparisons span two independent version schemes and are
+        # not reliably orderable. Protobuf is the live example: Arch ships 36.1-1.1
+        # while the Ruby gem is 4.36.1, so a numeric comparison reports a "newer"
+        # version that is simply the same release counted differently. These are
+        # reported but explicitly marked, and can be turned off in settings.
+        if note is None and cross_ecosystem:
+            note = "cross-ecosystem-unverified"
+
+        suggestions.append({
+            "package": norm_name,
+            "installed": installed_actual,
+            "newest": {"manager": best_mgr, "version": best_ver},
+            "note": note,
+        })
 
     # Filter ignored suggestions (per-manager)
     if not include_ignored and not scan_settings.get("include_ignored", False):

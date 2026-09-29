@@ -173,17 +173,83 @@ All 15 registered drivers now implement `list_installed_versions()`.
 
 ## Known limitations
 
-- **No suggestion on a real machine yet.** Both hosts report 0 suggestions —
-  their package sets genuinely do not overlap across managers, so the
-  higher-elsewhere path is exercised by unit tests but not by live data.
-- **Distro-repack vs. upstream version advice is unsound.** A distro package at
-  a lower `pkgver` is not necessarily older or more vulnerable, because
-  distros backport fixes without moving the upstream version. The
-  `check_vulnerabilities()` suppression guard proposed in review was **not**
-  implemented; it is the highest-value remaining item.
-- **Same-registry managers are not distinguished.** npm, pnpm, and yarn all
-  reach the npm registry, so a package installed under two of them at different
-  versions is reported as a cross-manager suggestion when it is really a
-  shadowed-global-prefix problem.
+- **Distro-repack vs. upstream version advice is unsound, and is now flagged
+  rather than fixed.** A distro package at a lower `pkgver` is not necessarily
+  older, because distros backport fixes without moving the upstream version.
+  Worse, distros and language runtimes sometimes number the *same* release
+  independently: Arch ships `ruby-google-protobuf 36.1-1.1` while the Ruby gem
+  is `4.36.1`, so a numeric comparison reports a "newer" version that is not
+  one. Every distro-vs-runtime suggestion is therefore tagged
+  `note: "cross-ecosystem-unverified"` and printed with a caveat line, and can
+  be suppressed entirely with `version_scan.include_cross_ecosystem: false` in
+  settings. The `check_vulnerabilities()` suppression guard proposed in review
+  was **not** implemented and remains the highest-value remaining item.
+- **The cross-ecosystem caveat is deliberately over-broad.** It also tags
+  trustworthy pairs (e.g. uvicorn 0.53.0 vs 0.52.4, where both track the same
+  upstream project). Detecting scheme divergence automatically would need
+  heuristics with their own failure modes; a visible caveat that is sometimes
+  unnecessary was preferred to a silent wrong claim. On the current CachyOS
+  host this suppresses both real suggestions, which is the honest trade.
+- **Same-registry managers are flagged but not separated.** npm, pnpm, and yarn
+  all reach the npm registry, so a package installed under two of them at
+  different versions is really a shadowed-global-prefix problem, not a newer
+  version elsewhere. Such rows are tagged `note: "same-registry"`.
 - **The desktop entry hardcodes the repo path** and goes stale if the repo
   moves; re-run `scripts/install-desktop.sh`.
+
+---
+
+# Correction: the comparator was not actually functional
+
+An audit of live scan data on both hosts (2026-09-29, after the commits above)
+found the feature **was not firing at all**, and had never been exercised
+outside unit tests. CachyOS has 81 genuine cross-manager overlaps out of 2182
+package names and reported **zero** suggestions.
+
+Root cause: `_version_greater` dispatched on a hardcoded manager whitelist
+(`_JS_MANAGERS` | `_SYSTEM_MANAGERS` = 6 managers) and returned `None` for
+everything else. Nine drivers that report versions — Pipx, Cargo, RubyGems,
+Dart Pub, Poetry, Hex, Julia, cpanm, Flatpak — fed their data in and got
+nothing back. Phases 3 and 4 added `list_installed_versions()` to those drivers
+but never gave them a comparator, so the data was collected and discarded.
+
+A concrete false negative from the live probe:
+
+```
+uvicorn: {'Pacman': '0.52.4-1', 'Pipx': '0.53.0'} -> best=None  [dropped]
+```
+
+## What changed (`2dd25b5`)
+
+- **Generic runtime comparator.** Every non-distro ecosystem now routes through
+  `_parse_semver`, which tolerates Cargo's `v4.2.0` prefix, drops semver build
+  metadata (`1.0.0+build` == `1.0.0`), and orders prereleases below releases for
+  both semver (`1.0.0-rc.1`) and PEP 440 (`1.0.0rc1`) spellings. Comparison is
+  numeric, not lexicographic (`2.0 < 10.0`).
+- **Ecosystem pairing (`_comparators`).** Two managers are only comparable if
+  they share a version scheme: same runtime ecosystem (NPM/pnpm/Yarn,
+  Pipx/Poetry, …), or a distro manager against a runtime manager (the system
+  copy of a package the runtime also ships). Two *different* runtimes are
+  refused — a gem named `yaml` and a PyPI package named `yaml` are unrelated
+  software. Flatpak is never compared to anything; its versions are packager
+  app versions, not upstream releases.
+- **Incomparable versions dropped before grouping.** RubyGems reports
+  interpreter-bundled gems as `default: 0.4.0`; those track the Ruby stdlib, are
+  not separately installable, and are now excluded by `_is_comparable_version`
+  rather than being carried into a comparison where they could win.
+- **Regression tests from live data.** 12 new tests, each named for the real
+  overlap that produced it (`test_uvicorn_regression_pipx_beats_distro`,
+  `test_ruby_stdlib_gem_never_suggested_against_distro`,
+  `test_cross_ecosystem_suggestion_is_flagged`, …). Suite is 190 tests.
+
+Live result after the fix, on CachyOS:
+
+```
+PACKAGE          NEWEST_MANAGER  NEWEST_VERSION  INSTALLED
+google-protobuf  Pacman          36.1-1.1        RubyGems=4.36.1, Pacman=36.1-1.1
+uvicorn          Pipx            0.53.0          Pacman=0.52.4-1, Pipx=0.53.0
+```
+
+`uvicorn` is a true positive that was previously dropped. `google-protobuf` is
+the false positive described above, now flagged in the output rather than
+presented as fact.

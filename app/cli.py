@@ -362,8 +362,10 @@ async def _cmd_newest_async(args: argparse.Namespace) -> int:
     exit_code, result = await cmd_newest(args, managers)
     # Build rows for human output
     rows = []
+    caveats = []
     for s in result["suggestions"]:
         newest = s["newest"]
+        note = s.get("note")
         installed_str = ", ".join(f"{m}={v}" for m, v in s["installed"].items())
         rows.append({
             "package": s["package"],
@@ -371,12 +373,22 @@ async def _cmd_newest_async(args: argparse.Namespace) -> int:
             "newest_version": newest["version"],
             "installed": installed_str,
         })
+        if note == "cross-ecosystem-unverified":
+            caveats.append(
+                f"{s['package']}: {newest['manager']} {newest['version']} vs "
+                f"{', '.join(f'{m} {v}' for m, v in s['installed'].items() if m != newest['manager'])}"
+                " — these managers number the same release independently, so this is a"
+                " lead, not a confirmed upgrade."
+            )
+        elif note:
+            caveats.append(f"{s['package']}: {note}")
     payload = {
         "suggestions": result["suggestions"],
         "managers": result["managers"],
     }
     columns = ["package", "newest_manager", "newest_version", "installed"]
-    _emit(args, payload, _table(rows, columns) + _errors_text(result["managers"]))
+    caveat_text = ("\n! " + "\n! ".join(caveats)) if caveats else ""
+    _emit(args, payload, _table(rows, columns) + caveat_text + _errors_text(result["managers"]))
     return exit_code
 
 

@@ -2,6 +2,7 @@
 
 import asyncio
 import pytest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from app.core.version_scan import (
     cross_manager_newest,
@@ -10,6 +11,8 @@ from app.core.version_scan import (
     _parse_system_version,
     _version_greater,
     _best_version,
+    _comparators,
+    _is_comparable_version,
 )
 from app.core.drivers.npm import NpmManager
 from app.core.drivers.pnpm import PnpmManager
@@ -205,3 +208,167 @@ def test_driver_list_installed_versions_exists():
 
     yarn = YarnManager()
     assert hasattr(yarn, "list_installed_versions")
+
+
+# ── Ecosystem comparability ────────────────────────────────────────────────────
+#
+# Regression coverage for a real defect: the comparator originally whitelisted only
+# {NPM, pnpm, Yarn, Pacman, DNF, APT}, so the 9 other drivers reported versions that
+# silently produced no suggestion. On CachyOS this discarded a genuine finding —
+# uvicorn 0.53.0 under pipx vs 0.52.4-1 under pacman.
+
+def test_comparators_refuse_different_runtime_ecosystems():
+    """A gem and a PyPI package that share a name are not comparable software."""
+    for a, b in [
+        ("RubyGems", "Pipx"),   # live: `yaml`, `openssl` stdlib vs distro
+        ("NPM", "Pipx"),
+        ("Cargo", "NPM"),
+        ("Flatpak", "NPM"),
+        ("Flatpak", "Pipx"),
+        ("Dart Pub", "Hex"),
+    ]:
+        assert _comparators(a, b) is None, f"{a}/{b} must refuse to compare"
+
+
+def test_comparators_allow_same_ecosystem_and_distro_pairs():
+    for a, b in [
+        ("NPM", "pnpm"), ("NPM", "Yarn"), ("Pipx", "Poetry"),
+        ("Pacman", "Pipx"),     # distro copy vs runtime copy of the same software
+        ("Pacman", "DNF"),
+    ]:
+        assert _comparators(a, b) is not None, f"{a}/{b} should compare"
+
+
+def test_stdlib_default_gems_are_not_comparable():
+    """RubyGems reports interpreter-bundled gems as `default: X`; those track the
+    Ruby stdlib, are not separately installable, and must never win a comparison."""
+    for v in ("default: 0.4.0", "default: 1.0.4", "unknown", "", "   ", "not installed", "None"):
+        assert not _is_comparable_version(v), f"{v!r} must be rejected"
+
+
+def test_cargo_v_prefix_is_tolerated():
+    """Live Asahi case: Cargo reports `v4.2.0`, which must parse as 4.2.0."""
+    assert _version_greater("Cargo", "v4.2.0", "4.1.9") is True
+    assert _version_greater("Cargo", "v4.2.0", "4.2.0") is False
+
+
+def test_runtime_fallback_orders_numerically_not_lexicographically():
+    """The generic runtime comparator must not do string comparison."""
+    assert _version_greater("Pipx", "2.0", "10.0") is False
+    assert _version_greater("Pipx", "10.0", "2.0") is True
+    assert _version_greater("Cargo", "0.9.0", "0.10.0") is False
+
+
+def test_prerelease_sorts_below_release():
+    assert _version_greater("Pipx", "1.0.0", "1.0.0rc1") is True
+    assert _version_greater("Pipx", "1.0.0rc1", "1.0.0") is False
+    assert _version_greater("Cargo", "1.0.0-rc.1", "1.0.0") is False
+    assert _version_greater("NPM", "1.0.0+build", "1.0.0") is False  # build metadata unranked
+
+
+@pytest.mark.asyncio
+async def test_uvicorn_regression_pipx_beats_distro():
+    """The exact false negative found on CachyOS: pipx has a newer uvicorn than the
+    distro package. Must surface as a suggestion, not be silently dropped."""
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"python-uvicorn": "0.52.4-1"})
+
+    mock_pipx = AsyncMock(spec=object)
+    mock_pipx.name = "Pipx"
+    mock_pipx.list_installed_versions = AsyncMock(return_value={"uvicorn": "0.53.0"})
+
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx])
+    assert len(result["suggestions"]) == 1, "a newer pipx uvicorn must be reported"
+    s = result["suggestions"][0]
+    assert s["package"] == "uvicorn"
+    assert s["newest"] == {"manager": "Pipx", "version": "0.53.0"}
+
+
+@pytest.mark.asyncio
+async def test_ruby_stdlib_gem_never_suggested_against_distro():
+    """Live Asahi case: `yaml` is Ruby's bundled stdlib gem (default: 0.4.0) and
+    separately the distro's yaml package (6.0.3). Different software — no suggestion."""
+    mock_gem = AsyncMock(spec=object)
+    mock_gem.name = "RubyGems"
+    mock_gem.list_installed_versions = AsyncMock(return_value={"yaml": "default: 0.4.0"})
+
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"yaml": "6.0.3-2.1"})
+
+    result = await cross_manager_newest(managers=[mock_gem, mock_pacman])
+    assert result["suggestions"] == []
+
+
+@pytest.mark.asyncio
+async def test_distro_pair_reports_real_difference():
+    """Two distro managers, genuinely different versions, should report."""
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"openssl": "3.5.8-1"})
+
+    mock_dnf = AsyncMock(spec=object)
+    mock_dnf.name = "DNF"
+    mock_dnf.list_installed_versions = AsyncMock(return_value={"openssl": "3.6.4-1"})
+
+    result = await cross_manager_newest(managers=[mock_pacman, mock_dnf])
+    assert len(result["suggestions"]) == 1
+    assert result["suggestions"][0]["newest"]["manager"] == "DNF"
+
+
+@pytest.mark.asyncio
+async def test_cross_ecosystem_suggestion_is_flagged():
+    """Live CachyOS case: `google-protobuf` is 4.36.1 as a Ruby gem and 36.1-1.1 in
+    the Arch repo — the same release under two numbering schemes. A numeric comparison
+    reports a 'newer' version that isn't one, so this must be marked unverified."""
+    mock_gem = AsyncMock(spec=object)
+    mock_gem.name = "RubyGems"
+    mock_gem.list_installed_versions = AsyncMock(return_value={"google-protobuf": "4.36.1"})
+
+    # Real pacman package name; the ruby- prefix is stripped by _normalize_name.
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"ruby-google-protobuf": "36.1-1.1"})
+
+    result = await cross_manager_newest(managers=[mock_gem, mock_pacman])
+    assert len(result["suggestions"]) == 1
+    s = result["suggestions"][0]
+    assert s["package"] == "google-protobuf"
+    assert s["note"] == "cross-ecosystem-unverified", "must be flagged, not presented as fact"
+
+
+@pytest.mark.asyncio
+async def test_cross_ecosystem_can_be_disabled_in_settings(tmp_path):
+    """Users can restrict results to managers sharing a version scheme."""
+    from app.core.settings_store import SettingsStore
+
+    mock_gem = AsyncMock(spec=object)
+    mock_gem.name = "RubyGems"
+    mock_gem.list_installed_versions = AsyncMock(return_value={"google-protobuf": "4.36.1"})
+
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"ruby-google-protobuf": "36.1-1.1"})
+
+    settings = SettingsStore(path=Path(tmp_path) / "settings.json")
+    settings.set_version_scan_setting("include_cross_ecosystem", False)
+
+    result = await cross_manager_newest(managers=[mock_gem, mock_pacman], settings=settings)
+    assert result["suggestions"] == []
+
+
+@pytest.mark.asyncio
+async def test_equal_versions_across_ecosystems_stay_silent():
+    """Live CachyOS case: `semver` is 7.8.5 under npm and 7.8.5-1 under pacman —
+    the same release, so not a finding."""
+    mock_npm = AsyncMock(spec=object)
+    mock_npm.name = "NPM"
+    mock_npm.list_installed_versions = AsyncMock(return_value={"semver": "7.8.5"})
+
+    mock_pacman = AsyncMock(spec=object)
+    mock_pacman.name = "Pacman"
+    mock_pacman.list_installed_versions = AsyncMock(return_value={"node-semver": "7.8.5-1"})
+
+    result = await cross_manager_newest(managers=[mock_npm, mock_pacman])
+    assert result["suggestions"] == []

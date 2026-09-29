@@ -17,6 +17,7 @@ from app.core.version_scan import (
 from app.core.drivers.npm import NpmManager
 from app.core.drivers.pnpm import PnpmManager
 from app.core.drivers.yarn import YarnManager
+from app.core.settings_store import SettingsStore
 
 
 def test_normalize_name():
@@ -86,7 +87,7 @@ def test_best_version():
 
 
 @pytest.mark.asyncio
-async def test_cross_manager_newest_higher_elsewhere():
+async def test_cross_manager_newest_higher_elsewhere(tmp_path):
     """Detect a package with a higher version on a different manager."""
     mock_npm = AsyncMock(spec=NpmManager)
     mock_npm.name = "NPM"
@@ -96,7 +97,7 @@ async def test_cross_manager_newest_higher_elsewhere():
     mock_pnpm.name = "pnpm"
     mock_pnpm.list_installed_versions = AsyncMock(return_value={"typescript": "5.1.0"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm])
+    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
     assert len(result["suggestions"]) == 1
     s = result["suggestions"][0]
     assert s["package"] == "typescript"
@@ -107,7 +108,7 @@ async def test_cross_manager_newest_higher_elsewhere():
 
 
 @pytest.mark.asyncio
-async def test_cross_manager_newest_all_equal_silent():
+async def test_cross_manager_newest_all_equal_silent(tmp_path):
     """No suggestion when versions are equal across managers."""
     mock_npm = AsyncMock(spec=NpmManager)
     mock_npm.name = "NPM"
@@ -117,12 +118,12 @@ async def test_cross_manager_newest_all_equal_silent():
     mock_pnpm.name = "pnpm"
     mock_pnpm.list_installed_versions = AsyncMock(return_value={"typescript": "5.0.0"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm])
+    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
     assert result["suggestions"] == []
 
 
 @pytest.mark.asyncio
-async def test_cross_manager_newest_unparseable_silent():
+async def test_cross_manager_newest_unparseable_silent(tmp_path):
     """No suggestion when versions are unparseable."""
     mock_npm = AsyncMock(spec=NpmManager)
     mock_npm.name = "NPM"
@@ -132,12 +133,12 @@ async def test_cross_manager_newest_unparseable_silent():
     mock_pnpm.name = "pnpm"
     mock_pnpm.list_installed_versions = AsyncMock(return_value={"pkg": "also-unknown"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm])
+    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
     assert result["suggestions"] == []
 
 
 @pytest.mark.asyncio
-async def test_cross_manager_newest_one_failed_survives():
+async def test_cross_manager_newest_one_failed_survives(tmp_path):
     """One manager failing doesn't sink the scan."""
     mock_ok = AsyncMock(spec=NpmManager)
     mock_ok.name = "NPM"
@@ -147,14 +148,14 @@ async def test_cross_manager_newest_one_failed_survives():
     mock_fail.name = "pnpm"
     mock_fail.list_installed_versions = AsyncMock(side_effect=RuntimeError("boom"))
 
-    result = await cross_manager_newest(managers=[mock_ok, mock_fail])
+    result = await cross_manager_newest(managers=[mock_ok, mock_fail], settings=_scan_settings(tmp_path))
     assert result["managers"]["NPM"]["ok"] is True
     assert result["managers"]["pnpm"]["ok"] is False
     assert "boom" in result["managers"]["pnpm"]["error"]
 
 
 @pytest.mark.asyncio
-async def test_cross_manager_newest_unknown_names_unmatched():
+async def test_cross_manager_newest_unknown_names_unmatched(tmp_path):
     """Normalized names that don't match across managers produce no suggestion."""
     mock_npm = AsyncMock(spec=NpmManager)
     mock_npm.name = "NPM"
@@ -164,7 +165,7 @@ async def test_cross_manager_newest_unknown_names_unmatched():
     mock_pnpm.name = "pnpm"
     mock_pnpm.list_installed_versions = AsyncMock(return_value={"requests": "2.32.0"})  # no prefix
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm])
+    result = await cross_manager_newest(managers=[mock_npm, mock_pnpm], settings=_scan_settings(tmp_path))
     # Both normalize to "requests" - should match!
     assert len(result["suggestions"]) == 1
     assert result["suggestions"][0]["package"] == "requests"
@@ -217,6 +218,36 @@ def test_driver_list_installed_versions_exists():
 # silently produced no suggestion. On CachyOS this discarded a genuine finding —
 # uvicorn 0.53.0 under pipx vs 0.52.4-1 under pacman.
 
+# ── Test isolation ────────────────────────────────────────────────────────────
+#
+# `cross_manager_newest` falls back to `get_settings()`, which reads the real
+# ~/.config/polyget/settings.json. Tests that don't pass their own SettingsStore
+# would then change outcome based on the developer's machine — the two failures
+# below were real tests that broke as soon as include_cross_ecosystem was set
+# locally. Every scan test must inject an explicit settings object.
+
+
+def _scan_settings(tmp_path, **overrides) -> "SettingsStore":
+    """Build a throwaway SettingsStore so scan tests never read the user's config."""
+    settings = SettingsStore(path=Path(tmp_path) / "settings.json")
+    for key, value in overrides.items():
+        settings.set_version_scan_setting(key, value)
+    return settings
+
+
+def test_scan_tests_do_not_read_user_config(tmp_path):
+    """Guard: cross_manager_newest must honour an injected settings object.
+
+    If this ever regresses, changing ~/.config/polyget/settings.json would silently
+    alter the test suite's results.
+    """
+    settings = _scan_settings(tmp_path, include_cross_ecosystem=False)
+    assert settings.get("version_scan.include_cross_ecosystem") is False
+
+    strict = _scan_settings(tmp_path, include_cross_ecosystem=True)
+    assert strict.get("version_scan.include_cross_ecosystem") is True
+
+
 def test_comparators_refuse_different_runtime_ecosystems():
     """A gem and a PyPI package that share a name are not comparable software."""
     for a, b in [
@@ -267,7 +298,7 @@ def test_prerelease_sorts_below_release():
 
 
 @pytest.mark.asyncio
-async def test_uvicorn_regression_pipx_beats_distro():
+async def test_uvicorn_regression_pipx_beats_distro(tmp_path):
     """The exact false negative found on CachyOS: pipx has a newer uvicorn than the
     distro package. Must surface as a suggestion, not be silently dropped."""
     mock_pacman = AsyncMock(spec=object)
@@ -278,7 +309,7 @@ async def test_uvicorn_regression_pipx_beats_distro():
     mock_pipx.name = "Pipx"
     mock_pipx.list_installed_versions = AsyncMock(return_value={"uvicorn": "0.53.0"})
 
-    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx])
+    result = await cross_manager_newest(managers=[mock_pacman, mock_pipx], settings=_scan_settings(tmp_path))
     assert len(result["suggestions"]) == 1, "a newer pipx uvicorn must be reported"
     s = result["suggestions"][0]
     assert s["package"] == "uvicorn"
@@ -286,7 +317,7 @@ async def test_uvicorn_regression_pipx_beats_distro():
 
 
 @pytest.mark.asyncio
-async def test_ruby_stdlib_gem_never_suggested_against_distro():
+async def test_ruby_stdlib_gem_never_suggested_against_distro(tmp_path):
     """Live Asahi case: `yaml` is Ruby's bundled stdlib gem (default: 0.4.0) and
     separately the distro's yaml package (6.0.3). Different software — no suggestion."""
     mock_gem = AsyncMock(spec=object)
@@ -297,12 +328,12 @@ async def test_ruby_stdlib_gem_never_suggested_against_distro():
     mock_pacman.name = "Pacman"
     mock_pacman.list_installed_versions = AsyncMock(return_value={"yaml": "6.0.3-2.1"})
 
-    result = await cross_manager_newest(managers=[mock_gem, mock_pacman])
+    result = await cross_manager_newest(managers=[mock_gem, mock_pacman], settings=_scan_settings(tmp_path))
     assert result["suggestions"] == []
 
 
 @pytest.mark.asyncio
-async def test_distro_pair_reports_real_difference():
+async def test_distro_pair_reports_real_difference(tmp_path):
     """Two distro managers, genuinely different versions, should report."""
     mock_pacman = AsyncMock(spec=object)
     mock_pacman.name = "Pacman"
@@ -312,13 +343,13 @@ async def test_distro_pair_reports_real_difference():
     mock_dnf.name = "DNF"
     mock_dnf.list_installed_versions = AsyncMock(return_value={"openssl": "3.6.4-1"})
 
-    result = await cross_manager_newest(managers=[mock_pacman, mock_dnf])
+    result = await cross_manager_newest(managers=[mock_pacman, mock_dnf], settings=_scan_settings(tmp_path))
     assert len(result["suggestions"]) == 1
     assert result["suggestions"][0]["newest"]["manager"] == "DNF"
 
 
 @pytest.mark.asyncio
-async def test_cross_ecosystem_suggestion_is_flagged():
+async def test_cross_ecosystem_suggestion_is_flagged(tmp_path):
     """Live CachyOS case: `google-protobuf` is 4.36.1 as a Ruby gem and 36.1-1.1 in
     the Arch repo — the same release under two numbering schemes. A numeric comparison
     reports a 'newer' version that isn't one, so this must be marked unverified."""
@@ -331,7 +362,7 @@ async def test_cross_ecosystem_suggestion_is_flagged():
     mock_pacman.name = "Pacman"
     mock_pacman.list_installed_versions = AsyncMock(return_value={"ruby-google-protobuf": "36.1-1.1"})
 
-    result = await cross_manager_newest(managers=[mock_gem, mock_pacman])
+    result = await cross_manager_newest(managers=[mock_gem, mock_pacman], settings=_scan_settings(tmp_path))
     assert len(result["suggestions"]) == 1
     s = result["suggestions"][0]
     assert s["package"] == "google-protobuf"
@@ -359,7 +390,7 @@ async def test_cross_ecosystem_can_be_disabled_in_settings(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_equal_versions_across_ecosystems_stay_silent():
+async def test_equal_versions_across_ecosystems_stay_silent(tmp_path):
     """Live CachyOS case: `semver` is 7.8.5 under npm and 7.8.5-1 under pacman —
     the same release, so not a finding."""
     mock_npm = AsyncMock(spec=object)
@@ -370,5 +401,5 @@ async def test_equal_versions_across_ecosystems_stay_silent():
     mock_pacman.name = "Pacman"
     mock_pacman.list_installed_versions = AsyncMock(return_value={"node-semver": "7.8.5-1"})
 
-    result = await cross_manager_newest(managers=[mock_npm, mock_pacman])
+    result = await cross_manager_newest(managers=[mock_npm, mock_pacman], settings=_scan_settings(tmp_path))
     assert result["suggestions"] == []

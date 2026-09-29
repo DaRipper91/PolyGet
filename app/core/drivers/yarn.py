@@ -14,13 +14,25 @@ class YarnManager(PackageManager):
     def is_available(self) -> bool:
         return shutil.which("yarn") is not None
 
+    async def _run(self, argv: list[str], timeout: float):
+        """Run argv capturing output, killing a hung child instead of hanging."""
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            raise
+        return proc, stdout
+
     async def check_updates(self) -> list[dict[str, Any]]:
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "yarn", "global", "outdated", "--json",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            _, stdout = await self._run(["yarn", "global", "outdated", "--json"], timeout=15.0)
             import json
             updates = []
             for line in stdout.decode(errors="ignore").splitlines():
@@ -43,11 +55,7 @@ class YarnManager(PackageManager):
 
     async def list_installed(self) -> list[str]:
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "yarn", "global", "list", "--depth=0",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            _, stdout = await self._run(["yarn", "global", "list", "--depth=0"], timeout=10.0)
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 line = line.strip()
@@ -69,11 +77,7 @@ class YarnManager(PackageManager):
         # so delegate to the npm registry search API directly rather than
         # reinventing it — same registry, same package names.
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "npm", "search", "--json", query,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            _, stdout = await self._run(["npm", "search", "--json", query], timeout=15.0)
             import json
             data = json.loads(stdout.decode(errors="ignore"))
             return [{"name": i.get("name", ""), "id": i.get("name", ""),

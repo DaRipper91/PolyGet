@@ -120,6 +120,33 @@ class CargoManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """List installed cargo packages with versions.
+
+        Returns:
+            dict[str, str]: Mapping of package name -> version string.
+        """
+        try:
+            if shutil.which("cargo-install-update") is None and shutil.which("cargo-update") is None:
+                return {}
+            proc = await asyncio.create_subprocess_exec(
+                "cargo", "install-update", "-l",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            if proc.returncode != 0:
+                return {}
+
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 4 and not parts[0].startswith("Package") and not parts[0].startswith("---"):
+                    versions[parts[0]] = parts[1]
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a cargo package.
 

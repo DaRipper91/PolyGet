@@ -140,6 +140,35 @@ class DnfManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """List installed DNF packages with versions.
+
+        Returns:
+            dict[str, str]: Mapping of package name -> version string (EVR format).
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "dnf", "list", "--installed", "--quiet",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            if proc.returncode != 0:
+                return {}
+
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 3 and not parts[0].startswith("Installed") and not parts[0].startswith("Last"):
+                    pkg_name = parts[0]
+                    if "." in pkg_name:
+                        pkg_name = pkg_name.rsplit(".", 1)[0]
+                    # parts[1] is the version (EVR: epoch:version-release)
+                    versions[pkg_name] = parts[1]
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a package using DNF.
 

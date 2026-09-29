@@ -57,6 +57,26 @@ class GemManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "gem", "list", "--local",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            if proc.returncode != 0:
+                return {}
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                if line.strip() and "(" in line:
+                    name = line.split("(")[0].strip()
+                    # Extract version: "gemname (version1, version2, ...)"
+                    ver_str = line.split("(")[1].rstrip(")").split(",")[0].strip()
+                    versions[name] = ver_str
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         return ["gem", "install", package]
 

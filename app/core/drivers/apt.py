@@ -92,6 +92,60 @@ class AptManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """List manually installed APT packages with versions.
+
+        Returns:
+            dict[str, str]: Mapping of package name -> version string.
+        """
+        try:
+            # First get the list of manually installed packages
+            proc = await asyncio.create_subprocess_exec(
+                "apt-mark", "showmanual",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            if proc.returncode != 0:
+                return {}
+            
+            packages = [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
+            if not packages:
+                return {}
+
+            # Then get versions for all packages via apt-cache policy (batch)
+            proc = await asyncio.create_subprocess_exec(
+                "apt-cache", "policy",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            if proc.returncode != 0:
+                return {}
+
+            # Parse apt-cache policy output for installed versions
+            versions = {}
+            current_pkg = None
+            for line in stdout.decode(errors="ignore").splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    current_pkg = None
+                    continue
+                if stripped.startswith(("  ", "\t")):
+                    continue
+                # Line format: "pkgname:" or "  Installed: 1.2.3"
+                if stripped.endswith(":"):
+                    current_pkg = stripped.rstrip(":")
+                elif current_pkg and stripped.startswith("Installed:"):
+                    ver = stripped.split("Installed:", 1)[1].strip()
+                    if current_pkg in packages:
+                        # Strip multiarch suffix
+                        versions[current_pkg.split(":", 1)[0]] = ver
+                    current_pkg = None
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install an APT package.
 

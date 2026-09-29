@@ -138,6 +138,34 @@ class PipxManager(PackageManager):
         except Exception:
             return []
 
+    async def list_installed_versions(self) -> dict[str, str]:
+        """List installed pipx packages with versions.
+
+        Returns:
+            dict[str, str]: Mapping of package name -> version string.
+        """
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pipx", "list", "--short",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if proc.returncode != 0:
+                return {}
+
+            versions = {}
+            for line in stdout.decode(errors="ignore").splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 2:
+                    name = parts[0]
+                    # Extract version from the second part (e.g., "1.2.3" or "1.2.3*")
+                    version = parts[1].rstrip("*")
+                    versions[name] = version
+            return versions
+        except Exception:
+            return {}
+
     def get_install_command(self, package: str) -> list[str]:
         """Get the command to install a pipx package.
 

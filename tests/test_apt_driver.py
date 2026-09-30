@@ -333,12 +333,32 @@ def test_apt_search_packages():
     asyncio.run(run_test())
 
 
-def test_apt_search_packages_returns_empty_on_exception():
-    """Test search_packages swallows exceptions and returns []."""
+def test_apt_search_packages_raises_on_exception():
+    """A failed apt-cache search must raise, not report 'no matches'.
+
+    Returning [] made an unreachable/broken package index indistinguishable from a
+    query that legitimately matched nothing.
+    """
     async def run_test():
         manager = AptManager()
         with patch("asyncio.create_subprocess_exec", side_effect=OSError("not found")):
-            results = await manager.search_packages("htop")
-        assert results == []
+            with pytest.raises(DriverError):
+                await manager.search_packages("htop")
+
+    asyncio.run(run_test())
+
+
+def test_apt_search_packages_returns_empty_when_no_match():
+    """A successful search that matches nothing must still return [] — that is a real
+    answer, and is what keeps 'no matches' distinguishable from 'the index failed'."""
+    manager = AptManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"", b"")
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            assert await manager.search_packages("nonexistent-package-xyz") == []
 
     asyncio.run(run_test())

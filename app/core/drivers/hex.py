@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -80,5 +80,7 @@ class HexManager(PackageManager):
                      "description": (p.get("meta") or {}).get("description", ""),
                      "version": ((p.get("releases") or [{}])[0]).get("version", "")}
                     for p in data[:20]]
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

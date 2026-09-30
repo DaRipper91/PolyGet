@@ -7,6 +7,8 @@ from app.core.drivers.dnf import DnfManager
 from app.core.drivers.flatpak import FlatpakManager
 from app.core.drivers.pipx import PipxManager
 from app.core.drivers.npm import NpmManager
+from app.core.drivers.dart_pub import DartPubManager
+from app.core.drivers.julia import JuliaManager
 from app.core.drivers.cargo import CargoManager
 
 
@@ -279,22 +281,58 @@ def test_driver_registry_auto_discovery():
 
 
 def test_search_packages_capability():
-    """Verify that all active managers respond to search_packages or raise NotImplementedError."""
+    """Every active manager must return a list, raise NotImplementedError (no search
+    API), or raise DriverError (the search broke). An empty list is only valid when
+    the search actually ran and parsed — the empty-stdout mock below is malformed
+    output, so it must surface as DriverError rather than a silent [].
+    """
     async def run_test():
         managers = discover_managers()
         for mgr in managers:
-            try:
-                # Mock create_subprocess_exec to avoid actual execution overhead
-                with patch("asyncio.create_subprocess_exec") as mock_exec, \
-                     patch("app.core.drivers.pipx.PipxManager._ensure_index_cached", return_value=["black"]):
-                    
-                    mock_proc = AsyncMock()
-                    mock_proc.communicate.return_value = (b"", b"")
-                    mock_exec.return_value = mock_proc
-                    
+            with patch("asyncio.create_subprocess_exec") as mock_exec, \
+                 patch("app.core.drivers.pipx.PipxManager._ensure_index_cached", return_value=["black"]):
+
+                mock_proc = AsyncMock()
+                mock_proc.returncode = 0
+                # Valid, parseable empty result for the JSON-based managers.
+                mock_proc.communicate.return_value = (b"{}", b"")
+                mock_exec.return_value = mock_proc
+
+                try:
                     results = await mgr.search_packages("testquery")
                     assert isinstance(results, list)
-            except NotImplementedError:
-                pass
+                except NotImplementedError:
+                    pass  # manager has no search API — expected
+                except DriverError:
+                    pass  # search failed — must be reported, not silently empty
+
+    asyncio.run(run_test())
+
+
+def test_search_packages_malformed_output_raises():
+    """A registry returning garbage (e.g. an HTML error page) is a failed search, not
+    'no matches'. Guards the confusion that made a dead registry look empty."""
+    manager = DartPubManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (b"<html>502 Bad Gateway</html>", b"")
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            with pytest.raises(DriverError):
+                await manager.search_packages("anything")
+
+    asyncio.run(run_test())
+
+
+def test_julia_search_is_unsupported_not_empty():
+    """Julia has no registry search API. That is 'unsupported', which callers report
+    differently from a search that ran and found nothing."""
+    manager = JuliaManager()
+
+    async def run_test():
+        with pytest.raises(NotImplementedError):
+            await manager.search_packages("anything")
 
     asyncio.run(run_test())

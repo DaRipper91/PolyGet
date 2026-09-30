@@ -282,5 +282,7 @@ class FlatpakManager(PackageManager):
                         "remote": parts[4].split(",")[0].strip() if parts[4].strip() else "flathub"
                     })
             return results
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -74,5 +74,7 @@ class CpanmManager(PackageManager):
             hits = data.get("hits", {}).get("hits", [])
             return [{"name": h["_source"].get("name", ""), "id": h["_source"].get("name", ""),
                      "description": "", "version": h["_source"].get("version", "")} for h in hits]
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

@@ -296,5 +296,7 @@ class PipxManager(PackageManager):
 
             details = await asyncio.gather(*(self._fetch_package_detail(name) for name in matches))
             return [detail for detail in details if detail is not None]
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

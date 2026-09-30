@@ -4,7 +4,7 @@ import asyncio
 import glob
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -297,5 +297,7 @@ class AptManager(PackageManager):
                 name, desc = line.split(" - ", 1)
                 results.append({"name": name.strip(), "id": name.strip(), "description": desc.strip(), "version": ""})
             return results
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

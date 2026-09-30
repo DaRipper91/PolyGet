@@ -182,7 +182,18 @@ class PackageManager:
         Returns:
             list[dict[str, Any]]: A list of dictionaries representing matching packages.
                 Each dict must contain: 'name', 'id', 'description', 'version'.
-                Callers will add the 'source' key themselves.
+                Callers will add the 'source' key themselves. An empty list means the
+                search ran and found nothing — never that it failed.
+
+        Raises:
+            NotImplementedError: This manager has no programmatic search (e.g. Julia
+                has no registry search API). Callers already report this as
+                "unsupported" rather than a failed query.
+            DriverError: The search failed — a dead subprocess, an unreachable
+                registry, malformed output. Search is best-effort across many
+                heterogeneous registries, so callers surface this per manager and
+                keep the results from the managers that did answer; they must not
+                treat it as a fatal error.
         """
         raise NotImplementedError(f"{self.name} does not support package search")
 

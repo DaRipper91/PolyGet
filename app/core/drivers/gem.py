@@ -109,5 +109,7 @@ class GemManager(PackageManager):
                     version = line.split("(")[1].rstrip(")").split(",")[0].strip()
                     results.append({"name": name, "id": name, "description": "", "version": version})
             return results
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

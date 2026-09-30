@@ -199,5 +199,7 @@ class CargoManager(PackageManager):
                         "version": version
                     })
             return results
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

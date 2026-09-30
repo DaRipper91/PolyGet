@@ -10,7 +10,7 @@ to surface arbitrary project dependencies.
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager

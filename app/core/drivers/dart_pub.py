@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -76,5 +76,7 @@ class DartPubManager(PackageManager):
             data = json.loads(stdout.decode(errors="ignore"))
             return [{"name": p.get("package", ""), "id": p.get("package", ""),
                      "description": "", "version": ""} for p in data.get("packages", [])[:20]]
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

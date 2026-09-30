@@ -8,7 +8,7 @@ IS a real, single, trackable package list, so that's what this driver covers.
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
 
 @register_manager
@@ -69,5 +69,10 @@ class JuliaManager(PackageManager):
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # No official Julia registry search HTTP API — General registry search
         # tools exist as third-party sites only, not a stable programmatic
-        # endpoint. Returning [] honestly rather than scraping a webpage.
-        return []
+        # endpoint. Raising NotImplementedError (rather than returning []) is what
+        # distinguishes "this manager cannot search" from "this manager searched and
+        # found nothing"; the CLI already reports the former as unsupported rather
+        # than as a failed query.
+        raise NotImplementedError(
+            "Julia has no programmatic package search API (only third-party sites)"
+        )

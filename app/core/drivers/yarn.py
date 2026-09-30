@@ -105,5 +105,7 @@ class YarnManager(PackageManager):
             return [{"name": i.get("name", ""), "id": i.get("name", ""),
                      "description": i.get("description", ""), "version": i.get("version", "")}
                     for i in data[:20]] if isinstance(data, list) else []
-        except Exception:
-            return []
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} search failed: {describe_error(e)}"
+            ) from e

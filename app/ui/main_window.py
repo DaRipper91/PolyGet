@@ -219,14 +219,28 @@ class SearchWorker(QThread):
                     item.setdefault("source", mgr.name)
                     results.append(item)
             except NotImplementedError:
+                # This manager has no search API. Expected, not worth a warning.
                 pass
             except Exception as e:
-                self.log_signal.emit(f"⚠️ {mgr.name} search error: {str(e)}")
+                # A registry that failed is NOT the same as a registry that found
+                # nothing, and must not be silently folded into an empty result.
+                self.log_signal.emit(
+                    f"⚠️ {mgr.name} search failed (results below exclude it): {str(e)}"
+                )
 
         tasks = [search_one(m) for m in managers]
         if tasks:
             loop.run_until_complete(asyncio.gather(*tasks))
         loop.close()
+
+        # Tell the user when nothing came back at all *and* some manager failed, so a
+        # dead registry is never presented as "no packages match your query".
+        if not results and self.query:
+            total = len(managers)
+            self.log_signal.emit(
+                f"⚠️ No results for '{self.query}' across {total} manager(s). "
+                "If some managers failed above, their results are missing from this."
+            )
         self.results_signal.emit(results)
 
 

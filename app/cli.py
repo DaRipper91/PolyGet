@@ -232,14 +232,37 @@ def cmd_search(args: argparse.Namespace) -> int:
     for name, res in results.items():
         if res["ok"]:
             rows.extend({"manager": name, **pkg} for pkg in res["result"][: args.limit])
-    # Managers with no search support are expected, not failures.
-    errors = {n: r for n, r in results.items() if not r["ok"] and not r.get("unsupported")}
+    # Search is best-effort across many heterogeneous registries: one dead registry
+    # must not discard the results the other managers did return, and must not fail
+    # the query. Failures are still reported so "0 results" is never mistaken for
+    # "every registry answered and nothing matched".
+    #
+    # Three outcomes are kept distinct:
+    #   unsupported — this manager has no search API (expected, not worth printing)
+    #   failed      — the query was attempted and broke (printed, but exit stays 0)
+    #   ok/empty    — the search ran and found nothing
+    failed = {n: r for n, r in results.items() if not r["ok"] and not r.get("unsupported")}
     _emit(
         args,
-        {"results": rows, "errors": {n: r["error"] for n, r in errors.items()}},
-        _table(rows, ["manager", "id", "version", "description"]) + _errors_text(errors),
+        {
+            "results": rows,
+            "errors": {n: r["error"] for n, r in failed.items()},
+            "unsupported": sorted(
+                n for n, r in results.items() if r.get("unsupported")
+            ),
+        },
+        _table(rows, ["manager", "id", "version", "description"])
+        + _errors_text(failed)
+        + (
+            "\n"
+            + f"{len(failed)} of {len(results)} manager searches failed "
+            "(results above are from the managers that answered)"
+            if failed
+            else ""
+        ),
     )
-    return EXIT_FAILED if errors else EXIT_OK
+    # Deliberately EXIT_OK: a partial search is still a successful search.
+    return EXIT_OK
 
 
 def cmd_audit(args: argparse.Namespace) -> int:

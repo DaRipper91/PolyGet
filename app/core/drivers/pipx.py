@@ -202,6 +202,14 @@ class PipxManager(PackageManager):
         Writes are done via a temp file + atomic rename in the same directory, and a
         shared lock prevents two concurrent callers from both downloading and racing
         to write the cache file (which could otherwise interleave into corrupt JSON).
+
+        Raises:
+            DriverError: The index could not be fetched, or the response was not a
+                usable index. This used to return [], which `search_packages` then
+                reported as "no packages matched" -- a dead PyPI index was
+                indistinguishable from an honest empty result, and the DriverError
+                wrapper around the caller could not catch it, because the failure was
+                swallowed one level deeper.
         """
         import json
         import time
@@ -229,38 +237,76 @@ class PipxManager(PackageManager):
                 return cached
 
             self._INDEX_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            # Fetch the PyPI simple index. The v1 JSON API returns {"projects": [...]}.
             try:
-                # Fetch simple HTML or JSON from PyPI. PyPI simple API supports JSON simple v1 index!
                 proc = await asyncio.create_subprocess_exec(
                     "curl", "-s", "-H", "Accept: application/vnd.pypi.simple.v1+json",
                     "https://pypi.org/simple/",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-                if stdout:
-                    data = json.loads(stdout.decode(errors="ignore"))
-                    names = [p["name"] for p in data.get("projects", [])]
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            except Exception as e:
+                raise DriverError(
+                    f"{self.name} could not fetch the PyPI package index: {describe_error(e)}"
+                ) from e
 
-                    fd, tmp_path = tempfile.mkstemp(
-                        dir=self._INDEX_CACHE_PATH.parent,
-                        prefix=".pypi_simple_index_",
-                        suffix=".tmp",
-                    )
-                    try:
-                        with os.fdopen(fd, "w", encoding="utf-8") as f:
-                            f.write(json.dumps(names))
-                        os.replace(tmp_path, self._INDEX_CACHE_PATH)
-                    except BaseException:
-                        os.unlink(tmp_path)
-                        raise
-                    return names
-            except Exception:
-                pass
-            return []
+            if proc.returncode != 0:
+                raise DriverError(
+                    f"{self.name} could not fetch the PyPI package index: "
+                    f"`curl` exited with status {proc.returncode}"
+                )
+            if not stdout:
+                raise DriverError(
+                    f"{self.name} received an empty response from the PyPI package index"
+                    + (f": {stderr.decode(errors='ignore').strip()[:120]}" if stderr else "")
+                )
+
+            try:
+                data = json.loads(stdout.decode(errors="ignore"))
+            except json.JSONDecodeError as e:
+                # An HTML error page or a proxy interception, not an index.
+                raise DriverError(
+                    f"{self.name} got a malformed PyPI package index (not JSON): {e}"
+                ) from e
+
+            projects = data.get("projects") if isinstance(data, dict) else None
+            if not isinstance(projects, list) or not projects:
+                # pypi.org/simple/ is never legitimately empty, so this means the
+                # response was not the index we asked for.
+                raise DriverError(
+                    f"{self.name} got an unusable PyPI package index "
+                    "(no 'projects' list in the response)"
+                )
+            names = [p["name"] for p in projects if isinstance(p, dict) and "name" in p]
+
+            fd, tmp_path = tempfile.mkstemp(
+                dir=self._INDEX_CACHE_PATH.parent,
+                prefix=".pypi_simple_index_",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(json.dumps(names))
+                os.replace(tmp_path, self._INDEX_CACHE_PATH)
+            except BaseException:
+                os.unlink(tmp_path)
+                raise
+            return names
 
     async def _fetch_package_detail(self, name: str) -> dict[str, Any] | None:
-        """Fetch a single package's description/version from PyPI's JSON API."""
+        """Fetch a single package's description/version from PyPI's JSON API.
+
+        Returns:
+            dict | None: The package detail, or None if the package is listed in the
+                index but carries no `info` block.
+
+        Raises:
+            DriverError: The fetch itself failed. Returning None here previously made
+                a matched package vanish from the results with no indication, since the
+                caller filtered None out and could not distinguish "no such package"
+                from "PyPI was unreachable".
+        """
         import json
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -269,33 +315,65 @@ class PipxManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            if stdout:
-                data = json.loads(stdout.decode(errors="ignore"))
-                info = data.get("info", {})
-                if info:
-                    return {
-                        "name": info.get("name", name),
-                        "id": info.get("name", name),
-                        "description": info.get("summary", ""),
-                        "version": info.get("version", "")
-                    }
-        except Exception:
-            pass
-        return None
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} could not fetch details for '{name}': {describe_error(e)}"
+            ) from e
+
+        if proc.returncode != 0:
+            raise DriverError(
+                f"{self.name} could not fetch details for '{name}': "
+                f"`curl` exited with status {proc.returncode}"
+            )
+        if not stdout:
+            raise DriverError(f"{self.name} received an empty response for '{name}'")
+
+        try:
+            data = json.loads(stdout.decode(errors="ignore"))
+        except json.JSONDecodeError as e:
+            raise DriverError(
+                f"{self.name} got a malformed response for '{name}' (not JSON): {e}"
+            ) from e
+
+        info = data.get("info", {}) if isinstance(data, dict) else {}
+        if not info:
+            return None  # listed in the index but carries no info block
+        return {
+            "name": info.get("name", name),
+            "id": info.get("name", name),
+            "description": info.get("summary", ""),
+            "version": info.get("version", "")
+        }
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         """Search for Python packages on PyPI using local simple index cache substring matches."""
         try:
             names = await self._ensure_index_cached()
-            if not names:
-                return []
-
             query_lower = query.lower()
             matches = [n for n in names if query_lower in n.lower()][:20]
+            if not matches:
+                # A true empty: the index was read successfully and nothing matched.
+                return []
 
-            details = await asyncio.gather(*(self._fetch_package_detail(name) for name in matches))
-            return [detail for detail in details if detail is not None]
+            # Detail fetches are best-effort per package, so one unreachable package
+            # must not discard the other 19 matches. If every one of them failed the
+            # search produced nothing, and reporting "no results" would be a lie --
+            # surface the failure instead.
+            gathered = await asyncio.gather(
+                *(self._fetch_package_detail(name) for name in matches),
+                return_exceptions=True,
+            )
+            results = [
+                d for d in gathered
+                if not isinstance(d, BaseException) and d is not None
+            ]
+            failures = [d for d in gathered if isinstance(d, BaseException)]
+            if failures and not results:
+                raise failures[0]
+            return results
+        except DriverError:
+            raise
         except Exception as e:
             raise DriverError(
                 f"{self.name} search failed: {describe_error(e)}"

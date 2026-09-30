@@ -7,6 +7,7 @@ that file is the *why* and *how*.
 ## Recently shipped
 
 - [x] Distinguish an empty driver result from a failed query — `DriverError` across all 15 drivers; `check_vulnerabilities()` reports "no scanner" as unsupported
+- [x] Same contract for `list_repos()` — a failed `dnf repolist`/`flatpak remotes` rendered as "no repositories configured", a false claim on a page whose purpose is to show real system state
 - [x] Cross-manager newest-version scan — `list_installed_versions()` on all 15 drivers, `run.py newest`, TUI `v` binding, Qt Version Check page, ecosystem-aware comparators, per-manager-pair trust gating (`cc3f9d8`, `2a14c38`)
 - [x] Fix npm update-loop (semver `wanted` vs `latest` mismatch) and Qt UI stall on bare `sudo` (`30a12f0`)
 - [x] Surface batch-upgrade failures instead of always reporting success (`6b831c0`)
@@ -24,6 +25,7 @@ that file is the *why* and *how*.
 ## Improvements
 
 - [x] ~~Distinguish an empty result from a failed one across the driver interface~~ — shipped. `list_installed()`, `list_installed_versions()` and `check_vulnerabilities()` now raise `DriverError` on query failure (dead subprocess, missing binary, nonzero exit) instead of returning an empty collection; an empty collection now means the query ran and found nothing. `check_vulnerabilities()` raises `NotImplementedError` for managers with no scanner, which callers already treat as "unsupported" rather than "failed". `run.py audit` no longer exits 1 on a machine where only npm implements the query, and the Qt blueprint-export worker reports which managers it could not read instead of silently writing a blueprint missing them.
+- [ ] Make `search_packages()` failure legible per manager, without failing the whole search — 13 drivers currently swallow a failed registry query into `[]`, so a dead registry is indistinguishable from "no matches" and a user searching sees "0 results" with no hint that 3 of 15 registries failed. Deliberately *not* the `DriverError` contract used elsewhere: search is best-effort across heterogeneous registries, so one dead registry must not fail a query the other 12 answered. Needs a decision on whether a partial failure changes the exit code (recommend: no — keep exit 0, show `! <manager>: search failed`).
 - [ ] Retry action on the batch-upgrade failure dialog, instead of requiring a full reselect
 - [ ] Audit `handle_sync_worker_finished` / `handle_blueprint_sync_worker_finished` for the same silent-success pattern just fixed in the main upgrade queue
 - [ ] Parallelize independent (non-elevated) managers in the batch-upgrade queue

@@ -139,7 +139,15 @@ class PackageManager:
 
         Returns:
             list[dict[str, Any]]: A list of dictionaries representing active repos,
-                where each dict has at least 'id', 'name', 'url', 'enabled'.
+                where each dict has at least 'id', 'name', 'url', 'enabled'. An empty
+                list means the query ran and found no repos — never that it failed.
+
+        Raises:
+            NotImplementedError: This manager has no repository concept. Callers
+                already treat this as "unsupported" rather than "failed".
+            DriverError: The query failed. Without this, a broken `dnf repolist`
+                renders as "no repositories configured" — a false claim about the
+                system, on a page whose purpose is to show the system's real state.
         """
         raise NotImplementedError("This manager does not support repo listing")
 

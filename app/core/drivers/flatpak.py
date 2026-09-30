@@ -208,7 +208,12 @@ class FlatpakManager(PackageManager):
     supports_repos: bool = True
 
     async def list_repos(self) -> list[dict[str, Any]]:
-        """List configured remotes for Flatpak."""
+        """List configured remotes for Flatpak.
+
+        Returns:
+            list[dict[str, Any]]: The configured remotes. An empty list means the
+                query ran and found none — never that the query failed.
+        """
         try:
             proc = await asyncio.create_subprocess_exec(
                 "flatpak", "remotes", "--show-disabled", "--columns=name,url,options",
@@ -216,6 +221,13 @@ class FlatpakManager(PackageManager):
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            # A failed `flatpak remotes` would otherwise render as "no remotes
+            # configured", which is a false claim about the system's state.
+            if proc.returncode != 0:
+                raise DriverError(
+                    f"{self.name} remote query failed: "
+                    f"`flatpak remotes` exited with status {proc.returncode}"
+                )
             repos = []
             for line in stdout.decode(errors="ignore").splitlines():
                 parts = line.split("\t")
@@ -231,8 +243,12 @@ class FlatpakManager(PackageManager):
                         "enabled": enabled
                     })
             return repos
-        except Exception:
-            return []
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} remote query failed: {describe_error(e)}"
+            ) from e
 
     def get_add_repo_command(self, repo_url_or_id: str) -> list[str]:
         """Get the command to add a Flatpak remote."""

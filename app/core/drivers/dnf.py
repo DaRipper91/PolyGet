@@ -197,7 +197,12 @@ class DnfManager(PackageManager):
     supports_repos: bool = True
 
     async def list_repos(self) -> list[dict[str, Any]]:
-        """List configured repositories/remotes for DNF."""
+        """List configured repositories/remotes for DNF.
+
+        Returns:
+            list[dict[str, Any]]: The configured repos. An empty list means the
+                query ran and found none — never that the query failed.
+        """
         try:
             proc = await asyncio.create_subprocess_exec(
                 "dnf", "repolist", "--all", "--quiet",
@@ -205,6 +210,13 @@ class DnfManager(PackageManager):
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            # A failed repolist would otherwise render as "no repositories configured",
+            # which is a false claim about the system's state.
+            if proc.returncode != 0:
+                raise DriverError(
+                    f"{self.name} repository query failed: "
+                    f"`dnf repolist --all` exited with status {proc.returncode}"
+                )
             repos = []
             lines = stdout.decode(errors="ignore").splitlines()
             if not lines:
@@ -234,8 +246,12 @@ class DnfManager(PackageManager):
                         "enabled": enabled
                     })
             return repos
-        except Exception:
-            return []
+        except DriverError:
+            raise
+        except Exception as e:
+            raise DriverError(
+                f"{self.name} repository query failed: {describe_error(e)}"
+            ) from e
 
     def get_add_repo_command(self, repo_url_or_id: str) -> list[str]:
         """Get the command to add a DNF repository or enable a COPR repo."""

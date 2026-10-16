@@ -1,5 +1,4 @@
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, patch
 from app.core.drivers.flatpak import FlatpakManager
 

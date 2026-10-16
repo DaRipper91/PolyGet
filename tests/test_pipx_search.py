@@ -1,6 +1,5 @@
 import asyncio
 import json
-import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from pathlib import Path
 from app.core.drivers.pipx import PipxManager

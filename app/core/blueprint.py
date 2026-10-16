@@ -1,6 +1,5 @@
 """Declarative blueprint module for serializing and deserializing package lists across backends."""
 
-from typing import Dict, List
 import yaml
 
 

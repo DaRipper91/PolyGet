@@ -1,9 +1,8 @@
 """Tests for cross-manager newest-version scan."""
 
-import asyncio
 import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 from app.core.version_scan import (
     cross_manager_newest,
     _normalize_name,
@@ -394,7 +393,7 @@ def test_untrusted_pairs_cover_the_observed_bad_pairs():
         assert not _pair_comparable(*pair)
 
     # pipx vs a distro is NOT untrusted — that pair produced the one true positive.
-    assert not (frozenset({"Pipx", "Pacman"}) in _UNTRUSTED_PAIRS)
+    assert frozenset({"Pipx", "Pacman"}) not in _UNTRUSTED_PAIRS
     assert _pair_comparable("Pipx", "Pacman")
 
 

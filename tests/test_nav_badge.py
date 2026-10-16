@@ -79,3 +79,12 @@ def test_change_page_styles_updates_row_as_selected_only_on_row_zero(mock_scan, 
 
     window.change_page(0)
     assert "#89b4fa" in window.nav_updates_label.styleSheet()
+
+
+@patch("app.ui.main_window.MainWindow.scan_all")
+def test_version_check_error_shows_in_tree(mock_scan, qapp):
+    """A failed version scan must render into the tree, not raise AttributeError."""
+    window = MainWindow()
+    window.handle_version_check_error("boom")
+    assert window.version_check_tree.topLevelItemCount() == 1
+    assert "boom" in window.version_check_tree.topLevelItem(0).text(0)

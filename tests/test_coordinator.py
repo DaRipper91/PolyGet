@@ -1,6 +1,5 @@
 """Unit tests for the SubprocessCoordinator class."""
 
-import os
 import signal
 from unittest.mock import patch
 from app.core.coordinator import SubprocessCoordinator

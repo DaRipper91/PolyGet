@@ -243,7 +243,7 @@ def test_scan_worker_concurrent(qapp):
     """Test ScanWorker queries all package manager scans concurrently."""
     from app.ui.main_window import ScanWorker
     from app.core.drivers.flatpak import FlatpakManager
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
 
     mgr1 = FlatpakManager()
     mgr1.check_updates = AsyncMock(return_value=[])

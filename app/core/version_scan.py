@@ -1,7 +1,5 @@
 """Cross-manager newest-version scan core logic."""
 
-import asyncio
-import json
 import re
 from typing import Any
 
@@ -392,10 +390,7 @@ async def cross_manager_newest(
         if cross_ecosystem and not scan_settings.get("include_cross_ecosystem", True):
             continue
 
-        installed_actual = {}
-        for m in versions_by_mgr:
-            actual = settings.reverse_resolve(norm_name, m) or norm_name
-            installed_actual[m] = versions_by_mgr[m]
+        installed_actual = dict(versions_by_mgr)
 
         note = "alias-matched" if norm_name in alias_map else None
         if note is None and _RUNTIME_ECOSYSTEMS.get(best_mgr) == "js":

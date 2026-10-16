@@ -13,7 +13,6 @@ from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
 from app.core.version_scan import cross_manager_newest
 from app.core.settings_store import get_settings
-from app.core.ignore_store import IgnoreStore
 
 
 class HelpModal(ModalScreen[None]):

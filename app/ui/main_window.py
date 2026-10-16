@@ -1,11 +1,10 @@
-import sys
 import os
 import glob
 import asyncio
 import shutil
 from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
@@ -1594,22 +1593,6 @@ class MainWindow(QMainWindow):
 
     def run_version_check(self) -> None:
         """Run the cross-manager version check scan in a worker thread."""
-        self.version_check_list.clear()
-        self.version_check_progress.setVisible(True)
-        self.version_check_progress.setRange(0, 0)  # Indeterminate
-        self.btn_version_check.setEnabled(False)
-        self.lbl_version_check_summary.setText("Scanning for cross-manager version differences...")
-
-        worker = VersionCheckWorker(self.managers)
-        worker.log_signal.connect(self.log)
-        worker.suggestions_signal.connect(self.handle_version_check_results)
-        worker.error_signal.connect(self.handle_version_check_error)
-        worker.finished.connect(self._on_version_check_finished)
-        self.active_workers.append(worker)
-        worker.start()
-
-    def run_version_check(self) -> None:
-        """Run the cross-manager version check scan in a worker thread."""
         self.version_check_tree.clear()
         self.version_check_progress.setVisible(True)
         self.version_check_progress.setRange(0, 0)  # Indeterminate
@@ -1655,7 +1638,7 @@ class MainWindow(QMainWindow):
                 installed_str,
                 note
             ])
-            top_item.setToolTip(0, f"Double-click for details")
+            top_item.setToolTip(0, "Double-click for details")
             self.version_check_tree.addTopLevelItem(top_item)
             
             # Child items for each installed version (expandable)
@@ -1691,10 +1674,10 @@ class MainWindow(QMainWindow):
     def handle_version_check_error(self, error: str) -> None:
         """Handle version check scan error."""
         self.log(f"❌ Version check scan failed: {error}")
-        self.version_check_list.clear()
-        item = QListWidgetItem(f"❌ Scan failed: {error}")
-        item.setForeground(Qt.GlobalColor.red)
-        self.version_check_list.addItem(item)
+        self.version_check_tree.clear()
+        item = QTreeWidgetItem([f"❌ Scan failed: {error}", "", "", "", ""])
+        item.setForeground(0, Qt.GlobalColor.red)
+        self.version_check_tree.addTopLevelItem(item)
         self.update_version_check_badge(0)
         self.lbl_version_check_summary.setText("Version scan failed — see log for details.")
 
@@ -1702,21 +1685,6 @@ class MainWindow(QMainWindow):
         """Clean up after version check worker finishes."""
         self.version_check_progress.setVisible(False)
         self.btn_version_check.setEnabled(True)
-
-    def populate_history_page(self):
-        if index >= 0:
-            self.stacked_widget.setCurrentIndex(index)
-            self._style_nav_row_text(self.nav_updates_label, selected=(index == 0))
-            if index == 1:
-                self._style_nav_row_text(self.nav_version_check_label, selected=True)
-            else:
-                self._style_nav_row_text(self.nav_version_check_label, selected=False)
-            if index == 5:
-                self.populate_managers_list()
-            elif index == 6:
-                self.populate_repos_managers()
-            elif index == 7:
-                self.populate_history_page()
 
     def populate_history_page(self):
         self.history_list.clear()

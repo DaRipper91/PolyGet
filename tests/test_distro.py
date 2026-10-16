@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import mock_open, patch
 from app.core.distro import get_distro_family
 

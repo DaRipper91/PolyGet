@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import patch
 from app.core.catalog import load_catalog, CatalogEntry
 
@@ -49,7 +48,7 @@ def test_catalog_self_install_command():
 def test_catalog_driver_consistency():
     """Verify that every catalog entry with has_driver=True has a corresponding registered PackageManager."""
     from app.core.manager import _REGISTRY
-    import app.core.drivers
+    import app.core.drivers  # noqa: F401  registers drivers
     
     entries = load_catalog()
     registered_names = [cls.name for cls in _REGISTRY]

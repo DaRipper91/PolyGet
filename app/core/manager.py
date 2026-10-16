@@ -1,6 +1,5 @@
 """Base package manager interface and discovery utilities."""
 
-import shutil
 from typing import Type, Any
 
 

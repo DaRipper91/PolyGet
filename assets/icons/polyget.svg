@@ -1,40 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- G: Synthwave — striped sunrise over a neon grid, upgrade arrow carved out of the sun -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1a0b2e"/>
-      <stop offset="1" stop-color="#0d0714"/>
+    <clipPath id="tile"><rect x="4" y="4" width="120" height="120" rx="26"/></clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12002b"/><stop offset="0.65" stop-color="#5b0a6b"/><stop offset="0.66" stop-color="#0d0019"/>
     </linearGradient>
-    <linearGradient id="box" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#c084fc"/>
-      <stop offset="1" stop-color="#7c3aed"/>
-    </linearGradient>
-    <linearGradient id="arrow" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f9e2af"/>
-      <stop offset="1" stop-color="#fbbf24"/>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde047"/><stop offset="1" stop-color="#f0369a"/>
     </linearGradient>
   </defs>
-
-  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)" stroke="#2e1a47" stroke-width="3"/>
-
-  <!-- Package box (isometric) -->
-  <g>
-    <!-- box top face -->
-    <polygon points="64,30 100,48 64,66 28,48" fill="#a78bfa" opacity="0.95"/>
-    <!-- box left face -->
-    <polygon points="28,48 64,66 64,104 28,86" fill="#7c3aed"/>
-    <!-- box right face -->
-    <polygon points="100,48 64,66 64,104 100,86" fill="#6d28d9"/>
-    <!-- box edge highlight -->
-    <polyline points="28,48 64,66 100,48" fill="none" stroke="#e9d5ff" stroke-width="2.5"
-              stroke-linejoin="round" stroke-linecap="round"/>
-    <polyline points="64,66 64,104" fill="none" stroke="#4c1d95" stroke-width="2"
-              stroke-linecap="round"/>
+  <g clip-path="url(#tile)">
+    <rect x="0" y="0" width="128" height="128" fill="url(#sky)"/>
+    <circle cx="64" cy="62" r="36" fill="url(#sun)"/>
+    <g fill="#5b0a6b"><rect x="20" y="66" width="88" height="3"/><rect x="20" y="73" width="88" height="4"/><rect x="20" y="81" width="88" height="5"/></g>
+    <polygon points="64,34 82,54 72,54 72,82 56,82 56,54 46,54" fill="#12002b"/>
+    <g stroke="#22d3ee" stroke-width="2" fill="none">
+      <line x1="0" y1="88" x2="128" y2="88"/><line x1="0" y1="95" x2="128" y2="95"/><line x1="0" y1="105" x2="128" y2="105"/><line x1="0" y1="119" x2="128" y2="119"/>
+      <line x1="64" y1="88" x2="64" y2="128"/><line x1="48" y1="88" x2="24" y2="128"/><line x1="80" y1="88" x2="104" y2="128"/>
+      <line x1="32" y1="88" x2="-16" y2="128"/><line x1="96" y1="88" x2="144" y2="128"/>
+    </g>
   </g>
-
-  <!-- Upgrade arrow rising out of the box -->
-  <g>
-    <rect x="58.5" y="22" width="11" height="26" rx="5.5" fill="url(#arrow)"/>
-    <polygon points="64,8 79,26 49,26" fill="url(#arrow)"/>
-  </g>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="none" stroke="#f0369a" stroke-width="4"/>
 </svg>

@@ -22,6 +22,10 @@ from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
 
 
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
     """Scan standard desktop launcher files to resolve application icons."""
     if manager_name == "NPM":
@@ -68,8 +72,12 @@ def _parse_icon_from_file(filepath: str) -> str | None:
             for line in f:
                 if line.startswith("Icon="):
                     return line.split("=", 1)[1].strip()
-    except Exception:
-        pass
+    except FileNotFoundError:
+        _log(f"main_window: desktop file not found: {filepath}")
+    except PermissionError as e:
+        _log(f"main_window: permission denied reading desktop file {filepath}: {e}")
+    except OSError as e:
+        _log(f"main_window: error reading desktop file {filepath}: {e}")
     return None
 
 

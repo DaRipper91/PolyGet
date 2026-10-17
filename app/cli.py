@@ -333,9 +333,11 @@ def cmd_audit(args: argparse.Namespace) -> int:
 def cmd_repos(args: argparse.Namespace) -> int:
     managers = [m for m in _select_managers(args.manager) if m.supports_repos]
     results = asyncio.run(_gather_per_manager(managers, "list_repos"))
+    # Managers with no repo concept are expected, not failures — distinguish like cmd_audit.
+    errors = {n: r for n, r in results.items() if not r["ok"] and not r.get("unsupported")}
     rows = [{"manager": n, **repo} for n, r in results.items() if r["ok"] for repo in r["result"]]
-    _emit(args, rows, _table(rows, ["manager", "id", "enabled", "name", "url"]) + _errors_text(results))
-    return EXIT_FAILED if any(not r["ok"] for r in results.values()) else EXIT_OK
+    _emit(args, rows, _table(rows, ["manager", "id", "enabled", "name", "url"]) + _errors_text(errors))
+    return EXIT_FAILED if errors else EXIT_OK
 
 
 def cmd_upgrade(args: argparse.Namespace) -> int:

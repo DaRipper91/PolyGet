@@ -7,8 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QUrl, QSettings, QTimer
+from PySide6.QtGui import QIcon, QDesktopServices, QKeySequence, QShortcut
 from dataclasses import dataclass, field
-from PySide6.QtGui import QIcon, QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
@@ -903,7 +903,6 @@ QCheckBox::indicator { width: 30px; height: 30px; border-radius: 6px; }
 QLineEdit, QComboBox, QSpinBox { min-height: 44px; }
 QListWidget#status-list::item { padding: 14px 10px; }
 QTreeWidget::item { padding: 10px; }
-QMenu::item { padding: 14px 32px; font-size: 15px; }
 QScrollBar:vertical { width: 16px; border-radius: 8px; }
 QScrollBar::handle:vertical { min-height: 48px; border-radius: 8px; }
 QScrollBar:horizontal { height: 16px; }
@@ -982,6 +981,7 @@ class MainWindow(QMainWindow):
         self.apply_touch_mode()
         self.restore_window_state()
         self.setup_tray()
+        self._setup_keyboard_shortcuts()
 
         from app.core.settings_store import get_settings
         if get_settings().get("ui.scan_on_launch", True):
@@ -2956,6 +2956,7 @@ class MainWindow(QMainWindow):
         if self.active_operation is None:
             return  # already finished
         self.progress.setVisible(False)
+        self.terminal_overlay.hide()
         self.btn_refresh_repos.setEnabled(True)
         self.active_operation = None
         # Several tools exit 0 having changed nothing (dnf skipping a vendor change, npm
@@ -3201,6 +3202,7 @@ class MainWindow(QMainWindow):
     def handle_install_finished(self, success: bool, app_name: str, install_key: str | None = None):
         if install_key is not None:
             self.installing_packages.discard(install_key)
+        self.terminal_overlay.hide()
         if success:
             QMessageBox.information(self, "Installation Complete", f"{app_name} was installed successfully!")
         else:
@@ -3245,6 +3247,7 @@ class MainWindow(QMainWindow):
         """Execute next repository sync command in the queue."""
         if not self.sync_queue:
             self.progress.setVisible(False)
+            self.terminal_overlay.hide()
             self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
             self.active_operation = None
@@ -3515,6 +3518,7 @@ class MainWindow(QMainWindow):
     def run_next_blueprint_sync(self):
         if not self.blueprint_queue:
             self.blueprint_progress.setVisible(False)
+            self.terminal_overlay.hide()
             self.blueprint_status.setText("Sync complete.")
             self.log("✅ Blueprint sync complete.")
             self.nav_list.setCurrentRow(PAGE_BLUEPRINTS)
@@ -3664,6 +3668,27 @@ class MainWindow(QMainWindow):
         else:
             self.bg_timer.stop()
         self.update_tray_status()
+
+    def _setup_keyboard_shortcuts(self) -> None:
+        """Register global keyboard shortcuts for the most common actions."""
+        shortcuts = [
+            ("Ctrl+R", self.scan_all, "Check for Updates"),
+            ("Ctrl+U", self.start_batch_upgrade, "Update Selected"),
+            ("Ctrl+S", self.sync_repositories, "Sync Repositories"),
+            ("Ctrl+Shift+U", self.run_version_check, "Run Version Scan"),
+            ("F1", lambda: self.nav_list.setCurrentRow(PAGE_DEBUG), "Open Debug Console"),
+            ("Escape", self._hide_terminal_if_visible, "Hide Terminal Overlay"),
+            ("Ctrl+Q", self.close, "Quit PolyGet"),
+        ]
+        for key_seq, slot, _desc in shortcuts:
+            sc = QShortcut(QKeySequence(key_seq), self)
+            sc.activated.connect(slot)
+
+    def _hide_terminal_if_visible(self) -> None:
+        """Hide the terminal overlay if it's currently visible; otherwise do nothing."""
+        overlay = getattr(self, "terminal_overlay", None)
+        if overlay is not None and overlay.isVisible():
+            overlay.hide()
 
     def show_from_tray(self) -> None:
         self.showNormal()

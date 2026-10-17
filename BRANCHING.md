@@ -86,6 +86,10 @@ Machine-specific rules: Asahi agents also follow `ASAHI.md`.
 Both machines can reach each other with plain ssh over Tailscale. That lets either one read the other's real checkout,
 uncommitted work included. **The other machine's repo is only ever read; never sync into a working repo.**
 
+- **Either machine may read and review the other's local files and whole user home**, not only the repo, over Tailscale
+  (it works off the local network). Read and review only: never write, edit, run, or delete anything on the other machine.
+  Where each machine mounts the other's home is in its own machine rules.
+
 - `scripts/peer-snapshot.sh --git [peer]`: fetch the peer's *committed* branches as `peer-<name>/*`.
 - `scripts/peer-snapshot.sh --go [peer]`: rsync its working tree into `~/Projects/_devices/<peer>/PolyGet`, read-only.
   Dry run is the default. On Asahi use the peer name `da-nvme`.

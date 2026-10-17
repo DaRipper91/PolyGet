@@ -19,8 +19,8 @@ machine with `uname -m` and `/etc/os-release`. If it isn't `aarch64` + Fedora, s
 ## Branches
 
 - **`master` is the stable line, co-owned by both machines** (`BRANCHING.md`, "Who owns what"). Stable
-  baseline adopted by the user on 2026-10-17: `dfea6a5`. It is frozen: nothing new lands on it until the
-  user has tested it on **both** this laptop and CachyOS and the errors found there are fixed.
+  baseline adopted by the user on 2026-10-17: `dfea6a5`. It follows the co-owner rules only; there is no
+  separate freeze.
 - **`Asahi/BETA-FEATURES` is owned by this laptop** and is where agents build here. Commit to it, never
   directly to `master`.
 - `CachyOS/BETA-FEATURES` is owned by the desktop. Read it (`git fetch`, `git show`, a worktree); never
@@ -60,3 +60,9 @@ managers actually found, and ask the user whether to ignore, install, or add eac
 
 `BRANCHING.md`'s sharing rules apply as-is: the other machine's repo is only ever read, never synced into
 a working repo, and the "never sync" list (`.git/`, `.venv/`, user config, keys) holds.
+
+**The desktop's whole home is mounted here at `/home/daripper/remotes/da-nvme/`** (sshfs over Tailscale,
+works off the home network). Its repo is `/home/daripper/remotes/da-nvme/Projects/PolyGet`. Read and review
+anything there. The mount is read-write, but treat it as read-only: never write, edit, delete, or run
+anything through it, and use `git --no-optional-locks` there so git leaves no lock or index changes. If the
+mount is empty or stale, ssh to `da-nvme` instead of remounting it yourself.

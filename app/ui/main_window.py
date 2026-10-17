@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
     QApplication
 )
-from app.core.manager import discover_managers, PackageManager
+from app.core.arch import describe_system
+from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
@@ -95,6 +96,8 @@ class ScanWorker(QThread):
                 updates = await mgr.check_updates()
                 self.updates_signal.emit(mgr.name, updates)
                 self.log_signal.emit(f"✅ Scan complete for {mgr.name}. Found {len(updates)} update(s).")
+            except NotImplementedError as e:
+                self.log_signal.emit(f"ℹ️ {mgr.name} cannot report outdated packages ({describe_error(e)}); skipped.")
             except Exception as e:
                 self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
                 self.error_signal.emit(mgr.name, str(e))
@@ -891,6 +894,7 @@ class MainWindow(QMainWindow):
         self.blueprint_queue: list[tuple[PackageManager, str, list[str]]] = []
         self.upgrade_failures: list[str] = []
         self.upgrade_results: dict[str, tuple[list[str], bool]] = {}
+        self.upgrade_unbuildable: set[str] = set()  # failed because no command could be built: Retry would fail identically
         self.pending_verification: dict[str, tuple[list[str], bool]] | None = None
         self.sync_failures: list[str] = []
         self.blueprint_failures: list[tuple[str, str]] = []
@@ -2286,6 +2290,8 @@ class MainWindow(QMainWindow):
         self.scan_errors.clear()
         self.selected_updates.clear()
         self.console.clear()
+        system = describe_system()
+        self.log(f"🖥️ Detected system: {system['arch']} / {system['distro_family']}")
         self.update_updates_badge()
 
         self.lbl_summary.setText("Checking for updates...")
@@ -2538,6 +2544,7 @@ class MainWindow(QMainWindow):
         self.upgrade_queue.clear()
         self.upgrade_failures.clear()
         self.upgrade_results = {}
+        self.upgrade_unbuildable = set()
         targets = retry if retry is not None else {
             name: sorted(self.selected_updates.get(name, ())) for name in self.managers
         }
@@ -2547,7 +2554,25 @@ class MainWindow(QMainWindow):
 
         if not self.upgrade_queue:
             return
-        commands = [mgr.get_upgrade_command(pkgs) for mgr, pkgs in self.upgrade_queue]
+        commands: list[list[str]] = []
+        buildable: list[tuple[PackageManager, list[str]]] = []
+        unbuildable: list[str] = []
+        for mgr, pkgs in self.upgrade_queue:
+            try:
+                commands.append(mgr.get_upgrade_command(pkgs))
+                buildable.append((mgr, pkgs))
+            except (NotImplementedError, DriverError) as e:
+                self._record_unbuildable(mgr.name, pkgs, e)
+                unbuildable.append(mgr.name)
+        self.upgrade_queue[:] = buildable
+        if not self.upgrade_queue:
+            # Nothing is left to run, so no end-of-run dialog will follow: say it here, not only in the console.
+            QMessageBox.warning(
+                self, "Cannot Upgrade",
+                "PolyGet could not build an upgrade command for: " + ", ".join(unbuildable)
+                + ".\n\nCheck the Process Console for the reason.",
+            )
+            return
         if not self._confirm_commands("Confirm Upgrade", commands):
             self.upgrade_queue.clear()
             return
@@ -2561,6 +2586,14 @@ class MainWindow(QMainWindow):
 
         self.nav_list.setCurrentRow(PAGE_CONSOLE)
         self.run_next_upgrade_queue()
+
+    def _record_unbuildable(self, name: str, packages: list[str], error: Exception) -> None:
+        """A manager whose upgrade command cannot be built still failed: log it and record it as a failed
+        result, so the end-of-run dialog (built from upgrade_results) and Retry include it."""
+        self.log(f"❌ {name}: cannot build an upgrade command: {describe_error(error)}")
+        self.upgrade_failures.append(name)
+        self.upgrade_results[name] = (list(packages), False)
+        self.upgrade_unbuildable.add(name)
 
     def run_next_upgrade_queue(self):
         if not self.upgrade_queue:
@@ -2576,7 +2609,12 @@ class MainWindow(QMainWindow):
             return
 
         manager, packages = self.upgrade_queue.pop(0)
-        cmd = manager.get_upgrade_command(packages)
+        try:
+            cmd = manager.get_upgrade_command(packages)
+        except (NotImplementedError, DriverError) as e:
+            self._record_unbuildable(manager.name, packages, e)
+            self.run_next_upgrade_queue()
+            return
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
@@ -2598,7 +2636,7 @@ class MainWindow(QMainWindow):
         """Compare an upgrade run against the rescan that followed it, log it to history, and
         tell the user what really happened, with Retry limited to what didn't work."""
         from app.core.history_store import record_upgrade
-        ok, failed, unverified = [], [], []
+        ok, failed, unbuildable, unverified = [], [], [], []
         not_upgraded: dict[str, list[str]] = {}
         for name, (packages, success) in results.items():
             still = None
@@ -2608,7 +2646,9 @@ class MainWindow(QMainWindow):
                 outdated = {u.get("name") for u in self.updates_cache.get(name, [])}
                 still = sorted(outdated & set(packages))
             record_upgrade(name, packages, success, not_upgraded=still)
-            if not success:
+            if not success and name in self.upgrade_unbuildable:
+                unbuildable.append(name)
+            elif not success:
                 failed.append(name)
             elif still:
                 not_upgraded[name] = still
@@ -2620,24 +2660,29 @@ class MainWindow(QMainWindow):
             lines.append("✅ Upgraded: " + ", ".join(ok))
         if failed:
             lines.append("❌ Command failed: " + ", ".join(failed))
+        if unbuildable:
+            lines.append("🚫 No upgrade command could be built (Retry would fail the same way): " + ", ".join(unbuildable))
         if not_upgraded:
             lines.append("⚠ Finished without an error, but still outdated:\n" + "\n".join(
                 f"    {name}: {', '.join(pkgs)}" for name, pkgs in not_upgraded.items()
             ) + "\nThe ⋯ button on those rows shows why (e.g. a dnf vendor change) and can skip them.")
         if unverified:
             lines.append("❔ Couldn't re-check (scan failed): " + ", ".join(unverified))
-        if not failed and not not_upgraded:
+        if not failed and not unbuildable and not not_upgraded:
             QMessageBox.information(self, "Upgrade Complete", "\n\n".join(lines))
             return
 
+        retry = {name: results[name][0] for name in failed}
+        retry.update(not_upgraded)
+        buttons = QMessageBox.StandardButton.Close
+        if retry:
+            buttons |= QMessageBox.StandardButton.Retry
         box = QMessageBox(
             QMessageBox.Icon.Warning, "Upgrade Finished With Problems",
             "\n\n".join(lines) + "\n\nCheck the Process Console for details.",
-            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close, self,
+            buttons, self,
         )
-        if box.exec() == QMessageBox.StandardButton.Retry:
-            retry = {name: results[name][0] for name in failed}
-            retry.update(not_upgraded)
+        if box.exec() == QMessageBox.StandardButton.Retry and retry:
             self.start_batch_upgrade(retry=retry)
 
     # --- Store Browsing / Searching Functionality ---

@@ -1,3 +1,11 @@
+# Optional per-entry fields beyond the basics:
+#   arch:         [x86_64]            a HARD FILTER: the only CPUs this tool exists for. Any CPU not listed is treated as
+#                                     unsupported (no install offered). Leave it out unless that is really true.
+#   verified_on:  [x86_64, aarch64]   a RECORD, never a filter: CPUs on which the driver was run against the real tool
+#                                     and returned real data. Add only the architecture you verified on your own hardware;
+#                                     unverified means absent. Shown by `catalog` as verified_on_this_arch.
+#   self_install: keys are a distro family ("fedora") or family:arch ("fedora:aarch64"); the arch-qualified key wins
+#                 when both exist. If `arch` is set and excludes this machine, no install command is offered.
 - id: dnf
   name: DNF
   category: System
@@ -14,14 +22,16 @@
   icon: package-x-generic
   binary: pacman
   has_driver: true
+  verified_on: [x86_64]
 
-- id: paru
-  name: Paru (AUR helper)
+- id: aur
+  name: AUR
   category: System
-  description: AUR helper for Arch-based systems, wraps pacman for community packages.
+  description: Arch User Repository, driven through paru or yay (whichever is installed).
   icon: package-x-generic
   binary: paru
-  has_driver: false
+  has_driver: true
+  verified_on: [x86_64]
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "paru"]
 
@@ -32,6 +42,7 @@
   icon: emblem-downloads
   binary: flatpak
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "flatpak"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "flatpak"]
@@ -45,6 +56,7 @@
   icon: text-x-script
   binary: npm
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "nodejs"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "nodejs", "npm"]
@@ -69,6 +81,7 @@
   icon: text-x-generic
   binary: cargo
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "cargo"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "rust"]
@@ -116,7 +129,7 @@
   description: Purely functional, reproducible package manager and profile system.
   icon: package-x-generic
   binary: nix
-  has_driver: false
+  has_driver: true
   self_install: {}
 
 - id: snap
@@ -136,7 +149,7 @@
   description: Runs containerized versions of other distros' package managers on your host.
   icon: utilities-terminal
   binary: distrobox
-  has_driver: false
+  has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "distrobox"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "distrobox"]
@@ -175,6 +188,7 @@
   icon: text-x-generic
   binary: gem
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "ruby"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "ruby"]
@@ -199,6 +213,7 @@
   icon: text-x-generic
   binary: go
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "golang"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "go"]
@@ -324,31 +339,31 @@
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "julia"]
     debian: ["pkexec", "apt-get", "install", "-y", "julia"]
 
-# No full driver: Bundler is inherently per-project (Gemfile.lock), not a
-# global installed-package list like RubyGems. A driver here would either
-# always report empty results or require picking an arbitrary project
-# directory — neither fits PolyGet's global-dashboard model.
+# Per-project tool: the driver scans directories registered with `polyget projects add`
+# (Gemfile) and is hidden until at least one is tracked.
 - id: bundler
   name: Bundler
   category: Language/Dev
   description: Ruby's per-project dependency manager (Gemfile.lock).
   icon: text-x-generic
   binary: bundle
-  has_driver: false
+  has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "rubygem-bundler"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "ruby-bundler"]
     debian: ["pkexec", "apt-get", "install", "-y", "ruby-bundler"]
 
-# No full driver: same reasoning as Bundler above — Gradle's dependency
-# scope is per-project (build.gradle), not a global package list.
+# Per-project tool: the driver tracks each registered project's Gradle wrapper version and
+# upgrades it with `gradlew wrapper`. Hidden until a project with a wrapper is tracked.
 - id: gradle
   name: Gradle
   category: Language/Dev
   description: Java/Kotlin per-project build and dependency tool.
   icon: text-x-generic
   binary: gradle
-  has_driver: false
+  has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "gradle"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "gradle"]
@@ -361,6 +376,7 @@
   icon: text-x-generic
   binary: uv
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "uv"]
 
@@ -373,3 +389,34 @@
   has_driver: true
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "bun"]
+
+- id: deno
+  name: Deno
+  category: Language/Dev
+  description: TypeScript runtime with JSR registry search and global script installs.
+  icon: text-x-generic
+  binary: deno
+  has_driver: true
+  self_install:
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "deno"]
+
+# Self-install is empty on purpose: Homebrew's official installer is a curl-piped shell script,
+# which cannot be expressed as a safe argv. Install it from https://brew.sh.
+- id: brew
+  name: Homebrew
+  category: Universal
+  description: Homebrew on macOS and Linuxbrew on Linux; one driver covers both.
+  icon: emblem-downloads
+  binary: brew
+  has_driver: true
+  self_install: {}
+
+- id: conda
+  name: Conda
+  category: Language/Dev
+  description: Cross-language environment and package manager (also drives Mamba).
+  icon: text-x-generic
+  binary: conda
+  has_driver: true
+  self_install:
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "conda"]

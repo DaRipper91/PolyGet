@@ -58,6 +58,9 @@ class SettingsStore:
             "disabled_managers": [],
             # Updates hidden until a newer version appears: {manager: {package: version}}.
             "skipped_versions": {},
+            # Per-project managers (Bundler, Gradle) have no global package list, so they
+            # scan these directories instead. Empty means "nothing configured", not "clean".
+            "projects": {"dirs": []},
             "ui": {
                 "show_version_check_badge": True,
                 "compact_mode": False,
@@ -203,6 +206,27 @@ class SettingsStore:
 
     def set_version_scan_setting(self, key: str, value: Any) -> None:
         self.set(f"version_scan.{key}", value)
+
+    # --- Tracked project directories (Bundler, Gradle) ---
+
+    def get_project_dirs(self) -> list[str]:
+        return list(self.get("projects.dirs", []) or [])
+
+    def add_project_dir(self, path: str) -> bool:
+        """Track a project directory. Returns False if it was already tracked."""
+        dirs = self.get_project_dirs()
+        if path in dirs:
+            return False
+        self.set("projects.dirs", dirs + [path])
+        return True
+
+    def remove_project_dir(self, path: str) -> bool:
+        """Stop tracking a project directory. Returns False if it was not tracked."""
+        dirs = self.get_project_dirs()
+        if path not in dirs:
+            return False
+        self.set("projects.dirs", [d for d in dirs if d != path])
+        return True
 
     # --- UI settings ---
 

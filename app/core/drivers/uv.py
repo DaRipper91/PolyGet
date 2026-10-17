@@ -1,10 +1,55 @@
 """Package manager driver for uv (Python tools installed with `uv tool install`)."""
 
 import asyncio
+import re
 import shutil
+from pathlib import Path
 from typing import Any
 from packaging.version import InvalidVersion, Version
 from app.core.manager import DriverError, PackageManager, fetch_json, register_manager, run_capture
+
+try:
+    import tomllib
+except ImportError:  # Python 3.10 has no tomllib; _has_local_source falls back to scanning the text
+    tomllib = None
+
+# A tool installed from one of these has no meaningful PyPI "latest": a same-named PyPI project would be an
+# unrelated package, and the update could never clear. `editable` is what `uv tool install -e <dir>` records.
+_LOCAL_SOURCE_KEYS = ("directory", "path", "git", "url", "editable")
+_LOCAL_SOURCE_RE = re.compile(r"(?<![\w-])(?:directory|path|git|url|editable)\s*=")
+
+
+def _requirements_block(text: str) -> str:
+    """The text of the `requirements = [...]` array, however many lines it spans (strings are skipped)."""
+    match = re.search(r"^requirements\s*=\s*\[", text, re.MULTILINE)
+    if not match:
+        return ""
+    depth, quote, i = 0, "", match.end() - 1
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            quote = "" if ch == quote else quote
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return text[match.end():i]
+        i += 1
+    return text[match.end():]
+
+
+def _has_local_source(receipt: str) -> bool:
+    """True if a tool's `uv-receipt.toml` says it was installed from a directory, path, git repo, or URL."""
+    if tomllib is not None:
+        try:
+            requirements = tomllib.loads(receipt).get("tool", {}).get("requirements", [])
+        except tomllib.TOMLDecodeError:
+            return False
+        return any(isinstance(r, dict) and any(k in r for k in _LOCAL_SOURCE_KEYS) for r in requirements)
+    return bool(_LOCAL_SOURCE_RE.search(_requirements_block(receipt)))
 
 
 def _is_newer(latest: str, current: str) -> bool:
@@ -42,8 +87,30 @@ class UvManager(PackageManager):
     async def list_installed(self) -> list[str]:
         return list(await self.list_installed_versions())
 
+    async def _local_source_tools(self, tools: list[str]) -> set[str]:
+        """Tools installed from a local or VCS source, read from each tool's receipt.
+
+        If the tool directory or a receipt cannot be read the tool is simply not excluded: the old
+        behaviour (a PyPI lookup) is kept rather than hiding a tool whose source is unknown.
+        """
+        try:
+            tool_dir = Path((await run_capture(["uv", "tool", "dir"], label=f"{self.name} tool dir")).strip())
+        except DriverError:
+            return set()
+
+        def read(tool: str) -> bool:
+            try:
+                return _has_local_source((tool_dir / tool / "uv-receipt.toml").read_text(encoding="utf-8"))
+            except OSError:
+                return False
+
+        flags = await asyncio.gather(*(asyncio.to_thread(read, t) for t in tools))
+        return {t for t, local in zip(tools, flags) if local}
+
     async def check_updates(self) -> list[dict[str, Any]]:
         tools = await self.list_installed_versions()
+        local = await self._local_source_tools(list(tools))
+        tools = {t: v for t, v in tools.items() if t not in local}
         if not tools:
             return []
 

@@ -8,7 +8,8 @@ from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button, Checkbox, DataTable
 from textual.containers import Horizontal, Vertical
-from app.core.manager import discover_managers, PackageManager
+from app.core.arch import get_machine_arch
+from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
 from app.core.version_scan import cross_manager_newest
@@ -296,6 +297,8 @@ class PolyGetTuiApp(App[None]):
         # Outdated package cache, dynamically populated
         self.updates_cache: dict[str, list[dict[str, Any]]] = {}
         self.scan_errors: dict[str, str] = {}
+        # Managers that cannot report outdated packages at all (NotImplementedError): not "Up to date", not a failure.
+        self.unsupported_checks: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the TUI layout widgets.
@@ -343,11 +346,18 @@ class PolyGetTuiApp(App[None]):
         error = None
         try:
             updates = await mgr.check_updates()
+        except NotImplementedError as e:
+            self.updates_cache[mgr.name] = []
+            self.scan_errors.pop(mgr.name, None)
+            self.unsupported_checks[mgr.name] = describe_error(e)
+            self.notify(f"Scan skipped: {mgr.name} ({describe_error(e)})", title="Upgrader", severity="information", timeout=3)
+            return
         except Exception as e:
             updates = []
             error = str(e)
 
         self.updates_cache[mgr.name] = updates
+        self.unsupported_checks.pop(mgr.name, None)
         if error:
             self.scan_errors[mgr.name] = error
             self.notify(
@@ -397,6 +407,8 @@ class PolyGetTuiApp(App[None]):
         updates = self.updates_cache.get(mgr.name, [])
         if mgr.name in self.scan_errors:
             return f"{selected_mark} ❌ {mgr.name} (Scan failed)"
+        if mgr.name in self.unsupported_checks:
+            return f"{selected_mark} ➖ {mgr.name} (Update check not supported)"
         if updates:
             return f"{selected_mark} ⚠️ {mgr.name} ({len(updates)} updates)"
         else:
@@ -406,7 +418,7 @@ class PolyGetTuiApp(App[None]):
         """Update the application's subtitle with global status statistics."""
         active_count = len(self.managers)
         total_updates = sum(len(up) for up in self.updates_cache.values())
-        self.sub_title = f"{active_count} active managers | {total_updates} total updates pending"
+        self.sub_title = f"{active_count} active managers | {total_updates} total updates pending | {get_machine_arch()}"
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         """Handle list item highlighting to update the details panel dynamically.
@@ -431,10 +443,14 @@ class PolyGetTuiApp(App[None]):
         checking = manager_name in self.checking_managers
         updates = self.updates_cache.get(mgr.name, [])
         scan_error = self.scan_errors.get(mgr.name)
+        unsupported = self.unsupported_checks.get(mgr.name)
 
         if scan_error:
             status_style = "bold #f38ba8"
             status_text = f"Scan failed: {scan_error}"
+        elif unsupported:
+            status_style = "bold #94a3b8"
+            status_text = f"Update check not supported: {unsupported}"
         elif checking:
             status_style = "bold #38bdf8"
             status_text = "Checking for updates..."
@@ -442,7 +458,10 @@ class PolyGetTuiApp(App[None]):
             status_style = "bold #fbbf24" if updates else "bold #34d399"
             status_text = f"Outdated ({len(updates)} updates)" if updates else "Up to date"
 
-        command_str = " ".join(mgr.get_upgrade_command())
+        try:
+            command_str = " ".join(mgr.get_upgrade_command())
+        except (NotImplementedError, DriverError) as e:
+            command_str = f"unavailable ({describe_error(e)})"
 
         content = (
             f"Status: [{status_style}]{status_text}[/]\n"
@@ -571,7 +590,11 @@ class PolyGetTuiApp(App[None]):
             bool: True if the upgrade succeeded, False otherwise.
         """
         log = self.query_one("#terminal-log", RichLog)
-        cmd = list(cmd_override) if cmd_override is not None else list(mgr.get_upgrade_command())
+        try:
+            cmd = list(cmd_override) if cmd_override is not None else list(mgr.get_upgrade_command())
+        except (NotImplementedError, DriverError) as e:
+            log.write(f"[bold red]{mgr.name}: cannot build an upgrade command: {describe_error(e)}[/]")
+            return False
         if not cmd:
             return False
 

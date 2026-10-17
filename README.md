@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![PySide6](https://img.shields.io/badge/GUI-PySide6-41cd52?logo=qt&logoColor=white)](https://doc.qt.io/qtforpython/)
 [![Textual](https://img.shields.io/badge/TUI-Textual-a970ff)](https://textual.textualize.io/)
-[![Drivers](https://img.shields.io/badge/drivers-15%20active%20%2F%2032%20cataloged-orange)](#-supported-package-managers)
+[![Drivers](https://img.shields.io/badge/drivers-27%20active%20%2F%2037%20cataloged-orange)](#-supported-package-managers)
 [![Subprocess safety](https://img.shields.io/badge/shell%3DTrue-never-critical.svg)](#-design-principles-the-load-bearing-ones)
 [![Platform](https://img.shields.io/badge/tested%20on-Arch%20%7C%20Fedora-informational)](#-development-with-claude-code)
 
@@ -19,7 +19,7 @@
 Your system runs Pacman. Your other system runs DNF. Flatpak doesn't care which. Neither does npm,
 Cargo, Pipx, RubyGems, or the other ten Language/Dev tools piling up in your `~/.local`. PolyGet
 doesn't care either — it's a PySide6 desktop app (with a Textual TUI riding shotgun) that gives all
-of them one dashboard, one search bar, and one place to manage repos and remotes. **15 drivers, one
+of them one dashboard, one search bar, and one place to manage repos and remotes. **27 drivers, one
 interface, zero "wait, which package manager owns this again?"**
 
 Forged across two daily-driver machines that don't agree on anything by default: CachyOS
@@ -63,15 +63,20 @@ staring at that day.
 
 ## ✦ Supported package managers
 
-15 drivers actively query and act on your system today; the catalog tracks 32 managers total so the
-Store can point at the other 17 even before a driver exists for them.
+27 drivers actively query and act on your system today; the catalog tracks 37 managers total so the
+Store can point at the other 10 even before a driver exists for them.
 
 | Category | Driven today | Catalog-only (browsable, self-installable) |
 |---|---|---|
-| **System** | DNF · Pacman · APT | Paru · Zypper · APK · XBPS · Portage · eopkg |
-| **Universal** | Flatpak | Nix · Snap · Distrobox · Guix |
-| **Language/Dev** | NPM · Pipx · Cargo · RubyGems · Yarn · pnpm · Dart Pub · Hex · cpanm · Poetry · Julia | Composer · Go Modules · NuGet · Maven · LuaRocks · Bundler · Gradle |
+| **System** | DNF · Pacman · APT · AUR (paru/yay) | Zypper · APK · XBPS · Portage · eopkg |
+| **Universal** | Flatpak · Homebrew (macOS + Linuxbrew) · Snap · Nix · Distrobox | Guix |
+| **Language/Dev** | NPM · Pipx · uv · Cargo · Go · RubyGems · Bundler · Gradle · Yarn · pnpm · Bun · Deno · Conda · Dart Pub · Hex · cpanm · Poetry · Julia | Composer · NuGet · Maven · LuaRocks |
 
+Two of those are per-project tools with no global package list. **Bundler** and **Gradle** scan the
+directories you register with `python run.py projects add DIR` (a `Gemfile`, or a Gradle wrapper),
+and stay hidden until one is registered. Their upgrades act on one project at a time. A few
+managers can't report what's outdated (Deno, Nix, Distrobox); the scan shows them as unsupported
+rather than "up to date".
 Want one of the catalog-only entries driven? `app/core/drivers/` is where a new one goes — the
 registry auto-discovers anything dropped in there and decorated with `@register_manager`.
 
@@ -129,15 +134,17 @@ python run.py upgrade -m flatpak        # print the upgrade plan...
 python run.py upgrade -m flatpak --yes  # ...and actually run it
 python run.py install -m dnf htop --yes
 python run.py ignore add npm some-pkg   # never auto-upgrade this one
+python run.py projects add ~/code/app   # let Bundler/Gradle scan this project
 python run.py history                   # what got upgraded, when, and whether it worked
 ```
 
 `upgrade`, `install`, and `sync` only print the exact commands they would run until you pass
 `--yes`. Exit codes: `0` ok, `1` a manager or command failed, `2` usage error.
 
-Running the test suite:
+Running the test suite (the test dependencies, including `pytest-asyncio`, are in `requirements-dev.txt`):
 
 ```bash
+pip install -r requirements-dev.txt
 QT_QPA_PLATFORM=offscreen pytest
 ```
 

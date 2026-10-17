@@ -520,6 +520,36 @@ class FetchInstalledWorker(QThread):
         self.error_signal.emit(errors)
 
 
+class FetchManagerVersionsWorker(QThread):
+    """Worker thread to fetch each package manager's own version string."""
+    result_signal = Signal(dict)  # manager_name -> version string
+
+    def __init__(self, managers: list[PackageManager], parent: Any = None):
+        super().__init__(parent)
+        self.managers = managers
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        results = {}
+
+        async def fetch_version(mgr: PackageManager):
+            try:
+                v = await mgr.get_self_version()
+                return mgr.name, v
+            except Exception:
+                return mgr.name, None
+
+        tasks = [fetch_version(m) for m in self.managers]
+        if tasks:
+            done = loop.run_until_complete(asyncio.gather(*tasks))
+        loop.close()
+
+        for name, version in done:
+            results[name] = version
+        self.result_signal.emit(results)
+
+
 class UpdateItemWidget(QWidget):
     """Custom row widget replicating KDE Discover's update list items."""
     checked_changed = Signal(bool, str, str)
@@ -703,12 +733,13 @@ class ManagerItemWidget(QWidget):
     """Custom row widget representing supported package managers."""
     install_requested = Signal(object)
 
-    def __init__(self, entry: CatalogEntry, parent: Any = None):
+    def __init__(self, entry: CatalogEntry, version: str | None = None, parent: Any = None):
         super().__init__(parent)
         self.entry = entry
         self.mgr_name = entry.name
         self.category = entry.category
         self.is_installed = entry.installed
+        self.version = version
         self.setup_ui()
 
     def setup_ui(self):
@@ -749,8 +780,20 @@ class ManagerItemWidget(QWidget):
         details_layout.setSpacing(2)
 
         lbl_name = QLabel(f"{self.mgr_name} ({self.category})")
+        if self.version:
+            lbl_name.setText(f"{self.mgr_name} ({self.category}) — v{self.version}")
         lbl_name.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffffff;")
         details_layout.addWidget(lbl_name)
+        self._name_label = lbl_name
+
+    def set_version(self, version: str | None) -> None:
+        """Update the displayed version after it's been fetched asynchronously."""
+        self.version = version
+        if hasattr(self, "_name_label"):
+            if version:
+                self._name_label.setText(f"{self.mgr_name} ({self.category}) — v{version}")
+            else:
+                self._name_label.setText(f"{self.mgr_name} ({self.category})")
 
         lbl_desc = QLabel(self.entry.description)
         lbl_desc.setStyleSheet("color: #a6adc8; font-size: 12px;")
@@ -2497,6 +2540,7 @@ class MainWindow(QMainWindow):
 
     def populate_managers_list(self):
         self.managers_list.clear()
+        self._manager_widgets: dict[str, ManagerItemWidget] = {}
         from app.core.catalog import load_catalog
         entries = load_catalog()
         
@@ -2508,8 +2552,25 @@ class MainWindow(QMainWindow):
             row_item.setSizeHint(QSize(0, 85))
             
             row_widget = ManagerItemWidget(entry)
+            self._manager_widgets[entry.name] = row_widget
             row_widget.install_requested.connect(self.install_manager_backend)
             self.managers_list.setItemWidget(row_item, row_widget)
+        
+        # Fetch self-versions asynchronously and update labels when they arrive
+        available = discover_managers()
+        if available:
+            worker = FetchManagerVersionsWorker(available)
+            worker.result_signal.connect(self._apply_manager_versions)
+            worker.finished.connect(self._on_worker_finished)
+            self.active_workers.append(worker)
+            worker.start()
+
+    def _apply_manager_versions(self, versions: dict[str, str | None]):
+        """Update each manager row with its self-reported version."""
+        for name, version in versions.items():
+            widget = self._manager_widgets.get(name)
+            if widget is not None:
+                widget.set_version(version)
 
     def install_manager_backend(self, entry: CatalogEntry):
         if entry.name in self.installing_managers:

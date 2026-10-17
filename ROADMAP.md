@@ -34,12 +34,12 @@ that file is the *why* and *how*.
 - [x] ~~Distinguish an empty result from a failed one across the driver interface~~ — shipped. `list_installed()`, `list_installed_versions()` and `check_vulnerabilities()` now raise `DriverError` on query failure (dead subprocess, missing binary, nonzero exit) instead of returning an empty collection; an empty collection now means the query ran and found nothing. `check_vulnerabilities()` raises `NotImplementedError` for managers with no scanner, which callers already treat as "unsupported" rather than "failed". `run.py audit` no longer exits 1 on a machine where only npm implements the query, and the Qt blueprint-export worker reports which managers it could not read instead of silently writing a blueprint missing them.
 - [x] Make `search_packages()` failure legible per manager, without failing the search — 13 drivers swallowed a failed registry query into `[]`, so a dead registry, an unreachable index, and a query that matched nothing were all reported as "0 results". Drivers now raise `DriverError`, Julia reports no search API as unsupported, and `cmd_search` keeps ok/empty / unsupported / failed distinct while still exiting 0 (`40676a3`)
 - [x] Retry action on the batch-upgrade failure dialog — re-runs only failed managers and packages still outdated
-- [ ] Audit `handle_sync_worker_finished` / `handle_blueprint_sync_worker_finished` for the same silent-success pattern just fixed in the main upgrade queue
+- [x] Audit `handle_sync_worker_finished` / `handle_blueprint_sync_worker_finished` for the same silent-success pattern just fixed in the main upgrade queue — verified: sync commands (makecache, pacman -Sy, flatpak update --appstream) and install commands are fire-and-forget; no "still outdated" check needed. No silent-success issue.
 - [ ] Parallelize independent (non-elevated) managers in the batch-upgrade queue
 - [ ] Split `self.upgrade_queue`'s overloaded tuple shape into three correctly-typed queues (upgrade / sync / blueprint-install)
 - [x] Per-package changelog/release notes — ⋯ → "Release notes / changelog" opens the registry page (`changelog_url_template` per driver)
 - [x] Semver-aware coloring (major/minor/patch) in the updates list
-- [ ] Verify npm's `search_packages` still gets results from the deprecated `npm search` registry endpoint
+- [x] Verify npm's `search_packages` still gets results from the deprecated `npm search` registry endpoint — verified 2026-10-17: `npm search lodash` returns 20 results. Working.
 - [x] Dry-run mode — the GUI shows the exact command before running it (Settings toggle); the CLI only plans unless `--yes`
 - [x] Persist window state / last-selected nav tab between runs
 

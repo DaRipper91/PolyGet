@@ -479,6 +479,8 @@ def test_sync_system_to_blueprint_with_drift(mock_info, mock_question, mock_disc
                 mock_proc.returncode = 0
                 mock_proc.stdout = AsyncMock()
                 mock_proc.stdout.readline = AsyncMock(side_effect=[b"Successfully installed org.mozilla.firefox", b""])
+                mock_proc.stderr = AsyncMock()
+                mock_proc.stderr.readline = AsyncMock(side_effect=[b""])
                 mock_proc.wait = AsyncMock(return_value=0)
                 mock_exec.return_value = mock_proc
                 self_thread.run()

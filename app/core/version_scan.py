@@ -193,8 +193,11 @@ def _parse_system_version(version: str) -> tuple[int, ...] | None:
         return None
     if ":" in version:
         version = version.split(":", 1)[1]
+    # Strip pkgrel (e.g. -2) but preserve pre-release markers (e.g. -rc1).
     if "-" in version:
-        version = version.rsplit("-", 1)[0]
+        suffix = version.rsplit("-", 1)[1]
+        if suffix.isdigit():
+            version = version.rsplit("-", 1)[0]
     parts = re.split(r"[.\-]", version)
     nums = []
     for p in parts:

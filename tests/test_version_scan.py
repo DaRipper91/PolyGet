@@ -47,8 +47,8 @@ def test_parse_system_version():
     assert _parse_system_version("90-1") == (90,)  # pkgrel stripped, just major
     # dpkg-style with epoch - epoch stripped, then pkgrel stripped
     assert _parse_system_version("1:2.0-1") == (2, 0)
-    # pre-release suffix treated as pkgrel (simplistic but acceptable)
-    assert _parse_system_version("1.0-rc1") == (1, 0)
+    # pre-release suffix preserved (not stripped, since it's not a numeric pkgrel)
+    assert _parse_system_version("1.0-rc1") is None
     # unparseable
     assert _parse_system_version("unknown") is None
     assert _parse_system_version("") is None
@@ -56,21 +56,21 @@ def test_parse_system_version():
 
 def test_version_greater_semver():
     # npm/pnpm/yarn use semver
-    assert _version_greater("NPM", "1.10.0", "1.2.0") is True
-    assert _version_greater("NPM", "1.2.0", "1.10.0") is False
-    assert _version_greater("pnpm", "2.0.0", "1.9.9") is True
-    assert _version_greater("Yarn", "1.0.0", "1.0.0") is False
+    assert _version_greater("NPM", "1.10.0", "NPM", "1.2.0") is True
+    assert _version_greater("NPM", "1.2.0", "NPM", "1.10.0") is False
+    assert _version_greater("pnpm", "2.0.0", "pnpm", "1.9.9") is True
+    assert _version_greater("Yarn", "1.0.0", "Yarn", "1.0.0") is False
     # unparseable falls back to None
-    assert _version_greater("NPM", "unknown", "1.0.0") is None
-    assert _version_greater("NPM", "1.0.0", "unknown") is None
+    assert _version_greater("NPM", "unknown", "NPM", "1.0.0") is None
+    assert _version_greater("NPM", "1.0.0", "NPM", "unknown") is None
 
 
 def test_version_greater_system():
     # pacman/dnf/apt use pkgver-pkgrel
-    assert _version_greater("Pacman", "5.0.4-1", "5.0.3-2") is True
-    assert _version_greater("Pacman", "5.0.4-1", "5.0.4-2") is False  # pkgrel ignored
-    assert _version_greater("DNF", "1:2.0-1", "1.9-1") is True  # epoch stripped
-    assert _version_greater("APT", "unknown", "1.0") is None
+    assert _version_greater("Pacman", "5.0.4-1", "Pacman", "5.0.3-2") is True
+    assert _version_greater("Pacman", "5.0.4-1", "Pacman", "5.0.4-2") is False  # pkgrel ignored
+    assert _version_greater("DNF", "1:2.0-1", "DNF", "1.9-1") is True  # epoch stripped
+    assert _version_greater("APT", "unknown", "APT", "1.0") is None
 
 
 def test_best_version():
@@ -290,22 +290,22 @@ def test_stdlib_default_gems_are_not_comparable():
 
 def test_cargo_v_prefix_is_tolerated():
     """Live Asahi case: Cargo reports `v4.2.0`, which must parse as 4.2.0."""
-    assert _version_greater("Cargo", "v4.2.0", "4.1.9") is True
-    assert _version_greater("Cargo", "v4.2.0", "4.2.0") is False
+    assert _version_greater("Cargo", "v4.2.0", "Cargo", "4.1.9") is True
+    assert _version_greater("Cargo", "v4.2.0", "Cargo", "4.2.0") is False
 
 
 def test_runtime_fallback_orders_numerically_not_lexicographically():
     """The generic runtime comparator must not do string comparison."""
-    assert _version_greater("Pipx", "2.0", "10.0") is False
-    assert _version_greater("Pipx", "10.0", "2.0") is True
-    assert _version_greater("Cargo", "0.9.0", "0.10.0") is False
+    assert _version_greater("Pipx", "2.0", "Pipx", "10.0") is False
+    assert _version_greater("Pipx", "10.0", "Pipx", "2.0") is True
+    assert _version_greater("Cargo", "0.9.0", "Cargo", "0.10.0") is False
 
 
 def test_prerelease_sorts_below_release():
-    assert _version_greater("Pipx", "1.0.0", "1.0.0rc1") is True
-    assert _version_greater("Pipx", "1.0.0rc1", "1.0.0") is False
-    assert _version_greater("Cargo", "1.0.0-rc.1", "1.0.0") is False
-    assert _version_greater("NPM", "1.0.0+build", "1.0.0") is False  # build metadata unranked
+    assert _version_greater("Pipx", "1.0.0", "Pipx", "1.0.0rc1") is True
+    assert _version_greater("Pipx", "1.0.0rc1", "Pipx", "1.0.0") is False
+    assert _version_greater("Cargo", "1.0.0-rc.1", "Cargo", "1.0.0") is False
+    assert _version_greater("NPM", "1.0.0+build", "NPM", "1.0.0") is False  # build metadata unranked
 
 
 @pytest.mark.asyncio

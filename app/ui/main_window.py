@@ -92,15 +92,18 @@ class ScanWorker(QThread):
         
         async def run_scan(mgr):
             self.log_signal.emit(f"🔍 Scanning {mgr.name} for updates...")
+            debug_log.emit(f"[ScanWorker] scanning {mgr.name}")
             try:
                 updates = await mgr.check_updates()
                 self.updates_signal.emit(mgr.name, updates)
                 self.log_signal.emit(f"✅ Scan complete for {mgr.name}. Found {len(updates)} update(s).")
+                debug_log.emit(f"[ScanWorker] {mgr.name}: {len(updates)} update(s)")
             except NotImplementedError as e:
                 self.log_signal.emit(f"ℹ️ {mgr.name} cannot report outdated packages ({describe_error(e)}); skipped.")
             except Exception as e:
                 self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
                 self.error_signal.emit(mgr.name, str(e))
+                debug_log.emit(f"[ScanWorker] {mgr.name}: error: {str(e)}")
 
         tasks = [run_scan(mgr) for mgr in self.managers]
         if tasks:
@@ -124,14 +127,17 @@ class VersionCheckWorker(QThread):
         asyncio.set_event_loop(loop)
         try:
             self.log_signal.emit("🔍 Running cross-manager version scan...")
+            debug_log.emit("[VersionCheckWorker] running cross-manager scan")
             from app.core.settings_store import get_settings
             result = loop.run_until_complete(cross_manager_newest(self.managers, settings=get_settings()))
             suggestions = result.get("suggestions", [])
             manager_status = result.get("managers", {})
             self.suggestions_signal.emit(suggestions, manager_status)
             self.log_signal.emit(f"✅ Version scan complete. Found {len(suggestions)} suggestion(s).")
+            debug_log.emit(f"[VersionCheckWorker] {len(suggestions)} suggestion(s)")
         except Exception as e:
             self.error_signal.emit(str(e))
+            debug_log.emit(f"[VersionCheckWorker] error: {str(e)}")
         finally:
             loop.close()
 
@@ -149,10 +155,13 @@ class FetchReposWorker(QThread):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            debug_log.emit(f"[FetchReposWorker] fetching repos for {self.manager.name}")
             repos = loop.run_until_complete(self.manager.list_repos())
             self.result_signal.emit(repos)
+            debug_log.emit(f"[FetchReposWorker] {self.manager.name}: {len(repos)} repo(s)")
         except Exception as e:
             self.error_signal.emit(str(e))
+            debug_log.emit(f"[FetchReposWorker] {self.manager.name}: error: {str(e)}")
         finally:
             loop.close()
 
@@ -183,9 +192,17 @@ class ExecutionWorker(QThread):
 
     @staticmethod
     def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
-        """True when pkexec failed specifically because no polkit agent is bound."""
-        lowered = stderr_text.lower()
-        return any(marker in lowered for marker in ExecutionWorker._PKEXEC_NO_AGENT_MARKERS)
+        """True when pkexec failed specifically because no polkit agent is bound.
+
+        Checks each stderr line individually (rather than the whole blob) so a
+        marker that merely appears inside a longer, unrelated error message
+        does not trigger a false-positive sudo retry.
+        """
+        for line in stderr_text.splitlines():
+            lowered = line.lower()
+            if any(marker in lowered for marker in ExecutionWorker._PKEXEC_NO_AGENT_MARKERS):
+                return True
+        return False
 
     def run(self):
         loop = asyncio.new_event_loop()
@@ -312,6 +329,7 @@ class SearchWorker(QThread):
         async def search_one(mgr):
             if self.source_filter not in ("All", "All Sources", mgr.name):
                 return
+            debug_log.emit(f"[SearchWorker] searching {mgr.name} for '{self.query}'")
             try:
                 items = await mgr.search_packages(self.query)
                 for item in items:
@@ -326,6 +344,7 @@ class SearchWorker(QThread):
                 self.log_signal.emit(
                     f"⚠️ {mgr.name} search failed (results below exclude it): {str(e)}"
                 )
+                debug_log.emit(f"[SearchWorker] {mgr.name}: error: {str(e)}")
 
         tasks = [search_one(m) for m in managers]
         if tasks:
@@ -340,6 +359,7 @@ class SearchWorker(QThread):
                 f"⚠️ No results for '{self.query}' across {total} manager(s). "
                 "If some managers failed above, their results are missing from this."
             )
+        debug_log.emit(f"[SearchWorker] {len(results)} result(s) for '{self.query}'")
         self.results_signal.emit(results)
 
 
@@ -387,6 +407,7 @@ class CategoryWorker(QThread):
             return
 
         self.log_signal.emit(f"📂 Fetching category: {self.category}...")
+        debug_log.emit(f"[CategoryWorker] fetching category {self.category}")
         
         async def fetch_category():
             try:
@@ -448,6 +469,7 @@ class CategoryWorker(QThread):
 
         loop.run_until_complete(fetch_category())
         loop.close()
+        debug_log.emit(f"[CategoryWorker] {len(results)} result(s) for {self.category}")
         self.results_signal.emit(results)
 
 
@@ -466,6 +488,7 @@ class FetchInstalledWorker(QThread):
         asyncio.set_event_loop(loop)
         
         self.log_signal.emit("🔍 Querying installed packages across all managers...")
+        debug_log.emit("[FetchInstalledWorker] querying installed packages")
         results = {}
         errors = {}
         
@@ -491,6 +514,7 @@ class FetchInstalledWorker(QThread):
             else:
                 results[name] = pkgs or []
             
+        debug_log.emit(f"[FetchInstalledWorker] {len(results)} manager(s) queried")
         self.result_signal.emit(results)
         self.error_signal.emit(errors)
 

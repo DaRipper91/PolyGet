@@ -291,7 +291,7 @@ class DnfManager(PackageManager):
                     enabled = True
                     if len(parts) >= 3:
                         status_str = parts[2].lower()
-                        if "disabled" in status_str:
+                        if status_str == "disabled":
                             enabled = False
                     elif parts[0].startswith("!"):
                         enabled = False

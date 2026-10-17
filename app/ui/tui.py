@@ -128,9 +128,15 @@ def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
     version — it deliberately requires a stderr marker rather than treating any
     nonzero pkexec exit as "needs a password," so real command failures (e.g. an
     unreachable mirror, a genuinely missing package) aren't masked as an auth issue.
+
+    Checks each stderr line individually so a marker that merely appears inside a
+    longer, unrelated error message does not trigger a false-positive sudo retry.
     """
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
+    for line in stderr_text.splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS):
+            return True
+    return False
 
 
 class VersionCheckModal(ModalScreen[None]):

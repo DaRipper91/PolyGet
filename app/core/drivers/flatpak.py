@@ -116,7 +116,9 @@ class FlatpakManager(PackageManager):
 
                     # Filter out OCI registry ghost updates. If the remote commit hash matches
                     # the local alt-id, the package is actually already installed and up to date.
-                    if alt_id and remote_commit and (alt_id.startswith(remote_commit) or remote_commit.startswith(alt_id)):
+                    # Require a minimum length to avoid coincidental short-prefix matches.
+                    if alt_id and remote_commit and len(alt_id) >= 8 and len(remote_commit) >= 8 and \
+                       (alt_id.startswith(remote_commit) or remote_commit.startswith(alt_id)):
                         continue
 
                     # If version strings are the same, append commit info to make the drift distinct

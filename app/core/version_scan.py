@@ -60,29 +60,6 @@ def _is_comparable_version(version: str) -> bool:
     return True
 
 
-def _is_trusted_pair(a: str, b: str) -> bool:
-    """True when `a` and `b` are known to number the same upstream release the same way.
-
-    Two managers can share a package name and still count versions independently, in
-    which case "higher" is an artifact of two unrelated counters rather than a real
-    difference. The live case is RubyGems: the gem `google-protobuf` is 4.36.1 while
-    Arch's `ruby-google-protobuf` is 36.1-1.1 — the same library, but RubyGems applies
-    its own major-bump scheme while the distro tracks upstream, so 36 > 4 is meaningless.
-
-    Trust is decided per *pair of managers*, not per manager, because a distro package
-    and a runtime install of the same project (pipx's uvicorn vs the distro's
-    python-uvicorn) are genuinely comparable even though one is a distro package.
-
-    This is deliberately conservative: an unlisted pair is trusted, because a
-    false negative (a missed lead) is recoverable while a false positive (a confident
-    wrong "newer version is available") erodes trust in the whole feature. Users who
-    hit a specific bad pair can add it to `untrusted_pairs` in settings rather than
-    needing a code change.
-    """
-    if a == b:
-        return True
-    return frozenset((a, b)) not in _UNTRUSTED_PAIRS
-
 
 # Manager pairs whose version numbers are NOT reliably comparable even though both
 # sides are legitimately reporting the same package name. Each entry is here because

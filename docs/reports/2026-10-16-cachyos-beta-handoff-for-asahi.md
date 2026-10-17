@@ -76,7 +76,7 @@ PolyGet is **one project, one release, running on any system.** No per-OS forks.
 |---|---|---|
 | `master` | Asahi (Fedora) | Stable. Only code proven on **both** Asahi and CachyOS. |
 | `CachyOS/BETA-FEATURES` | CachyOS desktop (Arch) | Stable + changes worked on and tested only on that machine. |
-| `Asahi/BETA-FEATURES` (suggested) | Asahi laptop | Same, from the Fedora side. |
+| `Asahi/BETA-FEATURES` (confirmed) | Asahi laptop | Same, from the Fedora side. |
 
 Both betas are built against stable and merge into `master` once proven on the other machine. Distro
 differences are handled by runtime detection (`is_available()`, `app/core/distro.py`, catalog keys per
@@ -160,7 +160,7 @@ throwaway projects); GUI launched offscreen with all 27 drivers; TUI scan driven
    Is this the right compromise, or should they stay catalog-only?
 2. **Catalog renames** (`aur`, `Go`): acceptable, or do you prefer renaming the drivers instead?
 3. **Unsupported ≠ failed** (section 5, item 1): agree with the semantics change in shared scan code?
-4. **Branch naming** for the Asahi beta (`Asahi/BETA-FEATURES` suggested).
+4. ~~Branch naming for the Asahi beta~~ Settled: `Asahi/BETA-FEATURES`.
 5. **GitHub branch protection** on `master` (require a PR). The local `pre-push` guard only covers this one clone.
 
 ## 8. Known gaps (not fixed)

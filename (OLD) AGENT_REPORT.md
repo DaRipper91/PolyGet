@@ -1,53 +1,52 @@
 # Agent Report
 
 ## Summary
-Branch `CachyOS/BETA-FEATURES` (CachyOS, Arch, x86_64). `master` is untouched at `ad511b1`.
+Branch `CachyOS/BETA-FEATURES` (CachyOS desktop, Arch, x86_64). `master` is untouched at `ad511b1`. Nothing from this turn is pushed.
 
-**This turn: CPU-architecture detection, plus a read-once handoff for the Asahi agents.**
-- `app/core/arch.py` (new): `normalize_arch()`, cached `get_machine_arch()` (`arm64`→`aarch64`, `amd64`→`x86_64`,
-  `"unknown"` if unreadable), `describe_system()`.
-- `app/core/catalog.py`: `CatalogEntry.arch` (optional; empty = unknown, never "verified everywhere"),
-  `supports_this_arch()`, and `get_self_install_command()` now prefers arch-qualified keys (`fedora:aarch64`) and
-  returns `None` when the entry excludes this machine.
-- `app/cli.py`: new `system` command; `catalog` reports `arch` and `supported_on_this_arch`.
-- `app/ui/main_window.py` logs the detected system at startup; `app/ui/tui.py` shows the architecture in the header.
-- `app/core/data/manager_catalog.yaml`: header documents `arch:` and arch-qualified keys. No entry sets them yet.
-- `tests/test_arch.py` (new, 22 tests; faking both architectures).
-- `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` (new): the complete context for the Asahi agents.
-- `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md`: now points to the read-once file.
-- `AGENT_REPORT.md` rotated to `(OLD) AGENT_REPORT.md` (the previous report covered the 12-driver work).
+**This turn**
+- **Fixed a false claim of mine:** the GUI did not show the detected architecture, because `scan_all()` clears the console right after
+  startup. The line is now logged inside `scan_all()` after the clear (`app/ui/main_window.py`). New test
+  `test_gui_console_shows_detected_system_after_the_scan_clears_it` fails against the old placement.
+- **Peer access:** established ssh in both directions over Tailscale (`asahi` <-> `da-nvme`, user `daripper`). Inspected Asahi's repo
+  **read-only**. Findings are in `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` section 2a: Asahi `master` == `ad511b1`, but 27 uncommitted
+  entries (+672/-162 tracked) that exist only on that laptop; merging this branch into that state conflicts in exactly four files
+  (`app/cli.py`, `app/core/settings_store.py`, `app/ui/main_window.py`, `tests/conftest.py`).
+- **New scripts:** `scripts/peer-snapshot.sh` (dry-run by default; `--git` fetches committed branches, `--go` mirrors the working tree
+  read-only into `~/Projects/_devices/<peer>/PolyGet`; refuses any destination inside a working repo) and `scripts/setup-machine.sh`
+  (per-clone merge rule so each machine keeps its own `AGENT_REPORT.md`).
+- **Local, uncommitted-to-git effects on this machine:** created `~/Projects/_devices/asahi/` (read-only snapshot of Asahi's working tree,
+  provenance in `SNAPSHOT_INFO.txt`).
+- **Docs:** `BRANCHING.md` (identity table, sharing rules, what never to sync); read-once report (measured Asahi findings, merge preview,
+  section 12 on what not to sync, corrected GUI statement); stale test counts fixed (222 -> 325) in the two older reports.
 
-Earlier turns (details in `(OLD) AGENT_REPORT.md` and `docs/reports/2026-10-16-driver-expansion.md`): 12 new drivers
-(AUR, uv, Go, Bun, Deno, Bundler, Gradle, Snap, Nix, Distrobox, Homebrew, Conda), `run_capture`/`fetch_json`, tracked
-project dirs + `projects` command, "unsupported is not failed" scan semantics, `BRANCHING.md`, a local `pre-push` guard.
+Earlier turns: 12 drivers, run_capture/fetch_json, project dirs + `projects` command, "unsupported is not failed" scan semantics, CPU
+architecture detection (`app/core/arch.py`, catalog `arch` + arch-qualified install keys, `system` command), BRANCHING.md, pre-push guard.
 
 ## Feature / Task Status
-- ✅ Architecture detection (detect + expose + use in the catalog), unit-tested with both architectures faked
-- ✅ 12 new drivers: AUR, uv, Go, Bundler, Gradle verified against real tools on x86_64
-- 🔄 Snap, Nix, Distrobox, Homebrew, Conda, Bun: fixture-verified only; never run for real (not installed here)
-- 🔄 Per-tool architecture facts: the mechanism exists but **no `arch:` lists or `:aarch64` keys are filled in**; only
-  x86_64 can be verified from this machine. The Asahi side owns the aarch64 facts.
-- ❌ Anything verified on aarch64 / the M1
-- ❌ GUI control for tracked project directories (CLI only)
+- OK Architecture detection incl. GUI display (now actually shown and tested)
+- OK Peer snapshot + merge-rule scripts, tested (dry run, real snapshot, guard refusal, merge-driver behavior in scratch repos)
+- OK 12 new drivers: AUR, uv, Go, Bundler, Gradle verified against real tools on x86_64
+- PARTIAL Snap, Nix, Distrobox, Homebrew, Conda, Bun: fixture-verified only
+- PARTIAL Per-tool architecture facts: mechanism exists, no `arch:` lists filled in (Asahi owns the aarch64 facts)
+- OPEN The `AGENTS.md` question (see below): no decision yet, file untouched
+- NOT DONE Anything verified on aarch64 / the M1; GUI for tracked project dirs; the optional pre-push extension
 
 ## What the Next Agent Should Do First
-1. Run `git status`/`git log origin/master..HEAD` before anything: Asahi may be ahead of GitHub's `master` (`ad511b1`).
-2. If you are an Asahi agent: read `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` once, fully, then follow its section 7.
-   Use a `git worktree` to review; do not pull this branch into a working branch; do not touch `master`.
-3. Review the real code and run the suite (`PYTHONPATH=. .venv/bin/pytest -q`; `pytest` is not in `requirements.txt`).
-4. Ask the user before checking for or installing any new manager. Never invent install commands.
-5. Respect these decisions: `[]` = ran and found nothing / `DriverError` = query broke / `NotImplementedError` =
-   unsupported (not a failure); one argv per upgrade, so per-project drivers upgrade one project at a time;
-   catalog `name` must equal the driver `name`; arch lists contain only architectures verified on real hardware.
+1. Get the user's decision on `AGENTS.md` (protected file; byte-identical on master, this branch, and Asahi today). Recommended: keep the
+   multi-machine rules in `BRANCHING.md` and append the same short pointer block to `AGENTS.md` on BOTH machines (identical text merges
+   cleanly). Do not edit it without that approval.
+2. Do not push until the user says so. Do not write anything to Asahi (all inspection so far was read-only).
+3. Asahi agents: read `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` once, then follow its section 7; resolve the four conflicts by keeping
+   both sides (section 2a).
+4. Keep the contracts: `[]` = ran and found nothing / `DriverError` = query broke / `NotImplementedError` = unsupported (not failure); one argv
+   per upgrade; catalog `name` == driver `name`; `arch:` lists only for architectures verified on real hardware.
 
 ## Blocking Issues
-None. Open decisions for the user are listed in section 11 of the read-once file.
-Known gaps: TUI detail pane shows an unsupported manager as "Up to date"; `assets/polyget.desktop` still hard-codes
-the wrong-case path `~/Projects/Polyget/`; new subcommand tests live in `tests/test_arch.py` and
-`tests/test_cli_projects.py` rather than `tests/test_cli.py` as `CLAUDE.md` prefers.
+None. Open decision: `AGENTS.md` approach. Unverified: everything on aarch64; Snap/Nix/Distrobox/Homebrew/Conda/Bun on real binaries.
+Known gaps: TUI detail pane shows an unsupported manager as "Up to date"; `assets/polyget.desktop` still has the wrong-case path; new tests
+live in `test_arch.py`/`test_cli_projects.py` rather than `test_cli.py` as `CLAUDE.md` prefers.
 
 ## Build / Test Status
-- Build: ✅ GUI launches offscreen with all 27 drivers (no traceback); TUI header renders with the architecture
-- Lint:  ✅ no pyflakes/syntax errors in changed files (the repo has no ruff config; the global rule set flags ~280
-  style issues repo-wide; two pre-existing intentional `F401`s in `manager.py`)
-- Tests: ✅ 324 passed, 0 failed (baseline before any work this session: 222). x86_64 only; nothing run on aarch64.
+- Build: OK GUI launches offscreen and the console shows the system line; TUI header shows the architecture
+- Lint:  OK no pyflakes/syntax errors in changed files (repo has no ruff config; ~280 style findings repo-wide are pre-existing)
+- Tests: OK 325 passed, 0 failed (master baseline: 222). x86_64 only; nothing run on aarch64.

@@ -47,8 +47,8 @@ known manager, installed or not, with distro-specific self-install commands.
 - **PolyGet must work on any system as one version. Not one version per OS.** Distro/CPU differences are handled
   by detection at runtime, never by forked files.
 
-Branch names the user chose: `master` (stable), `CachyOS/BETA-FEATURES` (this machine). Suggested for you:
-`Asahi/BETA-FEATURES`. (Git cannot also have a branch literally named `CachyOS` or `Asahi`.)
+Branch names the user chose: `master` (stable), `CachyOS/BETA-FEATURES` (the CachyOS desktop), and **`Asahi/BETA-FEATURES`** (the
+Asahi laptop, confirmed by the user). Git cannot also have a branch literally named `CachyOS` or `Asahi`.
 
 ---
 
@@ -85,22 +85,24 @@ The user gave the CachyOS agent ssh access and it inspected `~/Projects/PolyGet`
   settings, post-upgrade verification (`PackageManager.still_outdated()`), and a per-manager changelog URL template.
 - That work exists **only on that laptop**. If the disk fails, it is gone. Committing it to an Asahi branch and pushing is
   the user's call, but it is worth raising.
-- `AGENTS.md` and `CLAUDE.md` on Asahi are byte-identical to `master`'s, and unchanged on this branch, so they cannot
-  conflict today.
+- `AGENTS.md` and `CLAUDE.md` on Asahi were byte-identical to `master`'s when inspected. This branch now appends one marked
+  pointer block to `AGENTS.md` (section 14.A); `CLAUDE.md` is untouched.
 - Asahi has no `AGENT_REPORT.md` yet, so the report-file collision has not happened yet.
 
 **Merge preview.** In a scratch clone (nothing real touched), Asahi's `master` plus its uncommitted work was committed as a
-throwaway commit and this branch merged in. Result: **conflicts in exactly four files**:
+throwaway commit (with the section 14.A block appended, as Asahi would) and this branch merged in. Result at the current head:
+**conflicts in exactly three files**:
 
 | File | Nature | Resolution |
 |---|---|---|
 | `tests/conftest.py` | add/add (new on both sides) | **Keep both.** Asahi's module-level `HOME` isolation stays at the top; this branch adds the `scripted_exec` fixture and `ScriptedExec` class. |
 | `app/core/settings_store.py` | both sides add defaults and methods | Keep both. This branch adds a `projects.dirs` default and `get/add/remove_project_dir`. |
 | `app/cli.py` | both sides edit shared flows | Keep both. This branch adds `system`/`projects` commands, the "unsupported is not failed" handling, and a guarded `get_upgrade_command()` call. |
-| `app/ui/main_window.py` | both sides edit it | Keep both. This branch adds an import, the system line inside `scan_all()`, a guarded upgrade-command call, and an unsupported-scan branch. |
 
-`app/core/manager.py` auto-merged cleanly (Asahi's `still_outdated` and this branch's `run_capture`/`fetch_json` are
-different hunks). Note the interaction: `still_outdated()` calls `check_updates()`, which raises `NotImplementedError` for
+`AGENTS.md`, `app/core/manager.py`, and `app/ui/main_window.py` auto-merged cleanly (for `main_window.py`, Asahi's ~590 changed
+lines and this branch's small edits land in different hunks, but review it anyway: a clean merge is not a correct merge;
+this branch adds an import, the system line inside `scan_all()`, a guarded upgrade-command call, and an unsupported-scan
+branch). Asahi's `still_outdated` and this branch's `run_capture`/`fetch_json` are different hunks. Note the interaction: `still_outdated()` calls `check_updates()`, which raises `NotImplementedError` for
 the Deno, Nix, and Distrobox drivers added here. Asahi's verification code should treat that as "cannot verify", not crash.
 
 ---
@@ -284,7 +286,7 @@ the CachyOS side implemented ("PolyGet must scan, see, and handle the machine ar
 - **Verify real behavior of each new manager on ARM64** and record what you find: Homebrew/Linuxbrew on Linux ARM64,
   Bun, Deno, Conda, Snap, Nix, Distrobox, Go, uv, Gradle.
 - **Fake the architecture in tests** (see `tests/test_arch.py`); don't write tests that only pass on one CPU.
-- Do it on **your own beta branch** (suggested `Asahi/BETA-FEATURES`), never directly on `master`.
+- Do it on **your own beta branch** (`Asahi/BETA-FEATURES`, confirmed by the user), never directly on `master`.
 
 **Step 5. Reconcile with anything you already have.** Because Asahi is likely ahead, you may already have architecture
 handling or a different design for the same problem. **Do not duplicate it.** Compare, tell the user which design is
@@ -396,9 +398,58 @@ conflicts on those files (safe, never silent loss).
 
 ---
 
+---
+
 ## 13. Related files in this branch
 
 `BRANCHING.md` (the model + promotion checklist + agent rules) · `docs/reports/2026-10-16-driver-expansion.md` (detailed
 driver report) · `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md` (earlier, shorter handoff; this file supersedes
 it for a first read) · `AGENT_REPORT.md` / `(OLD) AGENT_REPORT.md` (CachyOS-side status) ·
 `scripts/install-desktop.sh` · `scripts/git-hooks/pre-push` · `scripts/peer-snapshot.sh` · `scripts/setup-machine.sh`.
+
+---
+
+## 14. Asahi: adopt this branch's ruling, adapted for your own system and your own governance
+
+**The user's plan (paraphrased):** once the CachyOS device's project management is finished, Asahi reviews how the ruling and
+instructions work on this branch and **adopts the same, changed for its own system and its own governance.** The Asahi beta
+branch is **`Asahi/BETA-FEATURES`** (confirmed by the user, mirroring `CachyOS/BETA-FEATURES`).
+Adapt; do not copy blindly. Wherever this branch says CachyOS / x86_64 / Arch, mirror it for Asahi / aarch64 (M1) / Fedora.
+
+**A. The `AGENTS.md` pointer: must be BYTE-IDENTICAL on both machines.** `AGENTS.md` is a protected file, so ask the user
+before editing it. This branch appends the block below to the end of `AGENTS.md`. Append **exactly** the same text on Asahi
+(including the two comment markers, which make it easy to find and re-apply). Identical changes on both sides merge cleanly:
+this was tested in scratch clones (`AGENTS.md` auto-merged, block present exactly once). A single changed character
+turns it into a conflict. If you want different wording, change it on both machines or neither.
+
+```markdown
+<!-- polyget:multi-machine:start -->
+## Multi-machine workflow
+
+PolyGet is developed on two machines that feed one stable `master`. Before you branch, push, write an
+`AGENT_REPORT.md`, or copy files between machines, read `BRANCHING.md`. Run `python run.py system` to see which
+machine you are on, and never push to `master` from a beta-only machine.
+<!-- polyget:multi-machine:end -->
+```
+
+**B. What to adopt as-is, and what to adapt:**
+
+| Piece | Adopt as-is | Adapt for Asahi |
+|---|---|---|
+| Branch model (`master` stable, one `*/BETA-FEATURES` per machine) | yes | your beta is `Asahi/BETA-FEATURES` |
+| `BRANCHING.md` shared rules, identity table | yes (both machines are already in the table) | confirm the Asahi row matches reality |
+| `AGENTS.md` pointer block | byte-identical (A above) | none |
+| Driver contracts (`[]` / `DriverError` / `NotImplementedError`) | yes | none |
+| Architecture mechanism (`app/core/arch.py`, catalog `arch:` and `fedora:aarch64` keys) | yes | **fill in aarch64 facts only**, verified on the M1; never x86_64 facts |
+| `scripts/peer-snapshot.sh` | yes | run it with the peer name `da-nvme` |
+| `scripts/setup-machine.sh` | yes, run once on Asahi | none |
+| What never to sync (section 12) | yes | none |
+| `scripts/git-hooks/pre-push` (blocks pushes to `master`) | **NO. Do not install on Asahi.** | Asahi owns `master`; see C |
+| M1 hazards (8 GB RAM, 16 KB pages) | n/a | test them and record results |
+| Fedora specifics (DNF/COPR, package names) | n/a | verify real Fedora package names; the unverified `uv`/`deno` dnf lines were removed on purpose |
+| `AGENT_REPORT.md` rotation | yes | keep your own; your reports describe Asahi |
+
+**C. Governance the user reserved for Asahi (do not decide it from this document):** how `master` is protected and who may
+merge into it; whether to require a PR and green tests on **both** machines before promotion; whether to turn on GitHub branch
+protection; and whether Asahi's uncommitted work should be committed to an `Asahi/BETA-FEATURES` branch first. Propose options to
+the user and let them choose. This branch only defines the shared model; Asahi's own rules for running `master` are Asahi's.

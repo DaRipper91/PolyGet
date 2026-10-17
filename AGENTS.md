@@ -55,3 +55,11 @@ Recent commits use short, imperative summaries, often with `Fix`, `Add`, or `cho
 PRs should explain the user-visible change, include tests run and environment limitations, link
 the relevant issue or plan when applicable, and include screenshots for GUI changes. Check for an
 existing PR or active session covering the same scope before opening a new one.
+
+<!-- polyget:multi-machine:start -->
+## Multi-machine workflow
+
+PolyGet is developed on two machines that feed one stable `master`. Before you branch, push, write an
+`AGENT_REPORT.md`, or copy files between machines, read `BRANCHING.md`. Run `python run.py system` to see which
+machine you are on, and never push to `master` from a beta-only machine.
+<!-- polyget:multi-machine:end -->

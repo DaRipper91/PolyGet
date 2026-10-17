@@ -7,7 +7,7 @@ per-OS forks. Two machines develop it, each for its own distro family, and both 
 |---|---|---|
 | `master` | GitHub; owned by the Asahi laptop (Fedora) | **Stable.** Only code built, tested, and proven on **both** Asahi and CachyOS. |
 | `CachyOS/BETA-FEATURES` | CachyOS desktop (Arch) | Stable plus changes worked on and tested only on this machine. |
-| `Asahi/BETA-FEATURES` (suggested name) | Asahi laptop (Fedora) | Same idea from the Fedora side. |
+| `Asahi/BETA-FEATURES` | Asahi laptop (Fedora) | Same idea from the Fedora side. |
 
 Both betas are built against stable and merge into `master` once proven on the other machine.
 Neither beta overwrites `master`, and neither overwrites the other.
@@ -69,6 +69,18 @@ uncommitted work included. **The other machine's repo is only ever read; never s
   `~/.config/polyget/`, keyrings, ssh keys, `.env*`/`*.pem`/`*.key`. Never `rsync --delete` into a working repo.
 - Do not edit or run anything under `_devices/`.
 - `scripts/setup-machine.sh` (once per clone) makes merges keep each machine's own `AGENT_REPORT.md`.
+
+## `AGENTS.md` carries a pointer here
+
+`AGENTS.md` ends with a marked block (`polyget:multi-machine`) that sends every agent to this file. It must be
+**byte-identical on both machines**: identical edits merge cleanly, a changed character conflicts. Change the wording on both
+machines or neither. `AGENTS.md` is protected: edit it only when the user asks.
+
+## Shared rules vs. per-machine rules
+
+The model, the driver contracts, the sharing rules, and the `AGENTS.md` pointer are shared and stay identical. Each machine adapts
+the rest for itself: its identity row, which git hooks it installs (the `pre-push` guard is for beta-only machines, never the
+`master` owner), the architecture facts it verifies on its own hardware, and its own governance of what may reach `master`.
 
 ## For agents: new managers on sync
 

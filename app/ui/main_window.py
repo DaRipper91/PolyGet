@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
     QApplication
 )
-from app.core.manager import discover_managers, PackageManager
+from app.core.arch import describe_system
+from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
@@ -93,6 +94,8 @@ class ScanWorker(QThread):
                 updates = await mgr.check_updates()
                 self.updates_signal.emit(mgr.name, updates)
                 self.log_signal.emit(f"✅ Scan complete for {mgr.name}. Found {len(updates)} update(s).")
+            except NotImplementedError as e:
+                self.log_signal.emit(f"ℹ️ {mgr.name} cannot report outdated packages ({describe_error(e)}); skipped.")
             except Exception as e:
                 self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
                 self.error_signal.emit(mgr.name, str(e))
@@ -2144,6 +2147,8 @@ class MainWindow(QMainWindow):
         self.scan_errors.clear()
         self.selected_updates.clear()
         self.console.clear()
+        system = describe_system()
+        self.log(f"🖥️ Detected system: {system['arch']} / {system['distro_family']}")
         self.update_updates_badge()
 
         self.lbl_summary.setText("Checking for updates...")
@@ -2405,7 +2410,18 @@ class MainWindow(QMainWindow):
 
         if not self.upgrade_queue:
             return
-        commands = [mgr.get_upgrade_command(pkgs) for mgr, pkgs in self.upgrade_queue]
+        commands: list[list[str]] = []
+        buildable: list[tuple[PackageManager, list[str]]] = []
+        for mgr, pkgs in self.upgrade_queue:
+            try:
+                commands.append(mgr.get_upgrade_command(pkgs))
+                buildable.append((mgr, pkgs))
+            except (NotImplementedError, DriverError) as e:
+                self.log(f"❌ {mgr.name}: cannot build an upgrade command: {describe_error(e)}")
+                self.upgrade_failures.append(mgr.name)
+        self.upgrade_queue[:] = buildable
+        if not self.upgrade_queue:
+            return
         if not self._confirm_commands("Confirm Upgrade", commands):
             self.upgrade_queue.clear()
             return
@@ -2434,7 +2450,13 @@ class MainWindow(QMainWindow):
             return
 
         manager, packages = self.upgrade_queue.pop(0)
-        cmd = manager.get_upgrade_command(packages)
+        try:
+            cmd = manager.get_upgrade_command(packages)
+        except (NotImplementedError, DriverError) as e:
+            self.log(f"❌ {manager.name}: cannot build an upgrade command: {describe_error(e)}")
+            self.upgrade_failures.append(manager.name)
+            self.run_next_upgrade_queue()
+            return
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)

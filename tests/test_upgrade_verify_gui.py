@@ -42,3 +42,29 @@ def test_upgrade_that_changed_nothing_is_reported_and_retried_alone(window):
     assert history["DNF"]["success"] is False and history["DNF"]["not_upgraded"] == ["vhs"]
     assert history["Cargo"]["success"] is True
     assert history["NPM"]["success"] is False
+
+
+def test_unbuildable_upgrade_command_is_reported_not_raised_and_the_rest_still_confirm(window):
+    """A manager whose upgrade command cannot be built (e.g. Bundler across several projects) must not
+    break the confirmation step for the managers that can."""
+    from app.core.manager import DriverError
+
+    good, bad = MagicMock(), MagicMock()
+    good.name, bad.name = "Cargo", "Bundler"
+    good.get_upgrade_command.return_value = ["cargo", "install-update", "-a"]
+    bad.get_upgrade_command.side_effect = DriverError("upgrades one project at a time")
+    window.managers = {"Cargo": good, "Bundler": bad}
+    window.selected_updates = {"Cargo": {"dua-cli"}, "Bundler": {"rake @ /p/a", "rake @ /p/b"}}
+    window.active_operation = None
+    seen = {}
+
+    def confirm(title, commands):
+        seen["commands"] = commands
+        return False  # decline, so nothing is executed
+
+    with patch.object(window, "_confirm_commands", side_effect=confirm):
+        window.start_batch_upgrade()
+
+    assert seen["commands"] == [["cargo", "install-update", "-a"]]
+    assert "Bundler" in window.upgrade_failures
+    assert window.upgrade_queue == []  # declined, so the queue was cleared rather than left half-built

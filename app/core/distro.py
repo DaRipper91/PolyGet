@@ -63,6 +63,15 @@ def get_distro_family() -> str:
     return "unknown"
 
 
+# The driver that owns the distro's own packages (and so AppStream "package" components).
+_SYSTEM_MANAGER = {"fedora": "DNF", "arch": "Pacman", "debian": "APT"}
+
+
+def get_system_manager_name() -> str | None:
+    """Name of the driver for this distro's native packages, or None if PolyGet has none."""
+    return _SYSTEM_MANAGER.get(get_distro_family())
+
+
 @functools.lru_cache(maxsize=1)
 def get_distro_name() -> str:
     """Return the human-readable distro name (PRETTY_NAME, else NAME), or "" if unknown."""

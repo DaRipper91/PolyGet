@@ -217,6 +217,14 @@ class PackageManager:
         """
         raise NotImplementedError("Subclasses must implement get_install_command()")
 
+    def get_install_command_for(self, item: dict[str, Any]) -> list[str]:
+        """Command to install a search/Store result (as returned by search_packages()).
+
+        Drivers whose results carry more than the package id (Flatpak's remote) override this;
+        everyone else installs by id.
+        """
+        return self.get_install_command(item["id"])
+
     def get_self_install_command(self) -> list[str] | None:
         """Get the command to install this manager itself on the current distro.
 

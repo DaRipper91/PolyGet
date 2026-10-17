@@ -415,6 +415,9 @@ class CategoryWorker(QThread):
         self.log_signal.emit(f"📂 Fetching category: {self.category}...")
         debug_log.emit(f"[CategoryWorker] fetching category {self.category}")
         
+        from app.core.distro import get_system_manager_name
+        system_manager = get_system_manager_name()
+
         async def fetch_category():
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -454,9 +457,10 @@ class CategoryWorker(QThread):
                             if len(parts) >= 2:
                                 pkg_id = parts[1]
                                 source = "Flatpak"
-                    elif "package" in comp:
+                    elif "package" in comp and system_manager:
+                        # A distro package: owned by this distro's manager, not always DNF.
                         pkg_id = comp["package"]
-                        source = "DNF"
+                        source = system_manager
 
                     if source and pkg_id and name:
                         # Apply source filter
@@ -3389,12 +3393,7 @@ class MainWindow(QMainWindow):
         self.lbl_store_results.setText(f"Loading '{category}' apps...")
         self.log(f"📂 Selected category: {category}")
 
-        source_filter = "All"
-        sel_text = self.combo_source.currentText()
-        if "Flatpak" in sel_text:
-            source_filter = "Flatpak"
-        elif "DNF" in sel_text:
-            source_filter = "DNF"
+        source_filter = self._store_source_filter()
 
         self.store_generation += 1
         generation = self.store_generation
@@ -3407,6 +3406,11 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
+
+    def _store_source_filter(self) -> str:
+        """The Store's source dropdown lists real manager names, so pass the choice straight on."""
+        text = self.combo_source.currentText()
+        return "All" if text in ("", "All Sources") else text
 
     def perform_store_search(self):
         query = self.txt_store_search.text().strip()
@@ -3422,18 +3426,7 @@ class MainWindow(QMainWindow):
         self.lbl_store_results.setText(f"Searching database for '{query}'...")
         self.log(f"🔎 Initiated online package search for: {query}")
 
-        source_filter = "All"
-        sel_text = self.combo_source.currentText()
-        if "Flatpak" in sel_text:
-            source_filter = "Flatpak"
-        elif "DNF" in sel_text:
-            source_filter = "DNF"
-        elif "NPM" in sel_text:
-            source_filter = "NPM"
-        elif "Cargo" in sel_text:
-            source_filter = "Cargo"
-        elif "Pipx" in sel_text:
-            source_filter = "Pipx"
+        source_filter = self._store_source_filter()
 
         self.store_generation += 1
         generation = self.store_generation
@@ -3496,20 +3489,19 @@ class MainWindow(QMainWindow):
             self.log(f"⚠️ Installation of {item['name']} via {source} is already in progress.")
             return
 
-        # Prepare installation command based on source
-        if source == "Flatpak":
-            remote = item.get("remote", "flathub")
-            cmd = ["flatpak", "install", "-y", remote, pkg_id]
-        elif source == "DNF":
-            cmd = ["pkexec", "dnf", "install", "-y", pkg_id]
-        elif source == "Cargo":
-            cmd = ["cargo", "install", pkg_id]
-        elif source == "NPM":
-            cmd = ["npm", "install", "-g", pkg_id]
-        elif source == "Pipx":
-            cmd = ["pipx", "install", pkg_id]
-        else:
-            QMessageBox.critical(self, "Error", f"No installer available for source '{source}'.")
+        # The driver owns the command (distro quirks, elevation, Flatpak remotes); never build
+        # it here. A Store result whose manager isn't installed can't be installed from here.
+        from app.core.manager import get_all_managers
+        driver = next((m for m in get_all_managers() if m.name == source), None)
+        if driver is None or not driver.is_available():
+            QMessageBox.critical(self, "Error", f"{source} isn't installed, so PolyGet can't install "
+                                 f"{item['name']} with it. Install {source} from Package Managers first.")
+            return
+        try:
+            cmd = driver.get_install_command_for(item)
+        except (NotImplementedError, DriverError) as e:
+            QMessageBox.critical(self, "Error", f"{source} can't install packages from PolyGet: "
+                                 f"{describe_error(e)}")
             return
 
         confirm = QMessageBox.question(

@@ -240,6 +240,13 @@ class FlatpakManager(PackageManager):
         """
         return ["flatpak", "install", "-y", package]
 
+    def get_install_command_for(self, item: dict[str, Any]) -> list[str]:
+        """Install from the remote the result came from, so a second remote can't shadow it."""
+        remote = item.get("remote")
+        if remote:
+            return ["flatpak", "install", "-y", remote, item["id"]]
+        return self.get_install_command(item["id"])
+
     supports_repos: bool = True
 
     async def list_repos(self) -> list[dict[str, Any]]:

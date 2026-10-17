@@ -121,6 +121,9 @@ class PnpmManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return self._pnpm_argv("add", "--global", package)
 
+    def get_remove_command(self, package: str) -> list[str]:
+        return self._pnpm_argv("remove", "--global", package)
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # Same reasoning as Yarn — pnpm has no native search, shares npm's registry.
         try:

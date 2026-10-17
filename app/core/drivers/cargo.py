@@ -175,6 +175,9 @@ class CargoManager(PackageManager):
         """
         return ["cargo", "install", package]
 
+    def get_remove_command(self, package: str) -> list[str]:
+        return ["cargo", "uninstall", package]
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         """Search for cargo packages on crates.io."""
         try:

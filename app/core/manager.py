@@ -217,6 +217,28 @@ class PackageManager:
         """
         raise NotImplementedError("Subclasses must implement get_install_command()")
 
+    def get_remove_command(self, package: str) -> list[str]:
+        """Get the command list to uninstall a package.
+
+        Raises:
+            NotImplementedError: PolyGet can't remove packages through this manager yet.
+        """
+        raise NotImplementedError(f"{self.name} can't remove packages from PolyGet yet")
+
+    async def preview_remove(self, package: str) -> dict[str, list[str]]:
+        """What removing `package` would take with it, worked out before anything runs.
+
+        Returns:
+            {"remove": [...], "blocked_by": [...]}: every package the removal would take out
+            (including `package` itself), and installed packages that make the manager refuse
+            it outright. Managers without dependency tracking remove just the one package.
+
+        Raises:
+            DriverError: The preview query failed. Callers must not read that as "no
+                dependencies".
+        """
+        return {"remove": [package], "blocked_by": []}
+
     def get_install_command_for(self, item: dict[str, Any]) -> list[str]:
         """Command to install a search/Store result (as returned by search_packages()).
 

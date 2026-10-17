@@ -175,6 +175,17 @@ class AptManager(PackageManager):
         """
         return ["pkexec", "apt-get", "install", "-y", package]
 
+    def get_remove_command(self, package: str) -> list[str]:
+        return ["pkexec", "apt-get", "remove", "-y", package]
+
+    async def preview_remove(self, package: str) -> dict[str, list[str]]:
+        """`apt-get -s` simulates without root; each "Remv name [version]" line is a removal."""
+        from app.core.manager import run_capture
+        out = await run_capture(["apt-get", "-s", "remove", package],
+                                label=f"{self.name} removal preview", timeout=60.0)
+        names = [line.split()[1] for line in out.splitlines() if line.startswith("Remv ") and len(line.split()) > 1]
+        return {"remove": names or [package], "blocked_by": []}
+
     supports_repos: bool = True
 
     @staticmethod

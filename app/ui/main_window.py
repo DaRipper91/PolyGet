@@ -529,6 +529,27 @@ class FetchInstalledWorker(QThread):
         self.error_signal.emit(errors)
 
 
+class RemovePreviewWorker(QThread):
+    """Ask a driver what removing a package would take with it, off the UI thread."""
+    result_signal = Signal(object, str)  # preview dict (or None), error message ("" on success)
+
+    def __init__(self, manager: PackageManager, package: str, parent: Any = None):
+        super().__init__(parent)
+        self.manager = manager
+        self.package = package
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            preview = loop.run_until_complete(self.manager.preview_remove(self.package))
+            self.result_signal.emit(preview, "")
+        except Exception as e:
+            self.result_signal.emit(None, describe_error(e))
+        finally:
+            loop.close()
+
+
 class FetchManagerVersionsWorker(QThread):
     """Worker thread to fetch each package manager's own version string."""
     result_signal = Signal(dict)  # manager_name -> version string
@@ -661,6 +682,7 @@ class UpdateItemWidget(QWidget):
 class StoreItemWidget(QWidget):
     """Custom row widget representing search results in the package store."""
     install_requested = Signal(dict)
+    remove_requested = Signal(str, str)  # manager name, package
 
     def __init__(self, item: dict[str, Any], parent: Any = None):
         super().__init__(parent)
@@ -717,8 +739,11 @@ class StoreItemWidget(QWidget):
         lbl_source.setStyleSheet(badge_style + "border-radius: 12px; padding: 4px 12px; font-weight: bold; font-size: 11px;")
         layout.addWidget(lbl_source)
 
-        # Install Button
-        self.btn_install = QPushButton("Install")
+        # Install Button (Remove… for rows from the Store's Installed view)
+        installed = bool(self.item.get("installed"))
+        self.btn_install = QPushButton("Remove…" if installed else "Install")
+        self.btn_install.setAccessibleName(
+            f"{'Remove' if installed else 'Install'} {self.item['name']}")
         self.btn_install.setStyleSheet("""
             QPushButton {
                 background-color: #313244;
@@ -732,7 +757,11 @@ class StoreItemWidget(QWidget):
                 color: #11111b;
             }
         """)
-        self.btn_install.clicked.connect(lambda: self.install_requested.emit(self.item))
+        if installed:
+            self.btn_install.clicked.connect(
+                lambda: self.remove_requested.emit(self.item["source"], self.item["id"]))
+        else:
+            self.btn_install.clicked.connect(lambda: self.install_requested.emit(self.item))
         layout.addWidget(self.btn_install)
 
 
@@ -1041,6 +1070,7 @@ class MainWindow(QMainWindow):
         self.active_operation: str | None = None
         self.installing_managers: set[str] = set()
         self.installing_packages: set[str] = set()
+        self.removing_packages: set[str] = set()
         self.repo_actions_in_flight: set[str] = set()
 
         self.tray: QSystemTrayIcon | None = None
@@ -1397,6 +1427,11 @@ class MainWindow(QMainWindow):
         self.combo_source.addItems(["All Sources"] + sorted(mgr_names))
         store_header.addWidget(self.combo_source, stretch=1)
         self.combo_source.currentTextChanged.connect(self.filter_store_results)
+
+        self.chk_store_installed = QCheckBox("Installed")
+        self.chk_store_installed.setToolTip("Show packages already installed, with a Remove button")
+        self.chk_store_installed.toggled.connect(self.on_store_installed_toggled)
+        store_header.addWidget(self.chk_store_installed)
 
         btn_search = QPushButton("Search")
         btn_search.clicked.connect(self.perform_store_search)
@@ -3068,6 +3103,8 @@ class MainWindow(QMainWindow):
             vendor_ok = settings.get("dnf.allow_vendor_change", [])
             allowed = pkg in vendor_ok
             act_vendor = menu.addAction("Disallow vendor change" if allowed else "Allow vendor change")
+        menu.addSeparator()
+        act_remove = menu.addAction(f"Remove {pkg}…")
         chosen = menu.exec(global_pos)
         if chosen is None:
             return
@@ -3090,6 +3127,8 @@ class MainWindow(QMainWindow):
             settings.set("dnf.allow_vendor_change",
                          [p for p in vendor_ok if p != pkg] if allowed else vendor_ok + [pkg])
             self.scan_all()  # the blocked flag is computed during the DNF scan
+        elif chosen is act_remove:
+            self.remove_package(mgr, pkg)
 
     def rebuild_updates_list(self):
         from app.core.ignore_store import IgnoreStore
@@ -3413,6 +3452,9 @@ class MainWindow(QMainWindow):
         return "All" if text in ("", "All Sources") else text
 
     def perform_store_search(self):
+        if self.chk_store_installed.isChecked():
+            self.show_installed_in_store()
+            return
         query = self.txt_store_search.text().strip()
         if not query:
             return
@@ -3464,6 +3506,7 @@ class MainWindow(QMainWindow):
 
             row_widget = StoreItemWidget(item)
             row_widget.install_requested.connect(self.install_package)
+            row_widget.remove_requested.connect(self.remove_package)
             self.store_list.setItemWidget(row_item, row_widget)
 
         # Apply any current filter immediately
@@ -3478,6 +3521,148 @@ class MainWindow(QMainWindow):
                 # If filter is "All Sources" or matches source type, show it
                 is_match = (filter_text == "All Sources" or widget.item.get("source") == filter_text)
                 item.setHidden(not is_match)
+
+    _STORE_INSTALLED_LIMIT = 400  # rows; thousands of row widgets make the list crawl
+
+    def on_store_installed_toggled(self, checked: bool) -> None:
+        if checked:
+            self.txt_store_search.setPlaceholderText("Filter installed packages...")
+            self.show_installed_in_store()
+        else:
+            self.txt_store_search.setPlaceholderText("Search online apps and software packages...")
+            self.store_generation += 1  # drop a listing still in flight
+            self.store_list.clear()
+            self.lbl_store_results.setText(
+                "Type a query and press enter to search or select a category to browse...")
+
+    def show_installed_in_store(self) -> None:
+        """List installed packages (for the chosen source, matching the search text) in the Store."""
+        from app.core.settings_store import get_settings
+        source = self._store_source_filter()
+        disabled = set(get_settings().disabled_managers())
+        managers = [m for m in discover_managers()
+                    if m.name not in disabled and (source == "All" or m.name == source)]
+        self.store_generation += 1
+        generation = self.store_generation
+        self.store_list.clear()
+        if not managers:
+            self.lbl_store_results.setText("No package managers to list.")
+            return
+        self.lbl_store_results.setText("Listing installed packages...")
+        query = self.txt_store_search.text().strip().lower()
+        worker = FetchInstalledWorker(managers)
+        worker.log_signal.connect(self.log)
+        worker.result_signal.connect(
+            lambda results, g=generation, q=query: self._show_installed_results(results, q, g))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def _show_installed_results(self, results: dict, query: str, generation: int) -> None:
+        if generation != self.store_generation or not self.chk_store_installed.isChecked():
+            return
+        items = [
+            {"name": pkg, "id": pkg, "description": f"Installed with {mgr}", "version": "",
+             "source": mgr, "installed": True}
+            for mgr, pkgs in sorted(results.items()) for pkg in sorted(pkgs)
+            if not query or query in pkg.lower()
+        ]
+        shown = items[:self._STORE_INSTALLED_LIMIT]
+        self.handle_store_results(shown, generation)
+        if len(items) > len(shown):
+            self.lbl_store_results.setText(
+                f"Showing {len(shown)} of {len(items)} installed packages. Type in the search box "
+                "to narrow it down.")
+
+    def remove_package(self, manager_name: str, package: str) -> None:
+        """Preview what removing `package` takes with it, confirm, then run the driver's command."""
+        key = f"{manager_name}:{package}"
+        if key in self.removing_packages:
+            self.log(f"⚠️ Removal of {package} via {manager_name} is already in progress.")
+            return
+        from app.core.manager import get_all_managers
+        driver = self.managers.get(manager_name) or next(
+            (m for m in get_all_managers() if m.name == manager_name), None)
+        if driver is None or not driver.is_available():
+            QMessageBox.critical(self, "Error", f"{manager_name} isn't installed.")
+            return
+        try:
+            cmd = driver.get_remove_command(package)
+        except (NotImplementedError, DriverError) as e:
+            QMessageBox.information(self, "Can't remove", describe_error(e))
+            return
+
+        self.removing_packages.add(key)
+        self.log(f"🔎 Checking what removing {package} would take with it...")
+        worker = RemovePreviewWorker(driver, package)
+        worker.result_signal.connect(
+            lambda preview, error: self._confirm_remove(driver, package, cmd, preview, error))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def _confirm_remove(self, driver: PackageManager, package: str, cmd: list[str],
+                        preview: dict | None, error: str) -> None:
+        key = f"{driver.name}:{package}"
+        if preview and preview.get("blocked_by"):
+            self.removing_packages.discard(key)
+            blockers = preview["blocked_by"]
+            QMessageBox.warning(
+                self, "Can't remove",
+                f"{driver.name} won't remove {package}: these installed packages still need it:\n\n"
+                + "\n".join(f"  • {b}" for b in blockers[:30])
+                + (f"\n  …and {len(blockers) - 30} more" if len(blockers) > 30 else ""))
+            return
+
+        lines = [f"Remove {package} with {driver.name}?", ""]
+        if error:
+            lines += [f"⚠ PolyGet couldn't check what else this removes ({error}). "
+                      f"{driver.name} may remove more than {package}.", ""]
+        else:
+            extras = [p for p in preview.get("remove", []) if p != package]
+            if extras:
+                lines += [f"This also removes {len(extras)} other package(s):"]
+                lines += [f"  • {p}" for p in extras[:30]]
+                if len(extras) > 30:
+                    lines += [f"  …and {len(extras) - 30} more"]
+                lines += [""]
+            else:
+                lines += ["Nothing else is removed with it.", ""]
+        lines += ["PolyGet will run:", shlex.join(cmd)]
+        confirm = QMessageBox.question(self, "Confirm Removal", "\n".join(lines),
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                       QMessageBox.StandardButton.No)
+        if confirm != QMessageBox.StandardButton.Yes:
+            self.removing_packages.discard(key)
+            return
+
+        self._show_terminal(f"🗑 Removing {package} via {driver.name}")
+        self.log(f"🗑 Removing {package} via {driver.name}...")
+        worker = ExecutionWorker(cmd)
+        worker.log_signal.connect(self.log)
+        worker.finished_signal.connect(
+            lambda success: self.handle_remove_finished(success, driver.name, package))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def handle_remove_finished(self, success: bool, manager_name: str, package: str) -> None:
+        self.removing_packages.discard(f"{manager_name}:{package}")
+        self.terminal_overlay.hide()
+        if not success:
+            QMessageBox.critical(self, "Removal Failed",
+                                 f"Failed to remove {package}. Refer to the console logs.")
+            return
+        # It can't be outdated any more; drop it without waiting for a rescan.
+        if manager_name in self.updates_cache:
+            self.updates_cache[manager_name] = [
+                u for u in self.updates_cache[manager_name] if u.get("name") != package]
+            self.selected_updates.get(manager_name, set()).discard(package)
+            self.update_updates_badge()
+            self.rebuild_updates_list()
+        if self.chk_store_installed.isChecked():
+            self.show_installed_in_store()
+        QMessageBox.information(self, "Removed", f"{package} was removed.")
 
     @Slot(dict)
     def install_package(self, item: dict):

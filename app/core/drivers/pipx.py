@@ -245,6 +245,9 @@ class PipxManager(PackageManager):
         """
         return ["pipx", "install", package]
 
+    def get_remove_command(self, package: str) -> list[str]:
+        return ["pipx", "uninstall", package]
+
     from pathlib import Path
     _INDEX_CACHE_PATH = Path.home() / ".cache" / "polyget" / "pypi_simple_index.json"
     _INDEX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 1 week

@@ -104,6 +104,9 @@ class GemManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["gem", "install", package]
 
+    def get_remove_command(self, package: str) -> list[str]:
+        return ["gem", "uninstall", "--all", "--executables", package]
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         try:
             proc = await asyncio.create_subprocess_exec(

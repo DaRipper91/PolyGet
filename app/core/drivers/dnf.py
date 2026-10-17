@@ -1,7 +1,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 from app.core.settings_store import get_settings
 
 # Any dnf call may first refresh expired repo metadata, which routinely takes well over 15s.
@@ -252,6 +252,19 @@ class DnfManager(PackageManager):
             list[str]: The command list to install the package.
         """
         return ["pkexec", "dnf", "install", "-y", package]
+
+    def get_remove_command(self, package: str) -> list[str]:
+        return ["pkexec", "dnf", "remove", "-y", package]
+
+    async def preview_remove(self, package: str) -> dict[str, list[str]]:
+        """`dnf remove` also removes installed packages that require the target. repoquery
+        lists the direct ones without root (the explicit "\n" keeps dnf5 one-per-line)."""
+        out = await run_capture(
+            ["dnf", "repoquery", "--installed", "--whatrequires", package, "--queryformat", "%{name}\n"],
+            label=f"{self.name} removal preview", timeout=60.0,
+        )
+        dependents = sorted({line.strip() for line in out.splitlines()} - {"", package})
+        return {"remove": [package, *dependents], "blocked_by": []}
 
     supports_repos: bool = True
 

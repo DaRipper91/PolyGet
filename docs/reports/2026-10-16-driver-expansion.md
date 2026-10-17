@@ -1,5 +1,9 @@
 # Driver Expansion Report — 2026-10-16
 
+> **Numbers in this report are as of commit `2e86ecc` (the drivers commit).** Later commits added architecture detection and
+> more tests: the branch now has **325** passing tests (baseline `master`: 222). For the current picture read
+> `ASAHI-READ-ONCE-2026-10-16.md` in this folder.
+
 PolyGet went from **15 to 27 package-manager drivers**, with the shared plumbing they need.
 Tests went from **222 to 302 passing**, with no regressions.
 

@@ -783,8 +783,6 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
         self.apply_theme()
-        system = describe_system()
-        self.log(f"🖥️ Detected system: {system['arch']} / {system['distro_family']}")
         self.scan_all()
 
     def setup_ui(self):
@@ -2008,6 +2006,8 @@ class MainWindow(QMainWindow):
         self.scan_errors.clear()
         self.selected_updates.clear()
         self.console.clear()
+        system = describe_system()
+        self.log(f"🖥️ Detected system: {system['arch']} / {system['distro_family']}")
         self.update_updates_badge()
 
         self.lbl_summary.setText("Checking for updates...")

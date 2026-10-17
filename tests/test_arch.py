@@ -119,3 +119,23 @@ def test_cli_catalog_flags_entries_unsupported_on_this_arch(capsys):
         code, rows = run_json(capsys, "catalog")
     flags = {r["id"]: r["supported_on_this_arch"] for r in rows}
     assert code == cli.EXIT_OK and flags == {"only-x86": False, "anywhere": True}
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    import sys
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication(sys.argv)
+    yield app
+
+
+def test_gui_console_shows_detected_system_after_the_scan_clears_it(qapp):
+    # scan_all() wipes the console; the system line must be written after that wipe or it never shows.
+    from app.ui.main_window import MainWindow
+    fake = {"arch": "aarch64", "distro_family": "fedora", "platform": "linux"}
+    with patch("app.ui.main_window.describe_system", return_value=fake), \
+         patch("app.ui.main_window.discover_managers", return_value=[]):
+        window = MainWindow()
+    text = window.console.toPlainText()
+    assert "Detected system: aarch64 / fedora" in text
+    window.close()

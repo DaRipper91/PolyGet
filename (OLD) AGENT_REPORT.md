@@ -1,58 +1,53 @@
 # Agent Report
 
 ## Summary
-Added 12 package-manager drivers (15 → 27) and the plumbing they need. Baseline before changes:
-222 tests passing; now 302 passing.
+Branch `CachyOS/BETA-FEATURES` (CachyOS, Arch, x86_64). `master` is untouched at `ad511b1`.
 
-**New drivers** (`app/core/drivers/`): `aur.py` (paru, falling back to yay), `uv.py`, `go.py`,
-`bun.py`, `deno.py`, `bundler.py`, `gradle.py`, `snap.py`, `nix.py`, `distrobox.py`, `brew.py`
-(one driver for macOS Homebrew and Linuxbrew), `conda.py` (also drives mamba).
+**This turn: CPU-architecture detection, plus a read-once handoff for the Asahi agents.**
+- `app/core/arch.py` (new): `normalize_arch()`, cached `get_machine_arch()` (`arm64`→`aarch64`, `amd64`→`x86_64`,
+  `"unknown"` if unreadable), `describe_system()`.
+- `app/core/catalog.py`: `CatalogEntry.arch` (optional; empty = unknown, never "verified everywhere"),
+  `supports_this_arch()`, and `get_self_install_command()` now prefers arch-qualified keys (`fedora:aarch64`) and
+  returns `None` when the entry excludes this machine.
+- `app/cli.py`: new `system` command; `catalog` reports `arch` and `supported_on_this_arch`.
+- `app/ui/main_window.py` logs the detected system at startup; `app/ui/tui.py` shows the architecture in the header.
+- `app/core/data/manager_catalog.yaml`: header documents `arch:` and arch-qualified keys. No entry sets them yet.
+- `tests/test_arch.py` (new, 22 tests; faking both architectures).
+- `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` (new): the complete context for the Asahi agents.
+- `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md`: now points to the read-once file.
+- `AGENT_REPORT.md` rotated to `(OLD) AGENT_REPORT.md` (the previous report covered the 12-driver work).
 
-**Modified**
-- `app/core/manager.py` — added `run_capture()` (query subprocess → `DriverError` on any failure) and
-  `fetch_json()` (curl-based). Existing drivers are untouched and keep their own boilerplate.
-- `app/core/projects.py` (new) — tracked-project helpers shared by Bundler/Gradle.
-- `app/core/settings_store.py` — `projects.dirs` setting + `get/add/remove_project_dir`.
-- `app/core/distro.py` — `darwin` → `"macos"` family.
-- `app/core/data/manager_catalog.yaml` — `has_driver: true` for aur/go/bundler/gradle/snap/nix/distrobox;
-  new entries uv, bun, deno, brew, conda. `paru` entry became `aur` (name must equal driver name —
-  enforced by `test_catalog_driver_consistency`); `Go Modules` renamed `Go` for the same reason.
-- `app/cli.py` — `projects list|add|remove` command; `outdated`/`upgrade` no longer count
-  `NotImplementedError` ("unsupported") as a failure; unbuildable upgrade commands are reported, not raised.
-- `app/ui/main_window.py`, `app/ui/tui.py` — same two guards (unsupported scan; unbuildable upgrade command).
-- `README.md` — counts, driver table, `projects` command.
-- Tests: `tests/conftest.py` (`scripted_exec` fixture) + 9 new test files.
+Earlier turns (details in `(OLD) AGENT_REPORT.md` and `docs/reports/2026-10-16-driver-expansion.md`): 12 new drivers
+(AUR, uv, Go, Bun, Deno, Bundler, Gradle, Snap, Nix, Distrobox, Homebrew, Conda), `run_capture`/`fetch_json`, tracked
+project dirs + `projects` command, "unsupported is not failed" scan semantics, `BRANCHING.md`, a local `pre-push` guard.
 
 ## Feature / Task Status
-- ✅ AUR, uv, Go — implemented, tested, and run against the real tools on this machine
-- ✅ Bundler, Gradle — implemented, tested, run against real throwaway projects (real `bundle`/`gradle`)
-- ✅ Bun — implemented and tested; no global bun packages exist here, so only fixture-verified
-- ✅ Deno — list/install/JSR search only; update checks are deliberately unsupported
-- 🔄 Snap, Nix, Distrobox, Homebrew, Conda — implemented and unit-tested against fixtures built from
-  each tool's documented output format. **None of these binaries is installed on this machine, so none
-  was run for real.** Treat their parsers as unverified until run on a host that has them.
-- ❌ GUI for managing tracked project dirs — CLI only (`projects add|remove`)
+- ✅ Architecture detection (detect + expose + use in the catalog), unit-tested with both architectures faked
+- ✅ 12 new drivers: AUR, uv, Go, Bundler, Gradle verified against real tools on x86_64
+- 🔄 Snap, Nix, Distrobox, Homebrew, Conda, Bun: fixture-verified only; never run for real (not installed here)
+- 🔄 Per-tool architecture facts: the mechanism exists but **no `arch:` lists or `:aarch64` keys are filled in**; only
+  x86_64 can be verified from this machine. The Asahi side owns the aarch64 facts.
+- ❌ Anything verified on aarch64 / the M1
+- ❌ GUI control for tracked project directories (CLI only)
 
 ## What the Next Agent Should Do First
-1. Run Snap/Nix/Distrobox/Homebrew/Conda on a machine that has them and compare real output against the
-   parsers (`snap`, `nix`, `distrobox`, `brew`, `conda` drivers). Highest-risk guesses: `nix profile list
-   --json` shape across versions, `brew search` non-TTY output, `conda search --json` error body,
-   `bun`'s `-g` behaviour (`bun update -g` was not run).
-2. Decide whether to add a GUI control for tracked project directories.
-3. Respect these decisions: query commands go through `run_capture`; `check_updates` raising
-   `NotImplementedError` means "unsupported", not failure; multi-target drivers (uv, Go, Bun, Bundler)
-   raise only when *every* lookup failed and otherwise return partial results; Bundler/Gradle upgrade one
-   project per command (a command is a single argv) and refuse ambiguous selections.
+1. Run `git status`/`git log origin/master..HEAD` before anything: Asahi may be ahead of GitHub's `master` (`ad511b1`).
+2. If you are an Asahi agent: read `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` once, fully, then follow its section 7.
+   Use a `git worktree` to review; do not pull this branch into a working branch; do not touch `master`.
+3. Review the real code and run the suite (`PYTHONPATH=. .venv/bin/pytest -q`; `pytest` is not in `requirements.txt`).
+4. Ask the user before checking for or installing any new manager. Never invent install commands.
+5. Respect these decisions: `[]` = ran and found nothing / `DriverError` = query broke / `NotImplementedError` =
+   unsupported (not a failure); one argv per upgrade, so per-project drivers upgrade one project at a time;
+   catalog `name` must equal the driver `name`; arch lists contain only architectures verified on real hardware.
 
 ## Blocking Issues
-None.
-
-Known gaps: the TUI detail pane still labels an unsupported manager (Deno) "Up to date" because it only
-distinguishes empty vs. non-empty updates. `assets/polyget.desktop` in the repo still points at
-`~/Projects/Polyget/` (wrong case); only the installed copy in `~/.local/share/applications` was fixed.
+None. Open decisions for the user are listed in section 11 of the read-once file.
+Known gaps: TUI detail pane shows an unsupported manager as "Up to date"; `assets/polyget.desktop` still hard-codes
+the wrong-case path `~/Projects/Polyget/`; new subcommand tests live in `tests/test_arch.py` and
+`tests/test_cli_projects.py` rather than `tests/test_cli.py` as `CLAUDE.md` prefers.
 
 ## Build / Test Status
-- Build: ✅ GUI launches offscreen with all 27 drivers (no traceback); TUI imports and scans headless
-- Lint:  ✅ no pyflakes/syntax errors in changed files. The repo has no ruff config, so the global rule
-  set flags ~280 style issues repo-wide; none were introduced as real defects (2 pre-existing F401s in manager.py)
-- Tests: ✅ 302 passed, 0 failed
+- Build: ✅ GUI launches offscreen with all 27 drivers (no traceback); TUI header renders with the architecture
+- Lint:  ✅ no pyflakes/syntax errors in changed files (the repo has no ruff config; the global rule set flags ~280
+  style issues repo-wide; two pre-existing intentional `F401`s in `manager.py`)
+- Tests: ✅ 324 passed, 0 failed (baseline before any work this session: 222). x86_64 only; nothing run on aarch64.

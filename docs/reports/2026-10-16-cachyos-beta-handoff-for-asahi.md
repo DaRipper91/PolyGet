@@ -60,7 +60,7 @@ If you are an AI agent asked to review this branch, do these in order. Do not sk
 ## 1. TL;DR
 
 - This branch adds **12 package-manager drivers** (15 → 27) plus the shared plumbing they need.
-  It touches 35 files (+2353/−41), 10 of them tests. Test count went **222 → 302, all passing on CachyOS**.
+  See `git diff --stat origin/master...HEAD` for the exact size. Test count went **222 → 325, all passing on CachyOS** (x86_64 only).
 - It is a **beta for the Arch side**. It must be built and tested against the stable line on **Asahi** before
   any of it reaches `master`.
 - **Asahi probably has newer files than GitHub's `master`.** This branch was built on `ad511b1`, which may be
@@ -105,7 +105,7 @@ git fetch origin CachyOS/BETA-FEATURES
 git worktree add ../PolyGet-cachyos origin/CachyOS/BETA-FEATURES
 cd ../PolyGet-cachyos
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
-PYTHONPATH=. .venv/bin/pytest -q          # expect: 302 passed
+PYTHONPATH=. .venv/bin/pytest -q          # expect: 325 passed
 ```
 
 Remove it afterwards with `git worktree remove ../PolyGet-cachyos`. **Do not** `git pull` this branch into

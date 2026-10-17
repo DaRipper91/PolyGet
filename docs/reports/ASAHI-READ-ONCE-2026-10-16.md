@@ -72,6 +72,37 @@ git stash list
 If any of that is non-empty, tell the user. **Push your work first** (to a branch if you want to keep `master`
 untouched for now) so GitHub's `master` becomes the real stable line. Only then is reviewing this branch meaningful.
 
+### 2a. Measured, not guessed: what the CachyOS agent found on the Asahi laptop (read-only, 2026-10-16)
+
+The user gave the CachyOS agent ssh access and it inspected `~/Projects/PolyGet` on Asahi **without writing anything**
+(`git --no-optional-locks`, read-only commands). **This is a snapshot in time; re-check it yourself.**
+
+- Asahi's `master` is `ad511b1`, identical to GitHub. Nothing unpushed, no stashes, no other branches.
+- But the **working tree has 27 uncommitted entries** (25 modified, 2 new; roughly +672/−162 on tracked files). They span
+  most existing drivers, `app/cli.py`, `app/core/{manager,settings_store,history_store}.py`, `app/main.py`,
+  `app/ui/main_window.py` (~590 changed lines), `ROADMAP.md`, three test files, plus new `tests/conftest.py` and
+  `tests/test_upgrade_verify_gui.py`. From the diffs: settings-driven *disabled managers*, *skipped versions*, tray
+  settings, post-upgrade verification (`PackageManager.still_outdated()`), and a per-manager changelog URL template.
+- That work exists **only on that laptop**. If the disk fails, it is gone. Committing it to an Asahi branch and pushing is
+  the user's call, but it is worth raising.
+- `AGENTS.md` and `CLAUDE.md` on Asahi are byte-identical to `master`'s, and unchanged on this branch, so they cannot
+  conflict today.
+- Asahi has no `AGENT_REPORT.md` yet, so the report-file collision has not happened yet.
+
+**Merge preview.** In a scratch clone (nothing real touched), Asahi's `master` plus its uncommitted work was committed as a
+throwaway commit and this branch merged in. Result: **conflicts in exactly four files**:
+
+| File | Nature | Resolution |
+|---|---|---|
+| `tests/conftest.py` | add/add (new on both sides) | **Keep both.** Asahi's module-level `HOME` isolation stays at the top; this branch adds the `scripted_exec` fixture and `ScriptedExec` class. |
+| `app/core/settings_store.py` | both sides add defaults and methods | Keep both. This branch adds a `projects.dirs` default and `get/add/remove_project_dir`. |
+| `app/cli.py` | both sides edit shared flows | Keep both. This branch adds `system`/`projects` commands, the "unsupported is not failed" handling, and a guarded `get_upgrade_command()` call. |
+| `app/ui/main_window.py` | both sides edit it | Keep both. This branch adds an import, the system line inside `scan_all()`, a guarded upgrade-command call, and an unsupported-scan branch. |
+
+`app/core/manager.py` auto-merged cleanly (Asahi's `still_outdated` and this branch's `run_capture`/`fetch_json` are
+different hunks). Note the interaction: `still_outdated()` calls `check_updates()`, which raises `NotImplementedError` for
+the Deno, Nix, and Distrobox drivers added here. Asahi's verification code should treat that as "cannot verify", not crash.
+
 ---
 
 ## 3. What happened on the CachyOS side, in order
@@ -112,7 +143,7 @@ Commits on `CachyOS/BETA-FEATURES` above `master`, oldest first: `2e86ecc` (driv
 ## 4. The 12 new drivers (15 → 27)
 
 Counts now: **27 drivers, 37 catalog entries, 10 catalog-only** (Zypper, APK, XBPS, Portage, eopkg, Guix, Composer,
-NuGet, Maven, LuaRocks). Tests: **222 → 324**, all passing on CachyOS (x86_64) only.
+NuGet, Maven, LuaRocks). Tests: **222 → 325**, all passing on CachyOS (x86_64) only.
 
 | Driver (`name`) | Updates come from | Notes and traps |
 |---|---|---|
@@ -189,8 +220,10 @@ can depend on it.
   (`fedora`), and returns `None` if `arch` is set and excludes this machine. The YAML header documents both.
 - **CLI:** new `system` command (`python run.py system [--json]`); `catalog` now includes `arch` and
   `supported_on_this_arch`.
-- **GUI** logs `🖥️ Detected system: <arch> / <distro family>` at startup; **TUI** header shows the architecture.
-- **Tests** (`tests/test_arch.py`, 22): alias folding, caching, empty-machine fallback, the arch-qualified key winning, an
+- **GUI** logs `🖥️ Detected system: <arch> / <distro family>` as the first line of every scan; **TUI** header shows the
+  architecture. (An earlier commit logged it once at startup, but `scan_all()` clears the console and wiped it. That was
+  fixed and is now covered by a test that fails against the old placement.)
+- **Tests** (`tests/test_arch.py`, 23): alias folding, caching, empty-machine fallback, the arch-qualified key winning, an
   entry that excludes the arch offering no install command, alias matching in `arch:` lists, and the CLI output. They
   **fake both architectures**, since one box cannot be the other.
 
@@ -212,7 +245,7 @@ git fetch origin CachyOS/BETA-FEATURES
 git worktree add ../PolyGet-cachyos origin/CachyOS/BETA-FEATURES
 cd ../PolyGet-cachyos
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt pytest   # pytest is NOT in requirements.txt
-PYTHONPATH=. .venv/bin/pytest -q                                            # expect: 324 passed
+PYTHONPATH=. .venv/bin/pytest -q                                            # expect: 325 passed
 git worktree remove ../PolyGet-cachyos                                      # when done
 ```
 
@@ -328,9 +361,44 @@ exist on the M1, running them for real is the most valuable verification you can
 
 ---
 
-## 12. Related files in this branch
+## 12. Sharing the repo between the two machines (rsync / Tailscale): what NOT to sync
+
+Both machines can reach each other over Tailscale with plain ssh (tested both ways on 2026-10-16: tailnet names
+`asahi` = the M1 laptop and `da-nvme` = the CachyOS desktop, user `daripper`, repo at
+`/home/daripper/Projects/PolyGet`). Ignore `da-asahimac`: it is a dead entry. This lets either machine read the other's
+real checkout, including uncommitted work, so nobody has to guess what GitHub is missing.
+
+**The rule: the other machine's repo is only ever READ. Never sync into a working repo.**
+
+Two safe ways, both in `scripts/peer-snapshot.sh`:
+- `--git`: `git fetch` the peer's *committed* branches over ssh as `peer-<name>/*`. Read-only on the peer.
+- `--go`: `rsync` its working tree (uncommitted work included) into `~/Projects/_devices/<peer>/PolyGet`, made
+  read-only, with provenance in `~/Projects/_devices/<peer>/SNAPSHOT_INFO.txt`. Default is a dry run. On Asahi, run it
+  with the peer name `da-nvme`. The script refuses any destination inside the working repo.
+
+**NEVER sync these between machines:**
+
+| Do not sync | Why |
+|---|---|
+| `.git/` | Two different HEADs, indexes, and lock files can corrupt history. Use `git fetch` instead. |
+| `.venv/`, `venv/`, `__pycache__/`, caches | x86_64 and aarch64 binaries are not interchangeable; also hundreds of MB. |
+| `.git/hooks`, `.git/info/attributes`, git config | Per clone by design. The `pre-push` guard must NOT land on Asahi, which owns `master`. |
+| `~/.config/polyget/settings.json` and other user config | Machine-specific (for example tracked project directories). |
+| Keyrings, sudo secrets, ssh keys, `.env*`, `*.pem`, `*.key` | Must never leave a machine. |
+| Anything *into* a working repo (`rsync --delete` especially) | It silently overwrites uncommitted work. The `_devices` mirror is the only place a snapshot lands. |
+
+Do not edit, build, or run anything inside `_devices/`. It is a reading copy. The `.venv` is deliberately absent.
+
+**Per-clone setup (run once on each machine):** `scripts/setup-machine.sh`. It makes merges keep *this* clone's own
+`AGENT_REPORT.md` and `(OLD) AGENT_REPORT.md` instead of conflicting. Tested: a `.gitattributes` shipped only on the
+incoming branch does **not** protect the receiving clone, so the rule has to be local. If it is skipped, the merge just
+conflicts on those files (safe, never silent loss).
+
+---
+
+## 13. Related files in this branch
 
 `BRANCHING.md` (the model + promotion checklist + agent rules) · `docs/reports/2026-10-16-driver-expansion.md` (detailed
 driver report) · `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md` (earlier, shorter handoff; this file supersedes
 it for a first read) · `AGENT_REPORT.md` / `(OLD) AGENT_REPORT.md` (CachyOS-side status) ·
-`scripts/install-desktop.sh` · `scripts/git-hooks/pre-push`.
+`scripts/install-desktop.sh` · `scripts/git-hooks/pre-push` · `scripts/peer-snapshot.sh` · `scripts/setup-machine.sh`.

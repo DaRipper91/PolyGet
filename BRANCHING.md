@@ -46,6 +46,30 @@ A change reaches `master` only when all of these are true:
 
 Keep commits small and one-feature-each so they can be taken or left individually.
 
+## Which machine am I? (identity comes from the system, not from a file)
+
+Run `python run.py system` and match it before writing a report or pushing:
+
+| `system` says | Machine | Owns / pushes to |
+|---|---|---|
+| `x86_64` + `arch` | CachyOS desktop (tailnet `da-nvme`) | `CachyOS/*` branches only; never `master` |
+| `aarch64` + `fedora` | Asahi laptop, Apple M1 (tailnet `asahi`) | `master` and `Asahi/*` branches |
+
+If what you are on does not match the branch you are about to write to, **stop and ask the user.**
+
+## Sharing the repo between the machines (Tailscale + ssh/rsync)
+
+Both machines can reach each other with plain ssh over Tailscale. That lets either one read the other's real checkout,
+uncommitted work included. **The other machine's repo is only ever read; never sync into a working repo.**
+
+- `scripts/peer-snapshot.sh --git [peer]`: fetch the peer's *committed* branches as `peer-<name>/*`.
+- `scripts/peer-snapshot.sh --go [peer]`: rsync its working tree into `~/Projects/_devices/<peer>/PolyGet`, read-only.
+  Dry run is the default. On Asahi use the peer name `da-nvme`.
+- **Never sync:** `.git/`, `.venv/` and caches (x86_64 vs aarch64), `.git/hooks` and `.git/info/attributes`, git config,
+  `~/.config/polyget/`, keyrings, ssh keys, `.env*`/`*.pem`/`*.key`. Never `rsync --delete` into a working repo.
+- Do not edit or run anything under `_devices/`.
+- `scripts/setup-machine.sh` (once per clone) makes merges keep each machine's own `AGENT_REPORT.md`.
+
 ## For agents: new managers on sync
 
 Whenever you review or sync a branch, diff `app/core/drivers/` and `app/core/data/manager_catalog.yaml`

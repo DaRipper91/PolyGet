@@ -27,7 +27,7 @@ EXIT_USAGE = 2
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
     "upgrade", "install", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
-    "debug",
+    "self-version", "debug",
 )
 
 
@@ -461,6 +461,30 @@ def cmd_system(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+async def _cmd_self_version_async(args: argparse.Namespace) -> int:
+    """Show each package manager's own version string (self-report, not an upgrade check)."""
+    managers = _select_managers(args.manager)
+    results = await _gather_per_manager(managers, "get_self_version")
+    rows = [
+        {
+            "manager": name,
+            "version": (res["result"] if res["ok"] else None),
+            "error": res.get("error") if not res["ok"] else None,
+            "unsupported": res.get("unsupported", False),
+        }
+        for name, res in results.items()
+    ]
+    human_rows = [{"manager": r["manager"], "version": r["version"] or "n/a"} for r in rows]
+    table = _table(human_rows, ["manager", "version"])
+    errs = _errors_text({n: r for n, r in results.items() if not r["ok"]})
+    _emit(args, rows, table + errs)
+    return EXIT_FAILED if any(not r["ok"] for r in results.values()) else EXIT_OK
+
+
+def cmd_self_version(args: argparse.Namespace) -> int:
+    return asyncio.run(_cmd_self_version_async(args))
+
+
 def cmd_catalog(args: argparse.Namespace) -> int:
     from app.core.catalog import load_catalog
 
@@ -609,6 +633,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("directory", nargs="?")
 
     add("system", cmd_system, "show the detected CPU architecture and distro family")
+
+    p = add("self-version", cmd_self_version, "show each package manager's own version")
+    manager_filter(p)
 
     add("catalog", cmd_catalog, "list every cataloged manager, installed or not")
 

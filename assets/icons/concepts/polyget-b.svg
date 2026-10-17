@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- B: arrow cut into the box front — one compact silhouette, no floating parts -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1450"/><stop offset="1" stop-color="#140a26"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)" stroke="#8b6cd8" stroke-width="4"/>
+  <polygon points="64,20 106,40 64,60 22,40" fill="#c4b5fd"/>
+  <polygon points="22,40 64,60 64,110 22,90" fill="#8b5cf6"/>
+  <polygon points="106,40 64,60 64,110 106,90" fill="#6d28d9"/>
+  <polyline points="22,40 64,60 106,40" fill="none" stroke="#f5f3ff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <!-- gold arrow on the left face, skewed to the face plane -->
+  <g transform="matrix(1 0.476 0 1 0 0)">
+    <polygon points="43,32 56,46 48,46 48,62 38,62 38,46 30,46" fill="#fbbf24" stroke="#fde68a" stroke-width="2" stroke-linejoin="round"/>
+  </g>
+</svg>

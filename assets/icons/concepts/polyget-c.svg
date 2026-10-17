@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- C: "poly" — three stacked packages (many managers) under one upgrade arrow -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22103c"/><stop offset="1" stop-color="#0f0819"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)" stroke="#7c5cc4" stroke-width="4"/>
+  <!-- back-left cube (teal) -->
+  <polygon points="42,62 60,71 42,80 24,71" fill="#5eead4"/>
+  <polygon points="24,71 42,80 42,100 24,91" fill="#14b8a6"/>
+  <polygon points="60,71 42,80 42,100 60,91" fill="#0f766e"/>
+  <!-- back-right cube (pink) -->
+  <polygon points="86,62 104,71 86,80 68,71" fill="#f9a8d4"/>
+  <polygon points="68,71 86,80 86,100 68,91" fill="#ec4899"/>
+  <polygon points="104,71 86,80 86,100 104,91" fill="#be185d"/>
+  <!-- front cube (purple) -->
+  <polygon points="64,74 84,84 64,94 44,84" fill="#c4b5fd"/>
+  <polygon points="44,84 64,94 64,116 44,106" fill="#8b5cf6"/>
+  <polygon points="84,84 64,94 64,116 84,106" fill="#6d28d9"/>
+  <!-- arrow -->
+  <rect x="56" y="34" width="16" height="30" rx="4" fill="#fbbf24"/>
+  <polygon points="64,12 88,38 40,38" fill="#fbbf24" stroke="#fde68a" stroke-width="2" stroke-linejoin="round"/>
+</svg>

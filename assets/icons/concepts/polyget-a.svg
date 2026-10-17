@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A: refined current — lighter rim for dark panels, bolder arrow, box shifted down -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22103c"/><stop offset="1" stop-color="#0f0819"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)" stroke="#7c5cc4" stroke-width="4"/>
+  <polygon points="64,44 98,60 64,76 30,60" fill="#a78bfa"/>
+  <polygon points="30,60 64,76 64,112 30,96" fill="#7c3aed"/>
+  <polygon points="98,60 64,76 64,112 98,96" fill="#5b21b6"/>
+  <polyline points="30,60 64,76 98,60" fill="none" stroke="#ede9fe" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <rect x="56" y="30" width="16" height="32" rx="4" fill="url(#arrow)"/>
+  <polygon points="64,12 86,36 42,36" fill="url(#arrow)" stroke="#f59e0b" stroke-width="2" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- F: Launch — the package box IS the rocket: fins, flame, liftoff -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e0a3c"/><stop offset="1" stop-color="#3b0f4f"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/><stop offset="0.6" stop-color="#f97316"/><stop offset="1" stop-color="#ec4899" stop-opacity="0.2"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)" stroke="#a78bfa" stroke-width="4"/>
+  <g stroke="#e9d5ff" stroke-width="3" stroke-linecap="round" opacity="0.5">
+    <line x1="20" y1="30" x2="20" y2="56"/><line x1="108" y1="40" x2="108" y2="70"/><line x1="28" y1="76" x2="28" y2="96"/>
+  </g>
+  <path d="M42 74 Q64 94 86 74 Q80 102 64 122 Q48 102 42 74Z" fill="url(#flame)"/>
+  <path d="M52 80 Q64 90 76 80 Q72 96 64 108 Q56 96 52 80Z" fill="#fff7d6"/>
+  <polygon points="36,52 22,80 36,72" fill="#ec4899"/>
+  <polygon points="92,52 106,80 92,72" fill="#be185d"/>
+  <polygon points="64,14 92,28 64,42 36,28" fill="#c4b5fd"/>
+  <polygon points="36,28 64,42 64,82 36,68" fill="#8b5cf6"/>
+  <polygon points="92,28 64,42 64,82 92,68" fill="#6d28d9"/>
+  <polyline points="36,28 64,42 92,28" fill="none" stroke="#f5f3ff" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="50" cy="52" r="7" fill="#fbbf24" stroke="#fde68a" stroke-width="2"/>
+</svg>

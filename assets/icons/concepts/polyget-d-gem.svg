@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- D: "Poly"-hedron — a cut gem, every facet a different manager's colour, upgrade chevron on the table -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.45" r="0.7">
+      <stop offset="0" stop-color="#3b0f6b"/><stop offset="1" stop-color="#0a0414"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#e879f9" stop-opacity="0.55"/><stop offset="1" stop-color="#e879f9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)" stroke="#a78bfa" stroke-width="4"/>
+  <circle cx="64" cy="64" r="56" fill="url(#glow)"/>
+  <g fill="#fff"><circle cx="22" cy="24" r="1.5"/><circle cx="104" cy="20" r="2"/><circle cx="110" cy="104" r="1.5"/><circle cx="18" cy="100" r="2"/></g>
+  <g stroke="#1a0b2e" stroke-width="1.5" stroke-linejoin="round">
+    <polygon points="14,50 40,24 38,50" fill="#c084fc"/>
+    <polygon points="40,24 64,50 38,50" fill="#a78bfa"/>
+    <polygon points="40,24 88,24 64,50" fill="#ede9fe"/>
+    <polygon points="88,24 90,50 64,50" fill="#f0abfc"/>
+    <polygon points="88,24 114,50 90,50" fill="#f472b6"/>
+    <polygon points="14,50 38,50 64,114" fill="#7c3aed"/>
+    <polygon points="38,50 64,50 64,114" fill="#2dd4bf"/>
+    <polygon points="64,50 90,50 64,114" fill="#0ea5e9"/>
+    <polygon points="90,50 114,50 64,114" fill="#db2777"/>
+  </g>
+  <polyline points="52,42 64,30 76,42" fill="none" stroke="#1a0b2e" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

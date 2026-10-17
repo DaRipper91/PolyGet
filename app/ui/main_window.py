@@ -1589,12 +1589,14 @@ class MainWindow(QMainWindow):
 
         btn_term_clear = QPushButton("Clear")
         btn_term_clear.setAccessibleName("Clear terminal output")
+        btn_term_clear.setToolTip("Clear the terminal output")
         btn_term_clear.clicked.connect(self._clear_terminal)
-        btn_term_clear.setFixedWidth(60)
+        btn_term_clear.setFixedWidth(70)
         title_layout.addWidget(btn_term_clear)
 
         btn_term_close = QPushButton("✕")
         btn_term_close.setAccessibleName("Close terminal overlay")
+        btn_term_close.setToolTip("Close terminal overlay")
         btn_term_close.clicked.connect(self.terminal_overlay.hide)
         btn_term_close.setFixedWidth(30)
         title_layout.addWidget(btn_term_close)
@@ -1779,6 +1781,19 @@ class MainWindow(QMainWindow):
                 color: #a6adc8;
                 font-weight: bold;
                 font-size: 12px;
+            }
+            QWidget#terminal-titlebar QPushButton {
+                background-color: #313244;
+                color: #a6adc8;
+                border: none;
+                border-radius: 4px;
+                padding: 3px 10px;
+                font-size: 11px;
+                font-weight: normal;
+            }
+            QWidget#terminal-titlebar QPushButton:hover {
+                background-color: #45475a;
+                color: #cdd6f4;
             }
             QTextEdit#terminal-output {
                 background-color: #11111b;

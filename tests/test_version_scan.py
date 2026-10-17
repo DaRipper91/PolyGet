@@ -25,6 +25,12 @@ def test_normalize_name():
     assert _normalize_name("node-typescript") == "typescript"
     assert _normalize_name("perl-libwww") == "libwww"
     assert _normalize_name("@scope/pkg") == "@scope/pkg"
+    # "lib" prefix must not mangle compound names like libreoffice
+    assert _normalize_name("libreoffice") == "libreoffice"
+    # "lib" followed by a separator or digit is still stripped
+    assert _normalize_name("lib-foo") == "foo"
+    assert _normalize_name("lib_foo") == "foo"
+    assert _normalize_name("lib3") == "3"
 
 
 def test_parse_semver():

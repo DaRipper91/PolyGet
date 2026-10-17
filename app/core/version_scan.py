@@ -167,10 +167,21 @@ def _normalize_name(name: str) -> str:
     Conservative: lowercase + strip common distro prefixes. No aliases in v1.
     """
     n = name.lower().strip()
-    for prefix in ("python-", "node-", "perl-", "ruby-", "lib"):
+    for prefix in ("python-", "node-", "perl-", "ruby-"):
         if n.startswith(prefix):
             n = n[len(prefix):]
             break
+    else:
+        # Only strip a bare "lib" prefix when it is followed by a separator
+        # or a digit, so that compound names like "libreoffice" are not
+        # mangled into "reoffice".  Library packages in Debian/Ubuntu are
+        # typically "libfoo", "libfoo-dev", "libfoo1" etc.
+        if n.startswith("lib") and len(n) > 3 and (n[3] in "-_0123456789"):
+            # Strip "lib" plus a following separator (but keep digits as part of name)
+            if n[3] in "-_":
+                n = n[4:]
+            else:
+                n = n[3:]
     return n
 
 

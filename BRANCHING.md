@@ -5,22 +5,44 @@ per-OS forks. Two machines develop it, each for its own distro family, and both 
 
 | Branch | Lives on | Purpose |
 |---|---|---|
-| `master` | GitHub; owned by the Asahi laptop (Fedora) | **Stable.** Only code built, tested, and proven on **both** Asahi and CachyOS. |
+| `master` | GitHub; **co-owned by both machines** | **Stable.** Only code built, tested, and proven on **both** Asahi and CachyOS. |
 | `CachyOS/BETA-FEATURES` | CachyOS desktop (Arch) | Stable plus changes worked on and tested only on this machine. |
 | `Asahi/BETA-FEATURES` | Asahi laptop (Fedora) | Same idea from the Fedora side. |
 
 Both betas are built against stable and merge into `master` once proven on the other machine.
 Neither beta overwrites `master`, and neither overwrites the other.
 
-## Asahi usually has the newest files
+## Who owns what
 
-Most development happens on Asahi, so the Asahi working copy can be **ahead of GitHub's `master`**.
-Treat GitHub's `master` as possibly stale until Asahi has pushed. When `CachyOS/BETA-FEATURES` was
+- **`master` is co-owned.** Either machine may advance it, but only by following "Promoting a beta change to `master`" below,
+  by fast-forward or merge, never by force, and only after `scripts/repo-check.sh --promoting --peer <other machine>` is clean.
+  Tell the other machine afterwards; its next repo check will show that `master` moved.
+- **Each beta branch has exactly one owner.** `CachyOS/BETA-FEATURES` is written only from the CachyOS desktop and
+  `Asahi/BETA-FEATURES` only from the Asahi laptop. Read the other machine's beta freely; never write to it.
+
+## Start of every session, and before any promotion: run the repo check
+
+```bash
+scripts/repo-check.sh                 # this clone against GitHub
+scripts/repo-check.sh --peer asahi    # ...and the other machine, read-only over ssh (use da-nvme from Asahi)
+scripts/repo-check.sh --promoting     # right before pushing master (a local master AHEAD of origin is then expected)
+```
+
+Exit status: **0** clean · **1** warnings, a repo review is suggested · **2** alert, do not merge into or push `master` until the
+repo has been reviewed. The case it exists for: **a beta that matches its remote while local `master` does not match
+`origin/master`.** That means the stable line moved somewhere this clone cannot see, and a green beta hides it. Other things it
+flags: a beta behind `origin/master`, unpushed commits, uncommitted work, a diverged branch, and (with `--peer`) the other machine
+having commits or uncommitted work that GitHub does not.
+
+## Either machine's working copy can be ahead of GitHub
+
+Most development happens on Asahi, so its working copy (committed or not) can be **ahead of GitHub's `master`**.
+Treat GitHub's `master` as possibly stale until that work is pushed. When `CachyOS/BETA-FEATURES` was
 created, `master` was at `ad511b1`.
 
 **Before merging or promoting anything:**
-1. On Asahi, check for unpushed or uncommitted work (`git status`, `git log origin/master..`) and push
-   it, so GitHub's `master` is the real stable line.
+1. On the other machine, check for unpushed or uncommitted work (`git status`, `git log origin/master..`, or
+   `scripts/repo-check.sh --peer <other>` from here) and push it, so GitHub's `master` is the real stable line.
 2. On CachyOS: `git fetch origin && git merge origin/master` into the beta branch, and resolve
    conflicts here. A merge is preferred over a rebase because it does not rewrite pushed history.
 3. Re-run the tests here (`PYTHONPATH=. .venv/bin/pytest`).
@@ -52,8 +74,8 @@ Run `python run.py system` and match it before writing a report or pushing:
 
 | `system` says | Machine | Owns / pushes to |
 |---|---|---|
-| `x86_64` + `arch` | CachyOS desktop (tailnet `da-nvme`) | `CachyOS/*` branches only; never `master` |
-| `aarch64` + `fedora` | Asahi laptop, Apple M1 (tailnet `asahi`) | `master` and `Asahi/*` branches |
+| `x86_64` + `arch` | CachyOS desktop (tailnet `da-nvme`) | `CachyOS/*` freely; `master` only by the promotion steps |
+| `aarch64` + `fedora` | Asahi laptop, Apple M1 (tailnet `asahi`) | `Asahi/*` freely; `master` only by the promotion steps |
 
 If what you are on does not match the branch you are about to write to, **stop and ask the user.**
 
@@ -79,8 +101,8 @@ machines or neither. `AGENTS.md` is protected: edit it only when the user asks.
 ## Shared rules vs. per-machine rules
 
 The model, the driver contracts, the sharing rules, and the `AGENTS.md` pointer are shared and stay identical. Each machine adapts
-the rest for itself: its identity row, which git hooks it installs (the `pre-push` guard is for beta-only machines, never the
-`master` owner), the architecture facts it verifies on its own hardware, and its own governance of what may reach `master`.
+the rest for itself: its identity row, whether it installs the optional `pre-push` guard, the architecture facts it verifies on its own hardware, and how it applies
+the shared promotion rules to its own workflow.
 
 ## For agents: new managers on sync
 
@@ -92,21 +114,27 @@ command. Review the actual code and run the tests rather than trusting any repor
 ## For agents: the two machines differ in CPU architecture
 
 CachyOS is **x86_64**, Asahi is **aarch64**. A green test run on one says nothing about the other.
-PolyGet currently detects the distro family (`app/core/distro.py`) but **not the CPU architecture**
-(verified by search at the time of writing; re-check it). Make sure PolyGet detects, exposes, and
-handles the machine architecture, check real tool availability on the machine instead of guessing which
-tools have ARM64 builds, and do the work on your own beta branch with tests that fake the architecture.
-Details: the agent note in `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md`.
+`master` detects the distro family (`app/core/distro.py`) but **not the CPU architecture**; `CachyOS/BETA-FEATURES` adds
+`app/core/arch.py`, a `system` command, and an `arch:` field plus arch-qualified install keys in the catalog. PolyGet must detect,
+expose, and handle the machine architecture. Check real tool availability on the machine instead of guessing which tools have ARM64
+builds, add only facts you verified on your own hardware, and use tests that fake the architecture. Details: section 14 of
+`docs/reports/ASAHI-READ-ONCE-2026-10-16.md`.
 
-## Guarding `master` on beta-only machines
+## Guarding `master` (optional speed bump, on either machine)
 
-`scripts/git-hooks/pre-push` refuses any push to `master`. Hooks are not versioned, so install it per
-clone on beta-only machines:
+`master` is co-owned, so pushing it is allowed, but it should be deliberate. `scripts/git-hooks/pre-push` makes it so. Hooks are not
+versioned, so install it per clone on any machine that wants it:
 
 ```bash
 cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 ```
 
-One deliberate push: `git -c polyget.allowMasterPush=true push origin HEAD:master`.
-Do **not** install it on the machine that owns the stable line. A server-side rule (GitHub branch
-protection requiring a PR for `master`) is the only guard that also covers accidents from other tools.
+- Without an override, a push to `master` is refused and the hook explains the steps.
+- A deliberate push: `git -c polyget.allowMasterPush=true push origin master`. The override still runs
+  `scripts/repo-check.sh --promoting` and **refuses on an ALERT**.
+- The hook **fails closed**: if `scripts/repo-check.sh` is not in the checkout (for example `master` predates it), the push is
+  refused rather than silently unchecked. Push with `--no-verify` only if you accept that risk.
+- Git itself already refuses an ordinary non-fast-forward push before any hook runs. The hook's check matters most for **forced**
+  pushes, which skip that protection.
+- A server-side rule (GitHub branch protection requiring a PR for `master`) is the only guard that also covers accidents from other
+  tools. It is a setting on the remote and has not been enabled.

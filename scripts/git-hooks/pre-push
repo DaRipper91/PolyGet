@@ -1,19 +1,34 @@
 #!/bin/sh
-# Refuse pushes to master from a beta-only machine. Install with:
+# Speed bump on pushes to master. master is co-owned by both machines, so it is not forbidden, but it must be
+# deliberate and preceded by a clean repo check. Install (optional, on either machine) with:
 #   cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
-# Deliberate override (one push):  git -c polyget.allowMasterPush=true push ...
-# Do not install this on the machine that owns the stable line.
-
-if [ "$(git config --bool polyget.allowMasterPush)" = "true" ]; then
-    exit 0
-fi
+#
+# To push master on purpose:   git -c polyget.allowMasterPush=true push origin master
+# The override still runs `scripts/repo-check.sh --promoting` and refuses on an ALERT.
+# Skip everything (you own the consequences):   git push --no-verify
 
 while read -r _local_ref _local_sha remote_ref _remote_sha; do
     if [ "$remote_ref" = "refs/heads/master" ]; then
-        echo "BLOCKED: this machine does not push to master." >&2
-        echo "  master is the stable line, proven on both Asahi and CachyOS." >&2
-        echo "  Push your beta branch instead, or see BRANCHING.md." >&2
-        exit 1
+        if [ "$(git config --bool polyget.allowMasterPush)" != "true" ]; then
+            echo "BLOCKED: pushing master needs to be deliberate. master is the stable line shared by both machines." >&2
+            echo "  1. scripts/repo-check.sh --promoting --peer <other machine>   (should be clean)" >&2
+            echo "  2. run the promotion checklist in BRANCHING.md" >&2
+            echo "  3. git -c polyget.allowMasterPush=true push origin master" >&2
+            exit 1
+        fi
+        root="$(git rev-parse --show-toplevel)"
+        # Fail closed: a guard that quietly skips its own check when the script is missing is no guard.
+        # (The script lives on whichever branch has it; a checkout of master that predates it will not.)
+        if [ ! -x "$root/scripts/repo-check.sh" ]; then
+            echo "BLOCKED: scripts/repo-check.sh is not in this checkout, so the repo cannot be verified." >&2
+            echo "  Run it from a checkout that has it, or push with --no-verify if you accept the risk." >&2
+            exit 1
+        fi
+        "$root/scripts/repo-check.sh" --promoting >&2
+        if [ $? -eq 2 ]; then
+            echo "BLOCKED: repo-check raised an ALERT. Review the repo before pushing master." >&2
+            exit 1
+        fi
     fi
 done
 exit 0

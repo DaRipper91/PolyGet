@@ -82,7 +82,12 @@ fi
 {
     echo "SNAPSHOT of $PEER:$PEER_REPO"
     echo "taken:   $(date -Is) from $(hostname -s)"
-    ssh "${SSH_OPTS[@]}" "$PEER_USER@$PEER" "cd '$PEER_REPO' && echo \"peer HEAD:    \$(git --no-optional-locks rev-parse --short HEAD) on \$(git --no-optional-locks branch --show-current)\" && echo \"uncommitted:  \$(git --no-optional-locks status --porcelain | wc -l) entries\""
+    # The remote login shell may not be bash (Asahi uses fish), so feed a script to `bash -s`.
+    ssh "${SSH_OPTS[@]}" "$PEER_USER@$PEER" bash -s <<REMOTE
+cd '$PEER_REPO' || exit 1
+echo "peer HEAD:    \$(git --no-optional-locks rev-parse --short HEAD) on \$(git --no-optional-locks branch --show-current)"
+echo "uncommitted:  \$(git --no-optional-locks status --porcelain | wc -l) entries"
+REMOTE
     echo "READ ONLY. Do not edit, run, or sync this back. Re-run scripts/peer-snapshot.sh --go to refresh."
 } > "$DEVICES_DIR/$PEER/SNAPSHOT_INFO.txt"
 

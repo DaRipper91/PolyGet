@@ -17,7 +17,10 @@ Verify its claims against the live code, as the user's standing rules require.
 
 ## 0. Ground rules that apply to everything below
 
-- **Do not merge anything into `master`. Do not pull this branch into your working branch.** Asahi owns `master`.
+- **Do not merge this branch into `master` as part of a review, and do not pull it into your working branch.** `master` is
+  **co-owned by both machines** (the user's direction): it advances only through the promotion steps in `BRANCHING.md`, by
+  fast-forward or merge, after `scripts/repo-check.sh --promoting --peer da-nvme` is clean. Each beta branch has exactly one
+  owner: `Asahi/BETA-FEATURES` is yours, `CachyOS/BETA-FEATURES` is the CachyOS desktop's.
 - **Reality-check everything.** Read the real code, run the real tests, run the real tools. Reports (including
   this one) are claims, not facts.
 - Follow the user's own standing rules in your `CLAUDE.md` (agent chains for multi-step work, skill review,
@@ -44,6 +47,10 @@ known manager, installed or not, with distro-specific self-install commands.
 - Asahi will build and change **its own beta** against stable too.
 - **Both betas flow into the one true stable.** CachyOS is the **Arch-based** side, Asahi is the **Fedora** side.
   Each is built for its own distro, **but only one project is released.**
+- **`master` is co-owned by both machines, while each beta branch has exactly one owner** (the user's later direction):
+  either machine may advance `master`, but only through the promotion steps; each machine writes only to its own beta.
+  The user also wants a warning and a repo review whenever a machine's local `master` does not match the remote's while its beta
+  does (see `scripts/repo-check.sh`).
 - **PolyGet must work on any system as one version. Not one version per OS.** Distro/CPU differences are handled
   by detection at runtime, never by forked files.
 
@@ -56,7 +63,15 @@ Asahi laptop, confirmed by the user). Git cannot also have a branch literally na
 
 `master` on GitHub is `ad511b1` ("Add app icon concept sketches (A-G) kept for reference"). **This entire branch was
 built on top of that commit.** If your laptop has commits, uncommitted edits, or stashes GitHub has never seen,
-then GitHub's `master` is stale and so is this branch's base. That means:
+then GitHub's `master` is stale and so is this branch's base.
+
+> **UPDATE 2026-10-17 (found with `scripts/repo-check.sh --peer asahi`):** since the inspection described in 2a, the laptop's
+> uncommitted work was committed locally as `dfea6a5` "Add upgrade verification, settings page, tray, touch mode, skip version"
+> (27 files, +735/-162) on its local `master`. **It is not pushed:** GitHub's `master` is still `ad511b1`. The commit sits directly on
+> `ad511b1`, so GitHub's `master` can fast-forward to it. The merge conflicts computed below were recomputed against this real
+> commit and are unchanged. Run the repo check yourself; this is a snapshot in time.
+
+That means:
 
 - A later merge may conflict in the shared files listed in section 5.
 - **You may already have implemented some of what is described below**, including architecture detection
@@ -341,8 +356,9 @@ exist on the M1, running them for real is the most valuable verification you can
 ## 10. Safeguards in place
 
 - `master` is `ad511b1` on the remote; no PR is open; this work is only on `CachyOS/BETA-FEATURES`.
-- `scripts/git-hooks/pre-push` blocks pushes to `master`. It is installed **only** in the CachyOS clone's `.git/hooks`
-  (hooks aren't versioned). **Do not install it on Asahi: you own `master`.**
+- `scripts/git-hooks/pre-push` is an optional speed bump on pushes to `master`; either machine may install it (hooks aren't
+  versioned). It is installed only in the CachyOS clone so far. A push needs a deliberate override, and the override still runs
+  `scripts/repo-check.sh --promoting` and refuses on an ALERT. It fails closed if that script is missing. Details: `BRANCHING.md`.
 - A GitHub branch-protection rule on `master` (require a PR) would be the only server-side guard. It is a setting on the
   remote and **has not been changed**; that is the user's call.
 
@@ -384,7 +400,7 @@ Two safe ways, both in `scripts/peer-snapshot.sh`:
 |---|---|
 | `.git/` | Two different HEADs, indexes, and lock files can corrupt history. Use `git fetch` instead. |
 | `.venv/`, `venv/`, `__pycache__/`, caches | x86_64 and aarch64 binaries are not interchangeable; also hundreds of MB. |
-| `.git/hooks`, `.git/info/attributes`, git config | Per clone by design. The `pre-push` guard must NOT land on Asahi, which owns `master`. |
+| `.git/hooks`, `.git/info/attributes`, git config | Per clone by design. Each machine installs its own hooks on purpose. |
 | `~/.config/polyget/settings.json` and other user config | Machine-specific (for example tracked project directories). |
 | Keyrings, sudo secrets, ssh keys, `.env*`, `*.pem`, `*.key` | Must never leave a machine. |
 | Anything *into* a working repo (`rsync --delete` especially) | It silently overwrites uncommitted work. The `_devices` mirror is the only place a snapshot lands. |
@@ -405,7 +421,8 @@ conflicts on those files (safe, never silent loss).
 `BRANCHING.md` (the model + promotion checklist + agent rules) · `docs/reports/2026-10-16-driver-expansion.md` (detailed
 driver report) · `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md` (earlier, shorter handoff; this file supersedes
 it for a first read) · `AGENT_REPORT.md` / `(OLD) AGENT_REPORT.md` (CachyOS-side status) ·
-`scripts/install-desktop.sh` · `scripts/git-hooks/pre-push` · `scripts/peer-snapshot.sh` · `scripts/setup-machine.sh`.
+`scripts/install-desktop.sh` · `scripts/git-hooks/pre-push` · `scripts/peer-snapshot.sh` · `scripts/setup-machine.sh` ·
+`scripts/repo-check.sh`.
 
 ---
 
@@ -444,12 +461,19 @@ machine you are on, and never push to `master` from a beta-only machine.
 | `scripts/peer-snapshot.sh` | yes | run it with the peer name `da-nvme` |
 | `scripts/setup-machine.sh` | yes, run once on Asahi | none |
 | What never to sync (section 12) | yes | none |
-| `scripts/git-hooks/pre-push` (blocks pushes to `master`) | **NO. Do not install on Asahi.** | Asahi owns `master`; see C |
+| `scripts/git-hooks/pre-push` (speed bump on pushing `master`) | optional on either machine | decide whether Asahi wants it; see C |
+| `scripts/repo-check.sh` (drift tripwire) | yes | run at session start and before promotion; use `--peer da-nvme` |
 | M1 hazards (8 GB RAM, 16 KB pages) | n/a | test them and record results |
 | Fedora specifics (DNF/COPR, package names) | n/a | verify real Fedora package names; the unverified `uv`/`deno` dnf lines were removed on purpose |
 | `AGENT_REPORT.md` rotation | yes | keep your own; your reports describe Asahi |
 
-**C. Governance the user reserved for Asahi (do not decide it from this document):** how `master` is protected and who may
-merge into it; whether to require a PR and green tests on **both** machines before promotion; whether to turn on GitHub branch
-protection; and whether Asahi's uncommitted work should be committed to an `Asahi/BETA-FEATURES` branch first. Propose options to
-the user and let them choose. This branch only defines the shared model; Asahi's own rules for running `master` are Asahi's.
+**C. What the user left open (do not decide it from this document):** `master` is co-owned, so the open questions are how the two
+machines coordinate advancing it: whether to require a PR and green tests on **both** machines before promotion; whether to turn on
+GitHub branch protection; whether the `pre-push` guard should be installed on Asahi; and what to do with Asahi's local commit
+`dfea6a5`, which holds the laptop's work and exists only there (push it to `master` as a fast-forward, or to an
+`Asahi/BETA-FEATURES` branch first). Propose options to the user and let them choose.
+
+**D. Run the repo check, and treat its output as the trigger for a review.** `scripts/repo-check.sh --peer da-nvme` exits 0 clean,
+1 warnings (a repo review is suggested), 2 alert (do not merge into or push `master` until reviewed). Its key case: a beta that
+matches its remote while local `master` does not match `origin/master`, which means the stable line moved where that clone cannot
+see. It found Asahi's unpushed commit the first time it was pointed at the laptop.

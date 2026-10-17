@@ -74,7 +74,7 @@ PolyGet is **one project, one release, running on any system.** No per-OS forks.
 
 | Branch | Owner | Meaning |
 |---|---|---|
-| `master` | Asahi (Fedora) | Stable. Only code proven on **both** Asahi and CachyOS. |
+| `master` | both machines (co-owned) | Stable. Only code proven on **both** Asahi and CachyOS. |
 | `CachyOS/BETA-FEATURES` | CachyOS desktop (Arch) | Stable + changes worked on and tested only on that machine. |
 | `Asahi/BETA-FEATURES` (confirmed) | Asahi laptop | Same, from the Fedora side. |
 
@@ -176,5 +176,5 @@ throwaway projects); GUI launched offscreen with all 27 drivers; TUI scan driven
 ## 9. Safeguards in place
 
 - Remote `master` untouched at `ad511b1`; no PR open; this branch is separate.
-- `scripts/git-hooks/pre-push` (installed on the CachyOS clone only) refuses pushes to `master`.
-  **Do not install it on Asahi**: Asahi owns the stable line.
+- `scripts/git-hooks/pre-push` (installed on the CachyOS clone only) is an optional speed bump on pushing `master`; either
+  machine may install it. See `BRANCHING.md` and the read-once report, which supersedes this section.

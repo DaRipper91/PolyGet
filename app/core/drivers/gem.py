@@ -23,7 +23,14 @@ class GemManager(PackageManager):
                 "gem", "outdated",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # cold cache refetches the whole spec index (~70s seen)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # cold cache refetches the whole spec index (~70s seen)
+            if proc.returncode != 0:
+                detail = stderr.decode(errors="ignore").strip().splitlines()
+                suffix = f": {detail[-1]}" if detail else ""
+                raise DriverError(
+                    f"{self.name} update check failed: "
+                    f"`gem outdated` exited with status {proc.returncode}{suffix}"
+                )
             updates = []
             # Format: "gemname (current < available)"
             import re
@@ -33,8 +40,10 @@ class GemManager(PackageManager):
                 if match:
                     updates.append({"name": match.group(1), "current": match.group(2), "new": match.group(3)})
             return updates
+        except DriverError:
+            raise
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+            raise DriverError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:

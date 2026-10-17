@@ -1,7 +1,7 @@
 # Asahi rules (this laptop's agents)
 
 Machine-specific rules for agents on the Asahi laptop. The shared model is in `BRANCHING.md`; this file
-adapts it for this machine and its governance of `master`. Where the two disagree, ask the user.
+adapts it for this machine and how it applies the shared `master` rules. Where the two disagree, ask the user.
 
 ## This machine (verified 2026-10-17)
 
@@ -18,23 +18,28 @@ machine with `uname -m` and `/etc/os-release`. If it isn't `aarch64` + Fedora, s
 
 ## Branches
 
-- **`master` is the stable line, owned by this laptop.** Stable baseline adopted by the user on 2026-10-17:
-  `dfea6a5`. It is frozen: nothing new lands on it until the user has tested it on **both** this laptop and
-  CachyOS and the errors found there are fixed. After that, only changes proven on both machines are
-  promoted, and only when the user says so.
-- **`Asahi/BETA-FEATURES` is where agents build on this laptop.** Branch from it and commit to it, never
+- **`master` is the stable line, co-owned by both machines** (`BRANCHING.md`, "Who owns what"). Stable
+  baseline adopted by the user on 2026-10-17: `dfea6a5`. It is frozen: nothing new lands on it until the
+  user has tested it on **both** this laptop and CachyOS and the errors found there are fixed.
+- **`Asahi/BETA-FEATURES` is owned by this laptop** and is where agents build here. Commit to it, never
   directly to `master`.
-- `CachyOS/BETA-FEATURES` belongs to the desktop. Read it (`git fetch`, `git show`, a worktree); never
+- `CachyOS/BETA-FEATURES` is owned by the desktop. Read it (`git fetch`, `git show`, a worktree); never
   commit to it or push it from here.
 
-## Governance of `master`
+## Reviewing and promoting `master` from this laptop
 
-- Promoting to `master` (merge from a beta), pushing anything, and opening PRs each need the user's
-  explicit approval, every time. Approval for one does not cover the next.
-- Before a promotion, the `BRANCHING.md` checklist applies: tests green on **both** machines, real-tool
-  runs, clean degradation on the other distro, shared files merged deliberately.
-- Do **not** install `scripts/git-hooks/pre-push` here. This laptop owns `master`; the guard is for
-  beta-only machines.
+- **Start of every session:** check this clone against GitHub and the desktop: local `master` vs
+  `origin/master`, the beta behind `origin/master`, unpushed or uncommitted work, diverged branches.
+  `scripts/repo-check.sh` (with `--peer da-nvme`) does this once the CachyOS branch is merged; until then
+  do it by hand with `git fetch`, `git status`, and `git log` on both sides of each branch. A beta that
+  matches its remote while local `master` doesn't match `origin/master` is an alert: stop and tell the user.
+- **Promoting** (merge from a beta into `master`) and **pushing `master`** each need the user's explicit
+  approval, every time, plus a clean `repo-check.sh --promoting --peer da-nvme` and the `BRANCHING.md`
+  checklist: tests green on **both** machines, real-tool runs, clean degradation on the other distro,
+  shared files merged deliberately. Fast-forward or merge only, never force. Tell the user to let the
+  desktop know `master` moved.
+- Pushing the beta and opening PRs also need the user's approval each time.
+- The `pre-push` guard is optional here (not installed). Install it only if the user asks.
 - Merges, not rebases, for anything already pushed.
 
 ## Managers

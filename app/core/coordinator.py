@@ -2,8 +2,13 @@
 
 import os
 import signal
+import sys
 import threading
 from typing import Set
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 class SubprocessCoordinator:
@@ -66,8 +71,14 @@ class SubprocessCoordinator:
                     # as a fallback.
                     try:
                         os.kill(pid, signal.SIGTERM)
-                    except Exception:
+                    except ProcessLookupError:
+                        # Process already gone; nothing to do.
                         pass
+                    except PermissionError as e:
+                        # Still lack permission; log and move on.
+                        _log(f"coordinator: cannot kill fallback pid {pid}: {e}")
+                    except OSError as e:
+                        _log(f"coordinator: kill fallback failed for pid {pid}: {e}")
                 except Exception:
                     pass
 

@@ -65,3 +65,20 @@ def test_terminate_all_blocks_concurrent_registration():
 
     # 4002 is now registered (not killed by the earlier terminate_all).
     assert coord.active_pids == {4002}
+
+
+def test_terminate_all_kill_fallback_failure_logged():
+    """If os.killpg fails with PermissionError and os.kill fallback also fails,
+    the error is logged via _log() instead of silently swallowed."""
+    coord = SubprocessCoordinator()
+    coord.register(5001)
+
+    logged = []
+    with patch("os.killpg", side_effect=PermissionError("no perm")):
+        with patch("os.kill", side_effect=PermissionError("still no perm")):
+            with patch("app.core.coordinator._log", side_effect=lambda msg: logged.append(msg)):
+                coord.terminate_all()
+
+    assert coord.active_pids == set()
+    assert any("cannot kill fallback pid 5001" in msg for msg in logged)
+

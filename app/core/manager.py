@@ -3,8 +3,11 @@
 import asyncio
 import importlib
 import json
+import logging
 from pathlib import Path
 from typing import Type, Any
+
+logger = logging.getLogger(__name__)
 
 
 def describe_error(e: Exception) -> str:
@@ -276,8 +279,9 @@ def discover_managers() -> list[PackageManager]:
     # Import drivers to trigger their decorators
     try:
         importlib.import_module("app.core.drivers")
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.exception("Failed to import app.core.drivers — no managers will be discovered")
+        raise
 
     active = []
     for cls in _REGISTRY:
@@ -295,6 +299,7 @@ def get_all_managers() -> list[PackageManager]:
     """
     try:
         importlib.import_module("app.core.drivers")
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.exception("Failed to import app.core.drivers — no managers will be discovered")
+        raise
     return [cls() for cls in _REGISTRY]

@@ -89,7 +89,7 @@ def test_pkexec_no_agent_failure_falls_back_to_sudo(qapp):
         created.append(args)
         return first if len(created) == 1 else second
 
-    with patch("app.core.sudo_secret.load", return_value=None), \
+    with patch("app.ui.main_window.load_sudo_password", return_value="test-password"), \
          patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         worker.run()
 
@@ -129,7 +129,7 @@ def test_pkexec_no_agent_falls_back_to_sudo_with_keyring_password(qapp):
         created.append(args)
         return first if len(created) == 1 else second
 
-    with patch("app.core.sudo_secret.load", return_value="saved-pw"), \
+    with patch("app.ui.main_window.load_sudo_password", return_value="saved-pw"), \
          patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
         worker.run()
 

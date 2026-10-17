@@ -262,6 +262,19 @@ class ExecutionWorker(QThread):
                     )
                     debug_log.emit(f"! pkexec no-auth-agent → retrying with sudo: {' '.join(sudo_cmd)}")
                     password = load_sudo_password()
+                    if password is None:
+                        # No stored password and no NOPASSWD sudoers entry: the sudo
+                        # retry cannot authenticate. Surface a clear failure instead
+                        # of attempting a DEVNULL-stdin retry that is guaranteed to
+                        # fail. (The TUI prompts the user here; the GUI cannot
+                        # show a modal from a worker thread.)
+                        self.log_signal.emit(
+                            " ⚠️ No stored sudo password and sudo is not NOPASSWD — "
+                            "cannot fall back to sudo. Store a password in the keyring "
+                            "(TUI) or configure NOPASSWD sudo for this command."
+                        )
+                        debug_log.emit(f"< exit {code} (failed — no password for sudo)")
+                        return code
                     code2, _ = await run_once(sudo_cmd, password=password)
                     debug_log.emit(f"< exit {code2} ({'ok' if code2 == 0 else 'failed'})")
                     return code2

@@ -12,8 +12,9 @@
 #
 # Result: $REVIEW_DIR/<branch>-<sha>/ (files/, candidate-vs-<base>.patch, diffstat.txt, README.txt[, REPORT.md]) made
 # read-only, plus a relative symlink <branch>-latest that always points at the newest export.
-# Env: REVIEW_DIR (default ~/Projects/_review)   PEER_MOUNT (how the other machine sees this one's home,
-#      default '$HOME/remotes/da-nvme', used only in the README text)
+# Env: REVIEW_DIR (default ~/Projects/_review)
+#      PEER_MOUNT (how the OTHER machine sees THIS one's home; used only in the README text). Default
+#      '$HOME/remotes/da-nvme' suits the CachyOS desktop; on the Asahi laptop set it to '$HOME/remotes/asahi'.
 set -euo pipefail
 
 BRANCH="CachyOS/stable-candidate"; BASE="master"; REPORT=""; TESTED=""; FORCE=0; KEEP=0; pos=0
@@ -83,11 +84,13 @@ done
     echo
     echo "HOW TO REVIEW (this folder is on a read-write, noexec sshfs mount: read it, do not run or write anything here)"
     echo "  Read the diff : less $PEER_MOUNT/Projects/_review/$NAME/candidate-vs-$BASE_TAG.patch"
-    echo "  Real commit   : git fetch /home/daripper/remotes/da-nvme/Projects/PolyGet $BRANCH:refs/remotes/cachy/${BRANCH##*/}"
+    echo "  Real commit   : git --no-optional-locks fetch $PEER_MOUNT/Projects/PolyGet $BRANCH:refs/remotes/${PEER_MOUNT##*/}/${BRANCH##*/}"
     echo "                  (reads this machine's repo, writes only to the fetching machine's .git; use git --no-optional-locks)"
     echo "  Run the tests : copy files/ to a LOCAL folder and use that machine's own venv, never run on the mount:"
     echo "                  rsync -a $PEER_MOUNT/Projects/_review/$NAME/files/ ~/Projects/_review-local/$TAG/"
     echo "  Always newest : $PEER_MOUNT/Projects/_review/$TAG-latest/"
+    echo "  Just rebuilt? sshfs caches directory entries for about 20 s, so -latest can briefly point at a removed"
+    echo "                folder or be missing. Wait a moment, or use the full folder name above."
 } > "$TMP/README.txt"
 
 unlock "$OUT"; rm -rf "$OUT"

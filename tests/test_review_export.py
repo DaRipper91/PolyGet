@@ -66,6 +66,10 @@ def test_export_contains_files_patch_readme_and_is_read_only(world):
     assert "feature.txt" in (out / "candidate-vs-master.patch").read_text()
     readme = (out / "README.txt").read_text()
     assert "/mnt/peer/Projects/_review/" in readme and "noexec" in readme
+    # the fetch hint must use the configured mount (an export made on Asahi is read via ~/remotes/asahi), not a fixed machine
+    assert f"fetch /mnt/peer/Projects/PolyGet {BRANCH}:refs/remotes/peer/stable-candidate" in readme
+    assert "da-nvme" not in readme
+    assert "caches directory entries" in readme
     with pytest.raises(PermissionError):
         (out / "files" / "new.txt").write_text("nope")
 

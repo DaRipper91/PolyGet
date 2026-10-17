@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu
 )
-from app.core.manager import discover_managers, PackageManager
+from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
@@ -89,6 +89,8 @@ class ScanWorker(QThread):
                 updates = await mgr.check_updates()
                 self.updates_signal.emit(mgr.name, updates)
                 self.log_signal.emit(f"✅ Scan complete for {mgr.name}. Found {len(updates)} update(s).")
+            except NotImplementedError as e:
+                self.log_signal.emit(f"ℹ️ {mgr.name} cannot report outdated packages ({describe_error(e)}); skipped.")
             except Exception as e:
                 self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
                 self.error_signal.emit(mgr.name, str(e))
@@ -2261,7 +2263,13 @@ class MainWindow(QMainWindow):
             return
 
         manager, packages = self.upgrade_queue.pop(0)
-        cmd = manager.get_upgrade_command(packages)
+        try:
+            cmd = manager.get_upgrade_command(packages)
+        except (NotImplementedError, DriverError) as e:
+            self.log(f"❌ {manager.name}: cannot build an upgrade command: {describe_error(e)}")
+            self.upgrade_failures.append(manager.name)
+            self.run_next_upgrade_queue()
+            return
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)

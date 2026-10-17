@@ -15,7 +15,7 @@ import subprocess
 import sys
 from typing import Any
 
-from app.core.manager import PackageManager, describe_error, discover_managers, get_all_managers
+from app.core.manager import DriverError, PackageManager, describe_error, discover_managers, get_all_managers
 from app.core.version_scan import cmd_newest
 
 VERSION = "1.0.0"
@@ -25,7 +25,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "sync", "history", "ignore", "catalog", "newest",
+    "upgrade", "install", "sync", "history", "ignore", "projects", "catalog", "newest",
 )
 
 
@@ -197,8 +197,16 @@ async def _scan_outdated(managers: list[PackageManager], include_ignored: bool) 
 
 
 def _errors_text(results: dict[str, dict]) -> str:
-    lines = [f"! {name}: {res.get('error', 'unknown error')}" for name, res in results.items() if not res.get("ok", False)]
+    lines = [
+        f"{'~' if res.get('unsupported') else '!'} {name}: {res.get('error', 'unknown error')}"
+        for name, res in results.items() if not res.get("ok", False)
+    ]
     return ("\n" + "\n".join(lines)) if lines else ""
+
+
+def _any_failed(results: dict[str, dict]) -> bool:
+    """True if any manager genuinely failed. 'Unsupported' (no such query) is not a failure."""
+    return any(not r["ok"] and not r.get("unsupported") for r in results.values())
 
 
 def cmd_outdated(args: argparse.Namespace) -> int:
@@ -207,13 +215,16 @@ def cmd_outdated(args: argparse.Namespace) -> int:
     payload = {
         "updates": rows,
         "managers": {
-            n: ({"ok": True, "count": len(r["result"])} if r["ok"] else {"ok": False, "error": r["error"]})
+            n: (
+                {"ok": True, "count": len(r["result"])} if r["ok"]
+                else {"ok": False, "error": r["error"], **({"unsupported": True} if r.get("unsupported") else {})}
+            )
             for n, r in results.items()
         },
     }
     columns = ["manager", "name", "current", "new"] + (["ignored"] if args.include_ignored else [])
     _emit(args, payload, _table(rows, columns) + _errors_text(results))
-    return EXIT_FAILED if any(not r["ok"] for r in results.values()) else EXIT_OK
+    return EXIT_FAILED if _any_failed(results) else EXIT_OK
 
 
 def cmd_installed(args: argparse.Namespace) -> int:
@@ -303,7 +314,7 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         # Scan first so the upgrade targets exactly what `outdated` reports (minus ignored
         # packages), the same way the GUI's batch upgrade passes its selected packages.
         results, rows = asyncio.run(_scan_outdated(managers, include_ignored=False))
-        scan_failed = any(not r["ok"] for r in results.values())
+        scan_failed = _any_failed(results)
         for name, res in results.items():
             if not res["ok"]:
                 _log(f"! {name}: skipped, update check failed: {res['error']}")
@@ -312,12 +323,18 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
             targets.setdefault(row["manager"], []).append(row["name"])
 
     by_name = {m.name: m for m in managers}
-    steps = [
-        {"manager": name, "packages": pkgs, "command": by_name[name].get_upgrade_command(pkgs)}
-        for name, pkgs in targets.items()
-    ]
+    steps = []
+    build_failed = False
+    for name, pkgs in targets.items():
+        try:
+            command = by_name[name].get_upgrade_command(pkgs)
+        except (NotImplementedError, DriverError) as e:
+            _log(f"! {name}: skipped, cannot build an upgrade command: {describe_error(e)}")
+            build_failed = True
+            continue
+        steps.append({"manager": name, "packages": pkgs, "command": command})
     code = _plan_or_execute(args, steps, record=True)
-    return EXIT_FAILED if scan_failed else code
+    return EXIT_FAILED if scan_failed or build_failed else code
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -368,6 +385,33 @@ def cmd_ignore(args: argparse.Namespace) -> int:
         (store.add if args.action == "add" else store.remove)(name, args.package)
     rows = [{"manager": m, "package": p} for m, p in store.all_entries()]
     _emit(args, rows, _table(rows, ["manager", "package"]))
+    return EXIT_OK
+
+
+def cmd_projects(args: argparse.Namespace) -> int:
+    from pathlib import Path
+    from app.core.settings_store import get_settings
+
+    settings = get_settings()
+    if args.action in ("add", "remove"):
+        if not args.directory:
+            raise UsageError(f"'projects {args.action}' needs a directory.")
+        path = str(Path(args.directory).expanduser().resolve())
+        if args.action == "add":
+            if not Path(path).is_dir():
+                raise UsageError(f"'{path}' is not a directory.")
+            settings.add_project_dir(path)
+        else:
+            settings.remove_project_dir(path)
+    rows = [
+        {
+            "directory": d,
+            "bundler": (Path(d) / "Gemfile").is_file(),
+            "gradle": (Path(d) / "gradlew").is_file(),
+        }
+        for d in settings.get_project_dirs()
+    ]
+    _emit(args, rows, _table(rows, ["directory", "bundler", "gradle"]))
     return EXIT_OK
 
 
@@ -503,6 +547,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("action", choices=["list", "add", "remove"], nargs="?", default="list")
     p.add_argument("manager", nargs="?")
     p.add_argument("package", nargs="?")
+
+    p = add("projects", cmd_projects, "manage project directories scanned by Bundler and Gradle")
+    p.add_argument("action", choices=["list", "add", "remove"], nargs="?", default="list")
+    p.add_argument("directory", nargs="?")
 
     add("catalog", cmd_catalog, "list every cataloged manager, installed or not")
 

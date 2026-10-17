@@ -2,6 +2,7 @@
 
 import functools
 import re
+import sys
 
 _FAMILY_MAP = {
     "fedora": "fedora",
@@ -27,6 +28,8 @@ def get_distro_family() -> str:
     Checks ID first, then falls back to scanning ID_LIKE for a known family.
     Returns "unknown" if nothing matches.
     """
+    if sys.platform == "darwin":
+        return "macos"
     try:
         with open("/etc/os-release", "r", encoding="utf-8") as f:
             content = f.read()

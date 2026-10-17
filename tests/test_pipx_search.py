@@ -11,7 +11,6 @@ def test_pipx_search_packages_cache_hit():
     
     # Mock cache path file exists and read_text returns ["black", "requests"]
     mock_exists = MagicMock(return_value=True)
-    mock_mtime = MagicMock(return_value=1000)
     mock_stat = MagicMock()
     mock_stat.return_value.st_mtime = 1000
     

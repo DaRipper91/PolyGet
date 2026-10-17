@@ -36,6 +36,11 @@ class FlatpakManager(PackageManager):
                     stderr=asyncio.subprocess.PIPE
                 )
                 list_stdout, _ = await asyncio.wait_for(list_proc.communicate(), timeout=8.0)
+                if list_proc.returncode != 0:
+                    raise DriverError(
+                        f"{self.name} installed-package query failed: "
+                        f"`flatpak list` exited with status {list_proc.returncode}"
+                    )
                 if list_stdout:
                     import json
                     installed_data = json.loads(list_stdout.decode(errors="ignore"))
@@ -45,7 +50,7 @@ class FlatpakManager(PackageManager):
                             # Use version, fallback to branch, then default to "Installed"
                             version = pkg.get("version") or pkg.get("branch") or "Installed"
                             commit = pkg.get("active_commit") or ""
-                            
+
                             # Parse alt-id from options (crucial for OCI registries like Fedora's)
                             alt_id = ""
                             options = pkg.get("options") or ""
@@ -64,7 +69,9 @@ class FlatpakManager(PackageManager):
                     await list_proc.wait()
                 except Exception:
                     pass
-                raise RuntimeError(f"{self.name} installed-package query failed: {describe_error(e)}") from e
+                if isinstance(e, DriverError):
+                    raise
+                raise DriverError(f"{self.name} installed-package query failed: {describe_error(e)}") from e
 
             # 2. Query Flatpak for updates
             try:
@@ -73,14 +80,23 @@ class FlatpakManager(PackageManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # fetches remote metadata
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # fetches remote metadata
+                if proc.returncode != 0:
+                    detail = stderr.decode(errors="ignore").strip().splitlines()
+                    suffix = f": {detail[-1]}" if detail else ""
+                    raise DriverError(
+                        f"{self.name} update query failed: "
+                        f"`flatpak remote-ls --updates` exited with status {proc.returncode}{suffix}"
+                    )
+            except DriverError:
+                raise
             except Exception as e:
                 try:
                     proc.kill()
                     await proc.wait()
                 except Exception:
                     pass
-                raise RuntimeError(f"{self.name} update query failed: {describe_error(e)}") from e
+                raise DriverError(f"{self.name} update query failed: {describe_error(e)}") from e
 
             if not stdout:
                 return []
@@ -117,8 +133,10 @@ class FlatpakManager(PackageManager):
                         "new": new_ver
                     })
             return updates
+        except DriverError:
+            raise
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+            raise DriverError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade packages using Flatpak.
@@ -150,8 +168,15 @@ class FlatpakManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
-            if proc.returncode != 0 or not stdout:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if proc.returncode != 0:
+                detail = stderr.decode(errors="ignore").strip().splitlines()
+                suffix = f": {detail[-1]}" if detail else ""
+                raise DriverError(
+                    f"{self.name} installed-package query failed: "
+                    f"`flatpak list` exited with status {proc.returncode}{suffix}"
+                )
+            if not stdout:
                 return []
             import json
             data = json.loads(stdout.decode(errors="ignore"))
@@ -178,8 +203,15 @@ class FlatpakManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
-            if proc.returncode != 0 or not stdout:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if proc.returncode != 0:
+                detail = stderr.decode(errors="ignore").strip().splitlines()
+                suffix = f": {detail[-1]}" if detail else ""
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`flatpak list` exited with status {proc.returncode}{suffix}"
+                )
+            if not stdout:
                 return {}
             import json
             data = json.loads(stdout.decode(errors="ignore"))

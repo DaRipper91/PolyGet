@@ -262,7 +262,7 @@ def test_flatpak_check_updates_timeout():
         # Mock communicate to raise TimeoutError when wrapped in asyncio.wait_for
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
              patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
-            with pytest.raises(RuntimeError, match="Flatpak update check failed"):
+            with pytest.raises(DriverError, match="Flatpak installed-package query failed"):
                 await manager.check_updates()
             
         mock_proc.kill.assert_called()

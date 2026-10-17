@@ -90,5 +90,5 @@ class BunManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["bun", "add", "-g", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["bun", "remove", "-g", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["bun", "remove", "-g"] + packages

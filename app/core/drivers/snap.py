@@ -46,8 +46,8 @@ class SnapManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["pkexec", "snap", "install", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["pkexec", "snap", "remove", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "snap", "remove"] + packages
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         out = await run_capture(["snap", "find", query], label=f"{self.name} search", timeout=20.0)

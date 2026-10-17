@@ -245,8 +245,10 @@ class PipxManager(PackageManager):
         """
         return ["pipx", "install", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["pipx", "uninstall", package]
+    removes_one_at_a_time = True
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pipx", "uninstall", packages[0]]
 
     from pathlib import Path
     _INDEX_CACHE_PATH = Path.home() / ".cache" / "polyget" / "pypi_simple_index.json"

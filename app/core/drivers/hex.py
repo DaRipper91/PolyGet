@@ -68,6 +68,11 @@ class HexManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["mix", "archive.install", "hex", package, "--force"]
 
+    removes_one_at_a_time = True
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["mix", "archive.uninstall", packages[0], "--force"]
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         try:
             proc = await asyncio.create_subprocess_exec(

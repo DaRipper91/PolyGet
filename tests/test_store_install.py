@@ -88,6 +88,7 @@ def test_remove_previews_before_running_anything(window):
         window.remove_package("DNF", "gtk3")
     worker = window.active_workers[-1]
     assert worker.__class__.__name__ == "RemovePreviewWorker" and worker.package == "gtk3"
+    drv.get_remove_command.assert_called_once_with(["gtk3"])
     assert "DNF:gtk3" in window.removing_packages
 
     with patch.object(QThread, "start"):
@@ -101,7 +102,7 @@ def test_confirm_lists_what_else_goes_and_runs_the_drivers_command(mock_question
     window.removing_packages.add("DNF:gtk3")
     with patch.object(QThread, "start"):
         window._confirm_remove(drv, "gtk3", ["pkexec", "dnf", "remove", "-y", "gtk3"],
-                               {"remove": ["gtk3", "gimp", "evince"], "blocked_by": []}, "")
+                               ["gtk3", "gimp", "evince"], "")
     text = mock_question.call_args[0][2]
     assert "also removes 2 other package(s)" in text and "gimp" in text and "evince" in text
     assert "pkexec dnf remove -y gtk3" in text
@@ -110,22 +111,40 @@ def test_confirm_lists_what_else_goes_and_runs_the_drivers_command(mock_question
 
 @patch("app.ui.main_window.QMessageBox.question")
 @patch("app.ui.main_window.QMessageBox.warning")
-def test_blocked_removal_is_explained_and_never_runs(mock_warning, mock_question, window):
+def test_blocked_or_failed_dry_run_is_explained_and_never_runs(mock_warning, mock_question, window):
     window.removing_packages.add("Pacman:gtk3")
     window._confirm_remove(_remover("Pacman"), "gtk3", ["pkexec", "pacman", "-Rs", "--noconfirm", "gtk3"],
-                           {"remove": ["gtk3"], "blocked_by": ["gimp"]}, "")
-    assert "gimp" in mock_warning.call_args[0][2]
+                           None, "Pacman won't remove gtk3: still needed by gimp")
+    assert "still needed by gimp" in mock_warning.call_args[0][2]
     assert not mock_question.called
     assert window.active_workers == [] and window.removing_packages == set()
 
 
 @patch("app.ui.main_window.QMessageBox.question", return_value=QMessageBox.StandardButton.No)
-def test_failed_preview_warns_instead_of_claiming_nothing_else_goes(mock_question, window):
-    window.removing_packages.add("DNF:gtk3")
-    window._confirm_remove(_remover(), "gtk3", ["pkexec", "dnf", "remove", "-y", "gtk3"], None, "cache broken")
+def test_no_dry_run_says_so_instead_of_claiming_nothing_else_goes(mock_question, window):
+    window.removing_packages.add("NPM:typescript")
+    window._confirm_remove(_remover("NPM"), "typescript", ["npm", "uninstall", "-g", "typescript"], None, "")
     text = mock_question.call_args[0][2]
-    assert "couldn't check" in text and "Nothing else" not in text
+    assert "no dry run" in text and "Nothing else" not in text
+    assert "npm uninstall -g typescript" in text
     assert window.removing_packages == set()  # declined
+
+
+def test_preview_worker_maps_the_driver_contract(qapp):
+    from app.core.manager import DriverError
+    from app.ui.main_window import RemovePreviewWorker
+
+    async def ok(pkgs): return ["gtk3", "gimp"]
+    async def none(pkgs): raise NotImplementedError
+    async def blocked(pkgs): raise DriverError("still needed by gimp")
+    got = []
+    for impl in (ok, none, blocked):
+        drv = MagicMock(spec=PackageManager)
+        drv.preview_remove = impl
+        worker = RemovePreviewWorker(drv, "gtk3")
+        worker.result_signal.connect(lambda preview, error: got.append((preview, error)))
+        worker.run()  # synchronously, on this thread
+    assert got == [(["gtk3", "gimp"], ""), (None, ""), (None, "still needed by gimp")]
 
 
 @patch("app.ui.main_window.QMessageBox.information")

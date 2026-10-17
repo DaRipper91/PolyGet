@@ -21,6 +21,7 @@ class AurManager(PackageManager):
     """
 
     name: str = "AUR"
+    asks_for_password = True  # the helper runs sudo itself
     category: str = "System"
 
     def is_available(self) -> bool:
@@ -60,12 +61,13 @@ class AurManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return [_helper(), "-S", "--noconfirm", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return [_helper(), "-Rs", "--noconfirm", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return [_helper(), "-Rs", "--noconfirm"] + packages
 
-    async def preview_remove(self, package: str) -> dict[str, list[str]]:
-        from app.core.drivers.pacman import pacman_remove_preview
-        return await pacman_remove_preview(package, self.name)
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        # Installed AUR packages are ordinary pacman packages, so pacman resolves the removal.
+        from app.core.drivers.pacman import PacmanManager
+        return await PacmanManager().preview_remove(packages)
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # `-Ssa` restricts the search to the AUR (the Pacman driver already covers the repos).

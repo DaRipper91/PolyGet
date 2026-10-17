@@ -217,27 +217,41 @@ class PackageManager:
         """
         raise NotImplementedError("Subclasses must implement get_install_command()")
 
-    def get_remove_command(self, package: str) -> list[str]:
-        """Get the command list to uninstall a package.
+    # True for tools that prompt for the sudo password themselves even though their commands
+    # don't start with pkexec/sudo (AUR helpers call sudo internally). The GUI counts these as
+    # "needs your admin password" alongside pkexec-prefixed commands.
+    asks_for_password: bool = False
 
-        Raises:
-            NotImplementedError: PolyGet can't remove packages through this manager yet.
-        """
-        raise NotImplementedError(f"{self.name} can't remove packages from PolyGet yet")
+    # True for tools whose remove command takes exactly one package (e.g. `pipx uninstall`);
+    # callers then build one command per package instead of passing a list.
+    removes_one_at_a_time: bool = False
 
-    async def preview_remove(self, package: str) -> dict[str, list[str]]:
-        """What removing `package` would take with it, worked out before anything runs.
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        """Get the command to uninstall packages.
+
+        Args:
+            packages (list[str]): Package names, as `list_installed()` reports them. A
+                single-package tool (`removes_one_at_a_time`) only ever receives one.
 
         Returns:
-            {"remove": [...], "blocked_by": [...]}: every package the removal would take out
-            (including `package` itself), and installed packages that make the manager refuse
-            it outright. Managers without dependency tracking remove just the one package.
+            list[str]: The command and its arguments.
 
         Raises:
-            DriverError: The preview query failed. Callers must not read that as "no
-                dependencies".
+            NotImplementedError: This manager has no uninstall command.
         """
-        return {"remove": [package], "blocked_by": []}
+        raise NotImplementedError(f"{self.name} does not support removing packages")
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        """Return every package removing `packages` would take out, dependencies included.
+
+        Only system managers resolve dependencies on removal, so only they override this.
+
+        Raises:
+            NotImplementedError: No dry-run is available; the remove command is the whole plan.
+            DriverError: The dry-run failed — typically a package that isn't installed, or one
+                that other installed packages still depend on.
+        """
+        raise NotImplementedError(f"{self.name} has no removal dry-run")
 
     def get_install_command_for(self, item: dict[str, Any]) -> list[str]:
         """Command to install a search/Store result (as returned by search_packages()).

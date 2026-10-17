@@ -23,6 +23,7 @@ def _mgr(name, upgrade_cmd):
     m.name = name
     m.category = "System"
     m.get_upgrade_command.return_value = upgrade_cmd
+    m.asks_for_password = False  # a bare spec'd mock would answer with a truthy MagicMock
     return m
 
 
@@ -157,3 +158,11 @@ def test_row_tick_updates_bar_and_group_header_without_rebuild(window):
     assert window.selection_bar.admin.text() == "1 needs your admin password (DNF)"
     dnf = next(r for r in _rows(window) if isinstance(r, ManagerGroupHeader) and r.manager == "DNF")
     assert dnf.checkbox.checkState().name == "PartiallyChecked"
+
+
+def test_aur_counts_as_needing_the_admin_password(window):
+    aur = _mgr("AUR", ["paru", "-S", "--noconfirm"])
+    aur.asks_for_password = True
+    window.managers["AUR"] = aur
+    assert window._needs_admin("AUR")
+    assert not window._needs_admin("NPM")

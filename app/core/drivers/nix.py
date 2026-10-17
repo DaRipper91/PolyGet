@@ -59,6 +59,9 @@ class NixManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return _NIX + ["profile", "install", package if "#" in package else f"nixpkgs#{package}"]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return _NIX + ["profile", "remove"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # The first search evaluates nixpkgs, which is slow; later ones hit Nix's eval cache.
         out = await run_capture(

@@ -8,6 +8,9 @@ from app.core.settings_store import get_settings
 DNF_TIMEOUT = 120.0
 
 
+_ARCHES = {"x86_64", "aarch64", "noarch", "i686", "armv7hl", "ppc64le", "s390x"}
+
+
 @register_manager
 class DnfManager(PackageManager):
     """Package manager driver for DNF (Dandified YUM)."""
@@ -253,18 +256,37 @@ class DnfManager(PackageManager):
         """
         return ["pkexec", "dnf", "install", "-y", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["pkexec", "dnf", "remove", "-y", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "dnf", "remove", "-y"] + packages
 
-    async def preview_remove(self, package: str) -> dict[str, list[str]]:
-        """`dnf remove` also removes installed packages that require the target. repoquery
-        lists the direct ones without root (the explicit "\n" keeps dnf5 one-per-line)."""
+    @staticmethod
+    def _parse_removal_transaction(output: str) -> list[str]:
+        """Package names from the "Removing:" sections of a dnf (4 or 5) transaction table."""
+        names, in_section = [], False
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Transaction Summary"):
+                break
+            if stripped.endswith(":") and not line.startswith(" "):
+                # Section headers: "Removing:", "Removing unused dependencies:", "Removing dependent packages:".
+                in_section = stripped.startswith("Removing")
+            elif in_section and line.startswith(" ") and stripped:
+                first = stripped.split()[0]
+                # dnf4 wraps a long name onto its own line; the continuation starts with the arch.
+                if first not in _ARCHES:
+                    names.append(first)
+        return names
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        # --assumeno resolves the transaction and then declines it, exiting 1 by design.
         out = await run_capture(
-            ["dnf", "repoquery", "--installed", "--whatrequires", package, "--queryformat", "%{name}\n"],
-            label=f"{self.name} removal preview", timeout=60.0,
+            ["dnf", "remove", "--assumeno"] + packages,
+            label=f"{self.name} removal preview", timeout=60.0, ok_codes=(0, 1),
         )
-        dependents = sorted({line.strip() for line in out.splitlines()} - {"", package})
-        return {"remove": [package, *dependents], "blocked_by": []}
+        names = self._parse_removal_transaction(out)
+        if not names:
+            raise DriverError(f"{self.name} removal preview found nothing to remove — are these packages installed?")
+        return names
 
     supports_repos: bool = True
 

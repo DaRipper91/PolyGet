@@ -247,8 +247,8 @@ class FlatpakManager(PackageManager):
             return ["flatpak", "install", "-y", remote, item["id"]]
         return self.get_install_command(item["id"])
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["flatpak", "uninstall", "-y", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["flatpak", "uninstall", "-y"] + packages
 
     supports_repos: bool = True
 

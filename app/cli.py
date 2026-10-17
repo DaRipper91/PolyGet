@@ -2,7 +2,7 @@
 
 Every subcommand prints a human-readable table by default, or a single JSON document on stdout
 with `--json`. Progress and child-process output always go to stderr, so `--json` stdout stays
-machine-parseable. Commands that change the system (upgrade, install, sync) only print the exact
+machine-parseable. Commands that change the system (upgrade, install, remove, sync) only print the exact
 command they would run unless `--yes` is passed.
 
 Exit codes: 0 success, 1 a manager or command failed, 2 usage error (unknown manager, bad args).
@@ -26,7 +26,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
+    "upgrade", "install", "remove", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
     "self-version", "debug",
 )
 
@@ -384,6 +384,35 @@ def cmd_install(args: argparse.Namespace) -> int:
     return _plan_or_execute(args, steps)
 
 
+def cmd_remove(args: argparse.Namespace) -> int:
+    mgr = _single_manager(args.manager)
+    pkgs = list(args.packages)
+    try:
+        if mgr.removes_one_at_a_time:
+            steps = [{"manager": mgr.name, "packages": [p], "command": mgr.get_remove_command([p])} for p in pkgs]
+        else:
+            steps = [{"manager": mgr.name, "packages": pkgs, "command": mgr.get_remove_command(pkgs)}]
+    except NotImplementedError as e:
+        raise UsageError(describe_error(e)) from e
+
+    # System managers drag dependencies along on removal; show those before anything runs. A
+    # failed dry-run (not installed, still required by something) stops the removal outright.
+    try:
+        would_remove = asyncio.run(mgr.preview_remove(pkgs))
+    except NotImplementedError:
+        would_remove = None
+    except DriverError as e:
+        _log(f"! {mgr.name}: {describe_error(e)}")
+        _emit(args, {"executed": False, "steps": steps, "error": describe_error(e)}, "Nothing removed.")
+        return EXIT_FAILED
+    if would_remove is not None:
+        extra = [p for p in would_remove if p not in set(pkgs)]
+        steps[0]["would_remove"] = would_remove
+        if extra:
+            _log(f"{mgr.name} would also remove {len(extra)} dependent package(s): {', '.join(extra)}")
+    return _plan_or_execute(args, steps)
+
+
 def cmd_sync(args: argparse.Namespace) -> int:
     steps = []
     for mgr in _select_managers(args.manager):
@@ -612,6 +641,11 @@ def build_parser() -> argparse.ArgumentParser:
     confirm(p)
 
     p = add("install", cmd_install, "install packages with one manager")
+    p.add_argument("-m", "--manager", required=True)
+    p.add_argument("packages", nargs="+")
+    confirm(p)
+
+    p = add("remove", cmd_remove, "uninstall packages with one manager (previews dependencies first)")
     p.add_argument("-m", "--manager", required=True)
     p.add_argument("packages", nargs="+")
     confirm(p)

@@ -4,7 +4,7 @@ import asyncio
 import glob
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
 @register_manager
@@ -175,16 +175,19 @@ class AptManager(PackageManager):
         """
         return ["pkexec", "apt-get", "install", "-y", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["pkexec", "apt-get", "remove", "-y", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "apt-get", "remove", "-y"] + packages
 
-    async def preview_remove(self, package: str) -> dict[str, list[str]]:
-        """`apt-get -s` simulates without root; each "Remv name [version]" line is a removal."""
-        from app.core.manager import run_capture
-        out = await run_capture(["apt-get", "-s", "remove", package],
-                                label=f"{self.name} removal preview", timeout=60.0)
-        names = [line.split()[1] for line in out.splitlines() if line.startswith("Remv ") and len(line.split()) > 1]
-        return {"remove": names or [package], "blocked_by": []}
+    @staticmethod
+    def _parse_simulated_removal(output: str) -> list[str]:
+        # `apt-get -s` prints one "Remv name [version]" line per package it would remove.
+        return [line.split()[1] for line in output.splitlines() if line.startswith("Remv ") and len(line.split()) > 1]
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        out = await run_capture(
+            ["apt-get", "-s", "remove"] + packages, label=f"{self.name} removal preview", timeout=30.0,
+        )
+        return self._parse_simulated_removal(out)
 
     supports_repos: bool = True
 

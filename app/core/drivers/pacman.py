@@ -6,29 +6,8 @@ import shutil
 from typing import Any
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
+# pacman's "removing X breaks dependency 'X' required by Y" — Y blocks the removal.
 _BREAKS = re.compile(r"breaks dependency '[^']*' required by (\S+)")
-
-
-async def pacman_remove_preview(package: str, label: str = "Pacman") -> dict[str, list[str]]:
-    """Dry-run `pacman -Rs` (--print needs no root). Exit 1 with "breaks dependency ...
-    required by X" means pacman would refuse the removal because X still needs it."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "pacman", "-Rsp", "--print-format", "%n", package,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
-    except Exception as e:
-        raise DriverError(f"{label} removal preview failed: {describe_error(e)}") from e
-    if proc.returncode == 0:
-        names = [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
-        return {"remove": names or [package], "blocked_by": []}
-    blockers = sorted(set(_BREAKS.findall(stderr.decode(errors="ignore"))))
-    if blockers:
-        return {"remove": [package], "blocked_by": blockers}
-    detail = stderr.decode(errors="ignore").strip().splitlines()
-    raise DriverError(f"{label} removal preview failed: `pacman` exited with status "
-                      f"{proc.returncode}{': ' + detail[-1] if detail else ''}")
 
 
 @register_manager
@@ -122,13 +101,32 @@ class PacmanManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["pkexec", "pacman", "-S", "--noconfirm", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        # -s also drops dependencies nothing else needs; pacman refuses (rather than cascades)
-        # when another installed package still needs the target.
-        return ["pkexec", "pacman", "-Rs", "--noconfirm", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "pacman", "-Rs", "--noconfirm"] + packages
 
-    async def preview_remove(self, package: str) -> dict[str, list[str]]:
-        return await pacman_remove_preview(package, self.name)
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        # `--print` resolves the transaction without root; a missing package or a broken
+        # dependency exits non-zero. Read stderr directly (run_capture keeps only its first
+        # line) so a blocked removal can name the packages that still need it.
+        label = f"{self.name} removal preview"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pacman", "-Rs", "--print", "--print-format", "%n", *packages,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+        except Exception as e:
+            raise DriverError(f"{label} failed: {describe_error(e)}") from e
+        if proc.returncode == 0:
+            return [line.strip() for line in stdout.decode(errors="ignore").splitlines() if line.strip()]
+        err = stderr.decode(errors="ignore")
+        needed_by = sorted(set(_BREAKS.findall(err)))
+        if needed_by:
+            raise DriverError(f"{self.name} won't remove {', '.join(packages)}: still needed by "
+                              f"{', '.join(needed_by)}")
+        detail = err.strip().splitlines()
+        raise DriverError(f"{label} failed: `pacman` exited with status {proc.returncode}"
+                          f"{': ' + detail[-1] if detail else ''}")
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         try:

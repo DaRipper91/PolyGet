@@ -532,7 +532,9 @@ class FetchInstalledWorker(QThread):
 
 class RemovePreviewWorker(QThread):
     """Ask a driver what removing a package would take with it, off the UI thread."""
-    result_signal = Signal(object, str)  # preview dict (or None), error message ("" on success)
+    # (packages the removal takes out, or None when the manager has no dry run; error message,
+    # "" on success). An error means the removal is blocked or couldn't be checked: don't run it.
+    result_signal = Signal(object, str)
 
     def __init__(self, manager: PackageManager, package: str, parent: Any = None):
         super().__init__(parent)
@@ -543,8 +545,10 @@ class RemovePreviewWorker(QThread):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            preview = loop.run_until_complete(self.manager.preview_remove(self.package))
+            preview = loop.run_until_complete(self.manager.preview_remove([self.package]))
             self.result_signal.emit(preview, "")
+        except NotImplementedError:
+            self.result_signal.emit(None, "")  # no dry run: the remove command is the whole plan
         except Exception as e:
             self.result_signal.emit(None, describe_error(e))
         finally:
@@ -3342,6 +3346,8 @@ class MainWindow(QMainWindow):
         mgr = self.managers.get(manager_name)
         if mgr is None:
             return False
+        if getattr(mgr, "asks_for_password", False):
+            return True
         try:
             cmd = mgr.get_upgrade_command([manager_name.lower()])
         except Exception:
@@ -3898,7 +3904,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"{manager_name} isn't installed.")
             return
         try:
-            cmd = driver.get_remove_command(package)
+            cmd = driver.get_remove_command([package])
         except (NotImplementedError, DriverError) as e:
             QMessageBox.information(self, "Can't remove", describe_error(e))
             return
@@ -3913,24 +3919,20 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _confirm_remove(self, driver: PackageManager, package: str, cmd: list[str],
-                        preview: dict | None, error: str) -> None:
+                        preview: list[str] | None, error: str) -> None:
         key = f"{driver.name}:{package}"
-        if preview and preview.get("blocked_by"):
+        if error:
+            # The dry run refused (e.g. Pacman: "still needed by gimp") or failed; never guess.
             self.removing_packages.discard(key)
-            blockers = preview["blocked_by"]
-            QMessageBox.warning(
-                self, "Can't remove",
-                f"{driver.name} won't remove {package}: these installed packages still need it:\n\n"
-                + "\n".join(f"  • {b}" for b in blockers[:30])
-                + (f"\n  …and {len(blockers) - 30} more" if len(blockers) > 30 else ""))
+            QMessageBox.warning(self, "Can't remove", f"PolyGet won't remove {package}:\n\n{error}")
             return
 
         lines = [f"Remove {package} with {driver.name}?", ""]
-        if error:
-            lines += [f"⚠ PolyGet couldn't check what else this removes ({error}). "
-                      f"{driver.name} may remove more than {package}.", ""]
+        if preview is None:
+            lines += [f"{driver.name} has no dry run, so nothing beyond the command below is "
+                      "checked.", ""]
         else:
-            extras = [p for p in preview.get("remove", []) if p != package]
+            extras = [p for p in preview if p != package]
             if extras:
                 lines += [f"This also removes {len(extras)} other package(s):"]
                 lines += [f"  • {p}" for p in extras[:30]]

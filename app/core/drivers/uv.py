@@ -138,5 +138,5 @@ class UvManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["uv", "tool", "install", package]
 
-    def get_remove_command(self, package: str) -> list[str]:
-        return ["uv", "tool", "uninstall", package]
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["uv", "tool", "uninstall"] + packages

@@ -1300,15 +1300,6 @@ class MainWindow(QMainWindow):
         from app.core.manager import discover_managers
         mgr_names = [m.name for m in discover_managers()]
         self.combo_source.addItems(["All Sources"] + sorted(mgr_names))
-        self.combo_source.setStyleSheet("""
-            QComboBox {
-                background-color: #11111b;
-                border: 1px solid #313244;
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: #cdd6f4;
-            }
-        """)
         store_header.addWidget(self.combo_source, stretch=1)
         self.combo_source.currentTextChanged.connect(self.filter_store_results)
 
@@ -1924,6 +1915,58 @@ class MainWindow(QMainWindow):
                 height: 1px;
                 background-color: #313244;
                 margin: 4px 8px;
+            }
+            QComboBox {
+                background-color: #11111b;
+                border: 1px solid #313244;
+                border-radius: 6px;
+                padding: 6px 12px;
+                color: #cdd6f4;
+            }
+            QComboBox:hover {
+                border-color: #89b4fa;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 6px solid #a6adc8;
+                margin-right: 8px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #181825;
+                border: 1px solid #313244;
+                border-radius: 6px;
+                padding: 4px 0px;
+                selection-background-color: #313244;
+                selection-color: #89b4fa;
+                outline: none;
+            }
+            QComboBox QAbstractItemView::item {
+                background-color: transparent;
+                color: #cdd6f4;
+                padding: 6px 16px;
+                border: none;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #313244;
+                color: #89b4fa;
+            }
+            QComboBox QAbstractItemView::item:hover:!selected {
+                background-color: #1e1e2e;
+                color: #cdd6f4;
+            }
+            QToolTip {
+                background-color: #181825;
+                color: #cdd6f4;
+                border: 1px solid #313244;
+                border-radius: 4px;
+                padding: 6px 10px;
+                font-size: 12px;
             }
         """))
 

@@ -2073,6 +2073,23 @@ class MainWindow(QMainWindow):
         toggle("Touch mode — bigger buttons, rows and checkboxes", "ui.touch_mode", False,
                on_change=self.apply_touch_mode)
 
+        heading("Debug",
+                "Write every package-manager command and result to a JSONL log file so "
+                "AI coding assistants can read it. View live output in the Debug Console page.")
+        from app.core import debug_log as _dl_mod
+        debug_box = QCheckBox("Enable debug file logging")
+        debug_box.setChecked(_dl_mod.debug_log.file_logging_enabled())
+        def _toggle_debug(state):
+            if state == Qt.CheckState.Checked.value:
+                _dl_mod.debug_log.enable_file_logging()
+            else:
+                _dl_mod.debug_log.disable_file_logging()
+        debug_box.stateChanged.connect(_toggle_debug)
+        layout.addWidget(debug_box)
+        lbl_debug_path = QLabel(f"Log file: {_dl_mod.debug_log.log_path}")
+        lbl_debug_path.setStyleSheet("color: #6c7086; font-size: 11px;")
+        layout.addWidget(lbl_debug_path)
+
         heading("Tray & background checks",
                 "With the tray icon on, closing the window keeps PolyGet running so it can "
                 "check for updates in the background and notify you.")

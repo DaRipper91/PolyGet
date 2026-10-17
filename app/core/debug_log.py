@@ -115,6 +115,9 @@ class _DebugLog:
     def enabled(self) -> bool:
         return enabled()
 
+    def file_logging_enabled(self) -> bool:
+        return _file_logging_enabled
+
     def enable_file_logging(self, path: Path | None = None) -> None:
         _enable_file_logging(path)
 

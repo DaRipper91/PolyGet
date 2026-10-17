@@ -20,6 +20,7 @@ from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
 from app.core.sudo_secret import load as load_sudo_password
+from app.core.debug_log import debug_log
 
 
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
@@ -186,7 +187,9 @@ class ExecutionWorker(QThread):
     def run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        self.log_signal.emit(f"⚡ Executing: {' '.join(self.cmd)}")
+        cmd_str = " ".join(self.cmd)
+        self.log_signal.emit(f"⚡ Executing: {cmd_str}")
+        debug_log.emit(f"> {cmd_str}")
         try:
             async def run_once(cmd: list[str], password: str | None = None) -> tuple[int, list[str]]:
                 """Run one command attempt; returns (returncode, stderr_lines)."""
@@ -205,7 +208,8 @@ class ExecutionWorker(QThread):
                 stderr_lines: list[str] = []
                 try:
                     async def read_stream(
-                        stream: asyncio.StreamReader, capture: list[str] | None = None
+                        stream: asyncio.StreamReader, capture: list[str] | None = None,
+                        stream_name: str = "stdout",
                     ) -> None:
                         while True:
                             line = await stream.readline()
@@ -215,6 +219,7 @@ class ExecutionWorker(QThread):
                             if capture is not None:
                                 capture.append(text)
                             self.log_signal.emit(text)
+                            debug_log.emit(f"[{stream_name}] {text}")
 
                     if password is not None:
                         assert proc.stdin is not None
@@ -225,7 +230,7 @@ class ExecutionWorker(QThread):
 
                     await asyncio.gather(
                         read_stream(proc.stdout),
-                        read_stream(proc.stderr, stderr_lines),
+                        read_stream(proc.stderr, stderr_lines, stream_name="stderr"),
                         proc.wait(),
                     )
                 finally:
@@ -238,6 +243,7 @@ class ExecutionWorker(QThread):
 
                 code, stderr_lines = await run_once(cmd)
                 if code == 0:
+                    debug_log.emit(f"< exit {code} (ok)")
                     return 0
 
                 stderr_text = "\n".join(stderr_lines)
@@ -251,16 +257,20 @@ class ExecutionWorker(QThread):
                         " ⚠️ No polkit authentication agent bound to this session — "
                         "falling back to sudo."
                     )
+                    debug_log.emit(f"! pkexec no-auth-agent → retrying with sudo: {' '.join(sudo_cmd)}")
                     password = load_sudo_password()
                     code2, _ = await run_once(sudo_cmd, password=password)
+                    debug_log.emit(f"< exit {code2} ({'ok' if code2 == 0 else 'failed'})")
                     return code2
 
+                debug_log.emit(f"< exit {code} (failed)")
                 return code
 
             exit_code = loop.run_until_complete(run_with_fallback())
             self.finished_signal.emit(exit_code == 0)
         except Exception as e:
             self.log_signal.emit(f"❌ Execution error: {str(e)}")
+            debug_log.emit(f"! error: {str(e)}")
             self.finished_signal.emit(False)
         loop.close()
 
@@ -861,7 +871,7 @@ QScrollBar:horizontal { height: 16px; }
 
 # Sidebar rows and stacked pages share these indices; keep them in setup_ui's order.
 (PAGE_UPDATES, PAGE_VERSION_CHECK, PAGE_STORE, PAGE_CONSOLE, PAGE_BLUEPRINTS,
- PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS) = range(9)
+ PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS, PAGE_DEBUG) = range(10)
 
 
 class MainWindow(QMainWindow):
@@ -986,6 +996,10 @@ class MainWindow(QMainWindow):
         item_settings = QListWidgetItem("Settings")
         item_settings.setIcon(QIcon.fromTheme("configure"))
         self.nav_list.addItem(item_settings)
+
+        item_debug = QListWidgetItem("Debug Console")
+        item_debug.setIcon(QIcon.fromTheme("document-properties"))
+        self.nav_list.addItem(item_debug)
 
         # A plain-text item's sizeHint (queried only once it's actually in the list — before
         # that, QListWidgetItem.sizeHint() isn't backed by a real style/delegate context) already
@@ -1441,6 +1455,35 @@ class MainWindow(QMainWindow):
         settings_scroll.setWidget(settings_inner)
         self.stacked_widget.addWidget(settings_scroll)
 
+        # PAGE 9: Debug Console — live stream of all package-manager and repo-sync output.
+        debug_page = QWidget()
+        debug_layout = QVBoxLayout(debug_page)
+        debug_layout.setContentsMargins(20, 20, 20, 20)
+        debug_layout.setSpacing(15)
+
+        lbl_debug_title = QLabel("Debug Console")
+        lbl_debug_title.setObjectName("summary-label")
+        debug_layout.addWidget(lbl_debug_title)
+
+        lbl_debug_desc = QLabel("Live stream of every package-manager command, upgrade, repo sync, "
+                                "and scan operation. Use run.py --debug <command> from the terminal "
+                                "to see the same stream on stderr.")
+        lbl_debug_desc.setObjectName("summary-label")
+        lbl_debug_desc.setWordWrap(True)
+        lbl_debug_desc.setStyleSheet("font-size: 13px; font-weight: normal; color: #a6adc8;")
+        debug_layout.addWidget(lbl_debug_desc)
+
+        self.debug_console = QTextEdit()
+        self.debug_console.setReadOnly(True)
+        self.debug_console.setObjectName("console-output")
+        debug_layout.addWidget(self.debug_console)
+
+        btn_debug_clear = QPushButton("Clear")
+        btn_debug_clear.clicked.connect(self.debug_console.clear)
+        debug_layout.addWidget(btn_debug_clear)
+
+        self.stacked_widget.addWidget(debug_page)
+
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1761,6 +1804,10 @@ class MainWindow(QMainWindow):
 
     def change_page(self, index: int):
         if index >= 0:
+            # Leaving the Debug Console page: unsubscribe from the debug stream.
+            if self.stacked_widget.currentIndex() == PAGE_DEBUG:
+                self._leave_debug_page()
+
             self.stacked_widget.setCurrentIndex(index)
             self._style_nav_row_text(self.nav_updates_label, selected=(index == PAGE_UPDATES))
             if index == PAGE_VERSION_CHECK:
@@ -1775,6 +1822,31 @@ class MainWindow(QMainWindow):
                 self.populate_history_page()
             elif index == PAGE_SETTINGS:
                 self.populate_settings_page()
+            elif index == PAGE_DEBUG:
+                self._enter_debug_page()
+
+    def _enter_debug_page(self):
+        """Subscribe to the debug log stream when the Debug Console page is shown."""
+        if not getattr(self, "_debug_subscribed", False):
+            from app.core.debug_log import debug_log_signal, HAVE_QT
+            if HAVE_QT and debug_log_signal is not None:
+                debug_log_signal.connect(self._append_debug_line)
+            self._debug_subscribed = True
+
+    def _leave_debug_page(self):
+        """Unsubscribe from the debug log stream when leaving the Debug Console page."""
+        if getattr(self, "_debug_subscribed", False):
+            from app.core.debug_log import debug_log_signal, HAVE_QT
+            if HAVE_QT and debug_log_signal is not None:
+                debug_log_signal.disconnect(self._append_debug_line)
+            self._debug_subscribed = False
+
+    def _append_debug_line(self, message: str) -> None:
+        """Append a debug message to the Debug Console text area."""
+        self.debug_console.append(message)
+        self.debug_console.verticalScrollBar().setValue(
+            self.debug_console.verticalScrollBar().maximum()
+        )
 
     def run_version_check(self) -> None:
         """Run the cross-manager version check scan in a worker thread."""

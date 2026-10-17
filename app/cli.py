@@ -17,6 +17,7 @@ from typing import Any
 
 from app.core.manager import PackageManager, describe_error, discover_managers, get_all_managers
 from app.core.version_scan import cmd_newest
+from app.core.debug_log import debug_log, subscribe, unsubscribe
 
 VERSION = "1.0.0"
 EXIT_OK = 0
@@ -475,6 +476,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--json", action="store_true", help="print one JSON document on stdout")
     parser.add_argument("--version", action="version", version=f"polyget {VERSION}")
+    parser.add_argument("--debug", action="store_true",
+                        help="print verbose debug logs of all package-manager operations to stderr")
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     def add(name: str, func, help_text: str) -> argparse.ArgumentParser:
@@ -544,6 +547,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # --debug: forward every debug-log message to stderr so agents and
+    # operators can watch package-manager and repo-sync operations live.
+    _debug_subscriber = None
+    if getattr(args, "debug", False):
+        def _debug_cb(msg: str) -> None:
+            _log(f"[debug] {msg}")
+        subscribe(_debug_cb)
+        _debug_subscriber = _debug_cb
+
     try:
         return args.func(args)
     except UsageError as e:
@@ -553,3 +566,6 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     except KeyboardInterrupt:
         return 130
+    finally:
+        if _debug_subscriber is not None:
+            unsubscribe(_debug_subscriber)

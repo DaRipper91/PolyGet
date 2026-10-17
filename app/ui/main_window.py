@@ -1869,10 +1869,18 @@ class MainWindow(QMainWindow):
     def _enter_debug_page(self):
         """Subscribe to the debug log stream when the Debug Console page is shown."""
         if not getattr(self, "_debug_subscribed", False):
-            from app.core.debug_log import debug_log_signal, HAVE_QT
+            from app.core.debug_log import debug_log_signal, HAVE_QT, debug_log
             if HAVE_QT and debug_log_signal is not None:
                 debug_log_signal.connect(self._append_debug_line)
             self._debug_subscribed = True
+        # Dump current state for AI tools
+        from app.core.debug_log import debug_log as _dl
+        _dl.dump_state({
+            "managers": list(self.managers.keys()),
+            "updates_cache": {k: len(v) for k, v in self.updates_cache.items()},
+            "scan_errors": self.scan_errors,
+            "selected_updates": {k: list(v) for k, v in self.selected_updates.items()},
+        })
 
     def _leave_debug_page(self):
         """Unsubscribe from the debug log stream when leaving the Debug Console page."""

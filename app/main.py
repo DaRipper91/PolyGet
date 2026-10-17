@@ -24,7 +24,7 @@ def main() -> int:
 
     # Any subcommand (or --help/--version/--json) routes to the headless CLI, so PySide6 is
     # never imported for scripted or agent use.
-    cli_flags = {"-h", "--help", "--version", "--json", "--debug"}
+    cli_flags = {"-h", "--help", "--version", "--json", "--debug", "--debug-file"}
     if len(sys.argv) > 1 and (sys.argv[1] in COMMANDS or sys.argv[1] in cli_flags):
         from app.cli import main as cli_main
         return cli_main(sys.argv[1:])

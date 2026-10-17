@@ -17,7 +17,7 @@ from typing import Any
 
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers, get_all_managers
 from app.core.version_scan import cmd_newest
-from app.core.debug_log import debug_log, subscribe, unsubscribe
+from app.core.debug_log import debug_log, subscribe, unsubscribe, _enable_file_logging
 
 VERSION = "1.0.0"
 EXIT_OK = 0
@@ -27,6 +27,7 @@ EXIT_USAGE = 2
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
     "upgrade", "install", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
+    "debug",
 )
 
 
@@ -99,12 +100,16 @@ async def _gather_per_manager(managers: list[PackageManager], method: str, *call
     """Run one async driver method across managers concurrently, capturing per-manager errors."""
 
     async def run_one(mgr: PackageManager) -> tuple[str, dict]:
+        debug_log.emit(f"[CLI] {mgr.name}.{method}({', '.join(str(a) for a in call_args)})")
         try:
             result = await getattr(mgr, method)(*call_args)
+            debug_log.emit(f"[CLI] {mgr.name}.{method} → {len(result) if hasattr(result, '__len__') else result}")
             return mgr.name, {"ok": True, "result": result}
         except NotImplementedError as e:
+            debug_log.emit(f"[CLI] {mgr.name}.{method} → unsupported: {describe_error(e)}")
             return mgr.name, {"ok": False, "unsupported": True, "error": describe_error(e)}
         except Exception as e:
+            debug_log.emit(f"[CLI] {mgr.name}.{method} → error: {describe_error(e)}")
             return mgr.name, {"ok": False, "error": describe_error(e)}
 
     pairs = await asyncio.gather(*(run_one(m) for m in managers))
@@ -120,6 +125,7 @@ def _run_command(cmd: list[str], args: argparse.Namespace) -> int:
     document printed on stdout.
     """
     _log(f"$ {' '.join(cmd)}")
+    debug_log.emit(f"[CLI] executing: {' '.join(cmd)}")
     if cmd and cmd[0] == "pkexec" and not sys.stdin.isatty():
         _log("warning: pkexec needs a polkit agent or a TTY; without one this will fail. "
              "Run the command from an interactive terminal instead.")
@@ -523,6 +529,8 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                         help="print one JSON document on stdout")
+    common.add_argument("--debug-file", action="store_true", default=argparse.SUPPRESS,
+                        help="write structured JSONL debug log to ~/.config/polyget/debug.log")
 
     parser = argparse.ArgumentParser(
         prog="polyget",
@@ -534,6 +542,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"polyget {VERSION}")
     parser.add_argument("--debug", action="store_true",
                         help="print verbose debug logs of all package-manager operations to stderr")
+    parser.add_argument("--debug-file", action="store_true",
+                        help="write structured JSONL debug log to ~/.config/polyget/debug.log")
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     def add(name: str, func, help_text: str) -> argparse.ArgumentParser:
@@ -603,12 +613,76 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("newest", cmd_newest_cli, "show packages installed on multiple managers with a newer version elsewhere")
     manager_filter(p)
     p.add_argument("--include-ignored", action="store_true", help="also show ignored packages")
+
+    p = add("debug", cmd_debug, "read/tail the structured debug log for AI tool consumption")
+    p.add_argument("--tail", type=int, default=0, help="print last N log entries")
+    p.add_argument("--state", action="store_true", help="print the state dump (current manager/update/error snapshot)")
+    p.add_argument("--clear", action="store_true", help="truncate the debug log")
     return parser
+
+
+def cmd_debug(args: argparse.Namespace) -> int:
+    """Read or tail the structured debug log for AI tool consumption."""
+    from app.core.debug_log import _DEBUG_LOG_PATH, _STATE_DUMP_PATH
+
+    # --state: dump current state and print path
+    if getattr(args, "state", False):
+        if _STATE_DUMP_PATH.exists():
+            print(_STATE_DUMP_PATH.read_text(encoding="utf-8"))
+        else:
+            print(f"No state dump yet. Path: {_STATE_DUMP_PATH}")
+        return EXIT_OK
+
+    # --clear: truncate the log
+    if getattr(args, "clear", False):
+        if _DEBUG_LOG_PATH.exists():
+            _DEBUG_LOG_PATH.write_text("", encoding="utf-8")
+            _log(f"Cleared {_DEBUG_LOG_PATH}")
+        return EXIT_OK
+
+    # --tail N: print last N lines
+    tail_n = getattr(args, "tail", 0)
+    if tail_n > 0:
+        if not _DEBUG_LOG_PATH.exists():
+            _log(f"No debug log yet. Path: {_DEBUG_LOG_PATH}")
+            _log("Enable with: polyget --debug-file <command>  or  POLYGET_DEBUG_FILE=1 polyget <command>")
+            return EXIT_OK
+        lines = _DEBUG_LOG_PATH.read_text(encoding="utf-8").splitlines()
+        for line in lines[-tail_n:]:
+            print(line)
+        return EXIT_OK
+
+    # Default: print log path and size
+    if _DEBUG_LOG_PATH.exists():
+        size = _DEBUG_LOG_PATH.stat().st_size
+        lines = _DEBUG_LOG_PATH.read_text(encoding="utf-8").splitlines()
+        print(f"Debug log: {_DEBUG_LOG_PATH} ({size} bytes, {len(lines)} entries)")
+        print(f"State dump: {_STATE_DUMP_PATH}")
+        print()
+        print("Usage:")
+        print("  polyget debug --tail 50     # last 50 entries")
+        print("  polyget debug --state       # print state dump")
+        print("  polyget debug --clear       # truncate log")
+        print()
+        print("Enable file logging:")
+        print("  polyget --debug-file <command>     # one-shot")
+        print("  POLYGET_DEBUG_FILE=1 polyget <cmd> # env var")
+    else:
+        print(f"No debug log yet. Path: {_DEBUG_LOG_PATH}")
+        print()
+        print("Enable file logging:")
+        print("  polyget --debug-file <command>     # one-shot")
+        print("  POLYGET_DEBUG_FILE=1 polyget <cmd> # env var")
+    return EXIT_OK
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # --debug-file: enable structured JSONL file logging (root or subcommand level)
+    if getattr(args, "debug_file", False):
+        _enable_file_logging()
 
     # --debug: forward every debug-log message to stderr so agents and
     # operators can watch package-manager and repo-sync operations live.

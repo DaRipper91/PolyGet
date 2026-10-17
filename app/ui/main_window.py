@@ -4,6 +4,7 @@ import asyncio
 import shutil
 import shlex
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QUrl, QSettings, QTimer
@@ -14,7 +15,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
-    QApplication
+    QApplication, QSizePolicy, QStyle
 )
 from app.core.arch import describe_system
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
@@ -23,6 +24,10 @@ from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
 from app.core.sudo_secret import load as load_sudo_password
 from app.core.debug_log import debug_log
+from app.ui.sidebar import (
+    DEFAULT_HEADER_STYLE, DEFAULT_NAV_STYLE, HEADER_STYLES, NAV_STYLES, BannerHeader,
+    BrandHeader, GroupedNav, NavEntry, RailNav, StatusCard,
+)
 
 
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
@@ -941,6 +946,8 @@ def set_autostart(enabled: bool) -> None:
 _TOUCH_QSS = """
 QPushButton { min-height: 44px; }
 QListWidget#nav-list::item { padding: 14px; }
+QPushButton#nav-button { min-height: 44px; padding: 4px 12px; }
+QToolButton#rail-button { min-height: 52px; }
 QCheckBox { spacing: 14px; min-height: 44px; }
 QCheckBox::indicator { width: 30px; height: 30px; border-radius: 6px; }
 QLineEdit, QComboBox, QSpinBox { min-height: 44px; }
@@ -955,6 +962,25 @@ QScrollBar:horizontal { height: 16px; }
 # Sidebar rows and stacked pages share these indices; keep them in setup_ui's order.
 (PAGE_UPDATES, PAGE_VERSION_CHECK, PAGE_STORE, PAGE_CONSOLE, PAGE_BLUEPRINTS,
  PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS, PAGE_DEBUG) = range(10)
+
+# (page, label, short rail label, icon-theme name) for the grouped and rail sidebar styles.
+_NAV_PAGES = [
+    (PAGE_UPDATES, "Updates", "Updates", "system-software-update"),
+    (PAGE_VERSION_CHECK, "Version Check", "Versions", "view-refresh"),
+    (PAGE_STORE, "Browse Store", "Store", "emblem-downloads"),
+    (PAGE_CONSOLE, "Process Console", "Console", "utilities-terminal"),
+    (PAGE_BLUEPRINTS, "Blueprints", "Blueprints", "document-properties"),
+    (PAGE_MANAGERS, "Package Managers", "Managers", "preferences-system"),
+    (PAGE_REPOS, "Repositories", "Repos", "applications-internet"),
+    (PAGE_HISTORY, "Update History", "History", "document-open-recent"),
+    (PAGE_SETTINGS, "Settings", "Settings", "configure"),
+    (PAGE_DEBUG, "Debug Console", "Debug", "dialog-information"),
+]
+_NAV_GROUPS = [
+    ("Software", [PAGE_UPDATES, PAGE_STORE, PAGE_VERSION_CHECK]),
+    ("System", [PAGE_MANAGERS, PAGE_REPOS, PAGE_BLUEPRINTS]),
+    ("Activity", [PAGE_CONSOLE, PAGE_HISTORY, PAGE_DEBUG]),
+]
 
 
 @dataclass
@@ -1022,7 +1048,12 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
         self.apply_touch_mode()
+        self.apply_sidebar_style()
         self.restore_window_state()
+        # Keeps the status card's "Checked N min ago" current between scans.
+        self.sidebar_clock = QTimer(self)
+        self.sidebar_clock.timeout.connect(self.refresh_sidebar_status)
+        self.sidebar_clock.start(60_000)
         self.setup_tray()
         self._setup_keyboard_shortcuts()
 
@@ -1047,27 +1078,29 @@ class MainWindow(QMainWindow):
         self._build_terminal_overlay(main_layout)
 
         # --- Sidebar Panel ---
+        # Every sidebar widget is built once here; apply_sidebar_style() picks which ones are
+        # shown, and in what order, for the header and navigation styles chosen in Settings.
         sidebar_widget = QWidget()
         sidebar_widget.setObjectName("sidebar-panel")
+        self.sidebar_widget = sidebar_widget
         sidebar_layout = QVBoxLayout(sidebar_widget)
+        self.sidebar_layout = sidebar_layout
         sidebar_layout.setContentsMargins(12, 12, 12, 12)
         sidebar_layout.setSpacing(12)
 
-        # Sidebar Header Banner
-        banner_widget = QWidget()
-        banner_widget.setObjectName("sidebar-banner")
-        banner_layout = QVBoxLayout(banner_widget)
-        banner_layout.setContentsMargins(15, 15, 15, 15)
-        banner_layout.setSpacing(4)
-        
-        lbl_banner_title = QLabel("POLYGET")
-        lbl_banner_title.setObjectName("banner-title")
-        lbl_banner_subtitle = QLabel("Unified Software Hub")
-        lbl_banner_subtitle.setObjectName("banner-subtitle")
-        
-        banner_layout.addWidget(lbl_banner_title)
-        banner_layout.addWidget(lbl_banner_subtitle)
-        sidebar_layout.addWidget(banner_widget)
+        self.header_banner = BannerHeader()
+        self.header_brand = BrandHeader()
+        self.header_status = StatusCard()
+        self.rail_mark = QLabel()
+        self.rail_mark.setObjectName("rail-mark")
+        self.rail_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.rail_mark.setPixmap(self.header_brand.icon.pixmap().scaled(
+            40, 40, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        self.rail_mark.setToolTip("PolyGet")
+        self.last_scan_at: float | None = None
+        self.sidebar_header_style = DEFAULT_HEADER_STYLE
+        self.sidebar_nav_style = DEFAULT_NAV_STYLE
+        sidebar_layout.addWidget(self.header_banner)
         sidebar_layout.setContentsMargins(12, 12, 12, 12)
         sidebar_layout.setSpacing(12)
 
@@ -1146,13 +1179,27 @@ class MainWindow(QMainWindow):
         self.nav_list.currentRowChanged.connect(self.change_page)
         sidebar_layout.addWidget(self.nav_list)
 
+        # Grouped and rail views mirror nav_list rather than replacing it, so every
+        # nav_list.setCurrentRow(PAGE_X) call elsewhere keeps driving whichever view is shown.
+        nav = {page: NavEntry(page, label, short, icon) for page, label, short, icon in _NAV_PAGES}
+        groups = [(title, [nav[p] for p in pages]) for title, pages in _NAV_GROUPS]
+        self.nav_grouped = GroupedNav(groups, [nav[PAGE_SETTINGS]])
+        self.nav_rail = RailNav([nav[p] for _, pages in _NAV_GROUPS for p in pages], [nav[PAGE_SETTINGS]])
+        for view in (self.nav_grouped, self.nav_rail):
+            view.page_selected.connect(self.nav_list.setCurrentRow)
+            view.set_current(PAGE_UPDATES)
+            view.hide()
+        self.nav_list.currentRowChanged.connect(self._sync_nav_views)
+
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("background-color: #374151;")
+        self.sources_line = line
         sidebar_layout.addWidget(line)
 
         lbl_sources = QLabel("Active Repositories")
         lbl_sources.setObjectName("sidebar-title")
+        self.lbl_sources = lbl_sources
         sidebar_layout.addWidget(lbl_sources)
 
         self.status_list = QListWidget()
@@ -1185,6 +1232,7 @@ class MainWindow(QMainWindow):
         updates_layout.setSpacing(15)
 
         updates_header = QHBoxLayout()
+        self.updates_header = updates_header  # the rail style moves the filter box in here
         self.lbl_summary = QLabel("Checking for updates...")
         self.lbl_summary.setObjectName("summary-label")
         self.lbl_summary.setWordWrap(True)
@@ -1694,6 +1742,73 @@ class MainWindow(QMainWindow):
                 font-weight: 600;
                 color: #313244;
             }
+            QLabel#brand-name {
+                font-size: 17px;
+                font-weight: 700;
+                color: #cdd6f4;
+            }
+            QLabel#brand-subtitle {
+                font-size: 12px;
+                color: #a6adc8;
+            }
+            QFrame#status-card {
+                background-color: #181825;
+                border: 1px solid #313244;
+                border-radius: 10px;
+            }
+            QFrame#status-card QLabel {
+                background: transparent;
+            }
+            QLabel#status-count {
+                font-size: 30px;
+                font-weight: 800;
+                color: #cdd6f4;
+            }
+            QLabel#status-checked {
+                font-size: 11px;
+                color: #7f849c;
+            }
+            QLabel#nav-section {
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: 1px;
+                color: #7f849c;
+                padding: 12px 10px 4px 10px;
+            }
+            QPushButton#nav-button {
+                background-color: transparent;
+                color: #a6adc8;
+                font-weight: normal;
+                text-align: left;
+                padding: 9px 10px;
+                border-radius: 8px;
+            }
+            QPushButton#nav-button:hover {
+                background-color: #181825;
+                color: #cdd6f4;
+            }
+            QPushButton#nav-button:checked {
+                background-color: #313244;
+                color: #cdd6f4;
+                font-weight: bold;
+            }
+            QToolButton#rail-button {
+                background-color: transparent;
+                color: #a6adc8;
+                border: none;
+                border-radius: 10px;
+                padding: 6px 2px;
+                font-size: 11px;
+            }
+            QToolButton#rail-button:hover {
+                background-color: #181825;
+                color: #cdd6f4;
+            }
+            QToolButton#rail-button:checked {
+                background-color: #313244;
+                color: #cdd6f4;
+                font-weight: bold;
+            }
             QLabel#sidebar-title {
                 font-weight: bold;
                 color: #89b4fa;
@@ -2064,27 +2179,124 @@ class MainWindow(QMainWindow):
     def update_updates_badge(self) -> None:
         """Refresh the pending-updates count badge on the sidebar's "System Updates" row."""
         total = sum(len(u) for u in self.updates_cache.values())
+        style = ("background-color: #89b4fa; color: #11111b; border-radius: 9px; "
+                 "padding: 1px 7px; font-weight: bold; font-size: 11px;")
         if total > 0:
             self.nav_updates_badge.setText(str(total))
-            self.nav_updates_badge.setStyleSheet(
-                "background-color: #89b4fa; color: #11111b; border-radius: 9px; "
-                "padding: 1px 7px; font-weight: bold; font-size: 11px;"
-            )
+            self.nav_updates_badge.setStyleSheet(style)
             self.nav_updates_badge.setVisible(True)
         else:
             self.nav_updates_badge.setVisible(False)
+        for view in (self.nav_grouped, self.nav_rail):
+            view.set_badge(PAGE_UPDATES, str(total) if total else "", style)
+        self.refresh_sidebar_status()
 
     def update_version_check_badge(self, count: int) -> None:
         """Refresh the version-check suggestions count badge."""
+        style = ("background-color: #f9e2af; color: #11111b; border-radius: 9px; "
+                 "padding: 1px 7px; font-weight: bold; font-size: 11px;")
         if count > 0:
             self.nav_version_check_badge.setText(str(count))
-            self.nav_version_check_badge.setStyleSheet(
-                "background-color: #f9e2af; color: #11111b; border-radius: 9px; "
-                "padding: 1px 7px; font-weight: bold; font-size: 11px;"
-            )
+            self.nav_version_check_badge.setStyleSheet(style)
             self.nav_version_check_badge.setVisible(True)
         else:
             self.nav_version_check_badge.setVisible(False)
+        for view in (self.nav_grouped, self.nav_rail):
+            view.set_badge(PAGE_VERSION_CHECK, str(count) if count > 0 else "", style)
+
+    def _sync_nav_views(self, page: int) -> None:
+        """Mirror nav_list's current row onto the grouped and rail views."""
+        for view in (self.nav_grouped, self.nav_rail):
+            view.set_current(page)
+
+    def refresh_sidebar_status(self) -> None:
+        """Update the brand subtitle and the status card from the latest scan state."""
+        from app.core.distro import get_distro_name
+        count = len(self.managers)
+        parts = [get_distro_name()]
+        if count:
+            parts.append(f"{count} manager{'' if count == 1 else 's'}")
+        self.header_brand.set_subtitle(" · ".join(p for p in parts if p))
+        counts = {name: len(pkgs) for name, pkgs in self.updates_cache.items()}
+        self.header_status.update_status(counts, self.scan_in_progress, self.last_scan_at)
+
+    def apply_sidebar_style(self) -> None:
+        """Lay the sidebar out for the header and navigation styles saved in Settings.
+
+        Safe to call live: widgets are only re-slotted and shown/hidden, never rebuilt, so
+        scan state, badges, the filter text, and the current page all carry over.
+        """
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        header = settings.get("ui.sidebar_header", DEFAULT_HEADER_STYLE)
+        nav = settings.get("ui.sidebar_nav", DEFAULT_NAV_STYLE)
+        header = header if header in HEADER_STYLES else DEFAULT_HEADER_STYLE
+        nav = nav if nav in NAV_STYLES else DEFAULT_NAV_STYLE
+        was_rail = self.sidebar_nav_style == "rail"
+        self.sidebar_header_style, self.sidebar_nav_style = header, nav
+        rail = nav == "rail"
+
+        layout = self.sidebar_layout
+        while layout.count():
+            layout.takeAt(0)  # widgets stay parented to the sidebar; only their slots go
+        for widget in (self.header_banner, self.header_brand, self.header_status, self.rail_mark,
+                       self.nav_list, self.nav_grouped, self.nav_rail,
+                       self.sources_line, self.lbl_sources, self.status_list):
+            widget.hide()
+        self.header_status.button_slot.removeWidget(self.btn_scan)
+        self.updates_header.removeWidget(self.search_bar)
+
+        if rail:
+            # Too narrow for a header, filter box or button labels: show the app mark, move the
+            # filter onto the Updates page, and turn the two actions into icon buttons.
+            layout.setContentsMargins(6, 12, 6, 12)
+            shown = [self.rail_mark, self.nav_rail]
+            self.updates_header.insertWidget(1, self.search_bar)
+            self.search_bar.setMaximumWidth(self._px(260))
+            self.sidebar_widget.setFixedWidth(RailNav.WIDTH + 12)
+        else:
+            layout.setContentsMargins(12, 12, 12, 12)
+            header_widget = {"banner": self.header_banner, "brand": self.header_brand,
+                             "status": self.header_status}[header]
+            shown = [header_widget, self.search_bar,
+                     self.nav_grouped if nav == "grouped" else self.nav_list]
+            # The status card already shows per-manager counts, so the list would repeat it.
+            if header != "status":
+                shown += [self.sources_line, self.lbl_sources, self.status_list]
+            self.search_bar.setMaximumWidth(16777215)
+            self.sidebar_widget.setMinimumWidth(0)
+            self.sidebar_widget.setMaximumWidth(16777215)
+            if was_rail:
+                sizes = self.main_splitter.sizes()
+                if sizes:
+                    self.main_splitter.setSizes([250, max(sum(sizes) - 250, 400)])
+        # The grouped view stretches to pin Settings to the bottom; when the status list is
+        # below it, let the list take the spare height instead.
+        status_list_shown = self.status_list in shown
+        self.nav_grouped.setSizePolicy(
+            QSizePolicy.Policy.Preferred,
+            QSizePolicy.Policy.Maximum if status_list_shown else QSizePolicy.Policy.Preferred)
+        for widget in shown:
+            layout.addWidget(widget)
+            widget.show()
+
+        if not rail and header == "status":
+            self.header_status.button_slot.addWidget(self.btn_scan)
+        else:
+            layout.addWidget(self.btn_scan)
+        layout.addWidget(self.btn_refresh_repos)
+        self.search_bar.show()
+
+        reload_icon = QIcon.fromTheme(
+            "view-refresh", self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        sync_icon = QIcon.fromTheme(
+            "emblem-synchronizing", self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
+        for button, text, icon in ((self.btn_scan, "Check for Updates", reload_icon),
+                                   (self.btn_refresh_repos, "Sync Repositories", sync_icon)):
+            button.setText("" if rail else text)
+            button.setIcon(icon if rail else QIcon())
+            button.setToolTip(text if rail else "")
+        self.refresh_sidebar_status()
 
     def change_page(self, index: int):
         if index >= 0:
@@ -2319,6 +2531,37 @@ class MainWindow(QMainWindow):
         font_layout.addWidget(font_spin)
         font_layout.addStretch()
         layout.addWidget(font_row)
+
+        heading("Sidebar", "How the sidebar's header and page list look. Changes apply right away.")
+
+        def style_choice(text: str, key: str, styles: dict[str, str], default: str) -> QComboBox:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(QLabel(text))
+            combo = QComboBox()
+            combo.setAccessibleName(text)
+            for value, label in styles.items():
+                combo.addItem(label, value)
+            current = combo.findData(settings.get(key, default))
+            combo.setCurrentIndex(current if current >= 0 else combo.findData(default))
+            combo.currentIndexChanged.connect(
+                lambda _i, c=combo, k=key: (settings.set(k, c.currentData()), self.apply_sidebar_style(),
+                                            sync_header_enabled()))
+            row_layout.addWidget(combo)
+            row_layout.addStretch()
+            layout.addWidget(row)
+            return combo
+
+        header_combo = style_choice("Header", "ui.sidebar_header", HEADER_STYLES, DEFAULT_HEADER_STYLE)
+        nav_combo = style_choice("Navigation", "ui.sidebar_nav", NAV_STYLES, DEFAULT_NAV_STYLE)
+
+        def sync_header_enabled() -> None:
+            # The icon rail is too narrow for any header; it shows just the app icon.
+            rail = nav_combo.currentData() == "rail"
+            header_combo.setEnabled(not rail)
+            header_combo.setToolTip("The icon rail shows only the app icon" if rail else "")
+        sync_header_enabled()
 
         heading("Sudo password",
                 "The GUI caches your sudo password in the system keyring so pkexec can "
@@ -2702,6 +2945,7 @@ class MainWindow(QMainWindow):
             self.log("⚠️ No active package managers found.")
             self.scan_in_progress = False
             self.btn_scan.setEnabled(True)
+            self.refresh_sidebar_status()
             return
 
         for mgr in available:
@@ -2783,6 +3027,8 @@ class MainWindow(QMainWindow):
 
     def handle_scan_finished(self) -> None:
         self.scan_in_progress = False
+        self.last_scan_at = time.time()
+        self.refresh_sidebar_status()
         if self.active_operation is None:
             self.btn_scan.setEnabled(True)
         if self.pending_verification is not None:
@@ -3702,7 +3948,7 @@ class MainWindow(QMainWindow):
             self.setStyleSheet(self.styleSheet() + _TOUCH_QSS)
             # Wider sidebar so the fatter scrollbar doesn't clip the nav labels.
             sizes = self.main_splitter.sizes()
-            if sizes and sizes[0] < 300:
+            if sizes and sizes[0] < 300 and self.sidebar_nav_style != "rail":
                 self.main_splitter.setSizes([300, max(sum(sizes) - 300, 400)])
         for i in range(self.nav_list.count()):
             item = self.nav_list.item(i)

@@ -67,6 +67,8 @@ class SettingsStore:
                 "scan_on_launch": True,
                 "confirm_commands": True,  # show the exact command before PolyGet runs it
                 "touch_mode": False,
+                "sidebar_header": "banner",  # banner | brand | status (see app/ui/sidebar.py)
+                "sidebar_nav": "list",  # list | grouped | rail
             },
             "tray": {
                 "enabled": False,  # tray icon, close-to-tray, and background scans

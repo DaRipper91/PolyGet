@@ -1,6 +1,6 @@
 # CachyOS Beta → Asahi Review Handoff
 
-**Branch under review:** `CachyOS/BETA-FEATURES` · **Head:** `0d32a2c` (code: `2e86ecc`) ·
+**Branch under review:** `CachyOS/BETA-FEATURES` · **Commits on top of `master`:** `2e86ecc` (drivers), `0d32a2c` (branching doc + guard), plus the commit carrying this report ·
 **Written:** 2026-10-16 on the CachyOS desktop (Arch, x86_64) · **Reader:** the Asahi laptop (Fedora, aarch64)
 
 > **Nothing here has been merged into `master`, and nothing should be until Asahi has reviewed it.**

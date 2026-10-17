@@ -1,45 +1,37 @@
 # Agent Report
 
 ## Summary
-Machine: CachyOS desktop (x86_64, arch). `CachyOS/BETA-FEATURES`: GitHub has `9414a8a`; this machine holds unpushed local commits (nothing pushed this turn).
-GitHub: `master` `dfea6a5` (Asahi's stable), `Asahi/BETA-FEATURES` `9b82358`.
+Machine: CachyOS desktop (x86_64, arch). **GitHub `master` is now `c1d38e8`** (promoted from `CachyOS/stable-candidate`). `CachyOS/BETA-FEATURES` on GitHub is still `9414a8a`;
+this machine holds 4 unpushed local commits on it (including this one). `Asahi/BETA-FEATURES` is `9b82358`.
 
-**This turn: acted on Asahi's review of the stable candidate.**
-- Found and read (read-only, over ssh) `~/Documents/PolyGet-review-of-stable-candidate-dbd1fbc.md` on Asahi. Verdict there: the candidate works on aarch64/Fedora
-  (330 passed on the M1), two findings, and the user decided CachyOS fixes both on `CachyOS/stable-candidate`.
-- **Finding 1 (uv, fixed):** tools installed from a directory/path/git/url/`editable` source were compared with an unrelated same-named PyPI project.
-  `uv.py` now reads `uv-receipt.toml` (tomllib, with a bracket-aware text fallback for Python 3.10) and skips them with no lookup. Verified against
-  the real receipts here (my own `agentdeck`/`hexmind` use `editable`, which the review's key list lacked; `aider-chat`'s receipt is multi-line);
-  reproduced the false positive with the fix disabled. Pipx NOT changed (could not reproduce; stable's code).
-- **Finding 2 (GUI, fixed):** an unbuildable upgrade now also lands in `upgrade_results` via `_record_unbuildable()`, so the end-of-run dialog and Retry
-  include it; if every queued manager is unbuildable a warning dialog names them. 3 tests fail on the pre-fix code.
-- Candidate is now `c1d38e8` (= `dbd1fbc` + one fix commit; 353 passed; lint clean; no governance files; real CLI exit 0, real GUI scan 0 errors).
-- **Agreement (user): peer access is strictly read-only both ways, no exception for temp files.** Measured: /tmp is RAM-backed tmpfs on both machines
-  (Asahi 3.7 GiB cap, ~3.2 GiB free of 7.3); both run uid 1000 over rw sshfs, so it is an agreement not an enforced boundary.
-- `scripts/review-export.sh`: README fetch hint now follows PEER_MOUNT (it hard-coded da-nvme, wrong for exports made on Asahi); added a note about the
-  ~20 s sshfs cache (measured: Asahi saw a stale -latest link right after a rebuild, correct 15 s later).
-- `docs/reports/ASAHI-REVIEW-CANDIDATE-2026-10-17.md` rewritten (v2): response to the review, corrected numbers, the read-only agreement, an audit of every
-  action on Asahi, and **section 9: instructions for Asahi to create its own `~/Projects/_devices/` and `~/Projects/_review/`** (the user asked for this).
-  Export rebuilt at `c1d38e8` and verified from Asahi with read-only commands (hashes match, 145 files).
-- Slips owned: I again sent a bash-style one-liner over ssh to a fish login shell (always use `bash -s` on stdin); one duplicate import caught by lint
-  and fixed before sharing. Earlier: one temp dir on Asahi's /tmp (disclosed; will not recur).
+**This turn: the user said "promote that to master, apply the edits, then suggest what's next."**
+- **Promotion (user-approved, explicit):** pre-flight first: `repo-check --promoting --peer asahi` had no ALERT; Asahi clean and in sync at `dfea6a5`; the candidate was a pure
+  fast-forward of 2 commits (35 files), no governance files, `AGENTS.md` untouched; 353 passed on the exact commit; the 4 pyflakes hits already existed on master (0 new).
+  Pushed `CachyOS/stable-candidate:master` through the guarded hook with the deliberate override (`dfea6a5..c1d38e8`). Verified: master's tree == the candidate's tree.
+  **Unmet checklist item, disclosed:** "tests green on both machines" was met for `dbd1fbc` on the M1 (330 passed, per Asahi) but NOT yet for `c1d38e8`; the user approved anyway.
+  Local `master` fast-forwarded. Asahi's local master is now 2 behind (repo-check flags it); I do not write to Asahi.
+- **BRANCHING.md edits applied** on the beta (the 3 edits from the note): the note's own assert passed and the file hashes to `e9945a2d…`, byte-identical to Asahi's pushed `9b82358` (0-line diff).
+  The two older CachyOS reports were reworded to the new check-it-yourself rule for new managers.
+- The Asahi report (`docs/reports/ASAHI-REVIEW-CANDIDATE-2026-10-17.md`) now opens with a PROMOTED banner and tells Asahi to fast-forward its master and re-run `c1d38e8` on the M1
+  as a post-promotion verification (rollback = a revert commit, never a force-push). Export rebuilt and verified from Asahi's side (hashes match).
+- Measured for "what's next": merging `origin/master` into this beta conflicts in 6 files (cli.py, uv.py, settings_store.py, main_window.py, tests/conftest.py, tests/test_uv_driver.py)
+  because the candidate was squashed; master's versions are newer, so they resolve by taking master's side.
 
 ## Feature / Task Status
-- OK Both review findings fixed, tested, verified on real CachyOS tools; export rebuilt and verified from Asahi's side
-- OK Report for Asahi (v2) with folder-setup instructions
-- OPEN `c1d38e8` on aarch64 (Asahi re-runs); push decisions (beta commits, candidate); `BRANCHING.md` sync (3 edits, hash e9945a2d… matches Asahi's pushed 9b82358; NOT applied)
-- NOT DONE Homebrew/Conda/Deno/Distrobox/Nix on real binaries (absent on both machines); Pipx local-source exposure
+- OK Candidate promoted to master and verified landed exactly; BRANCHING.md synced to Asahi's copy
+- OPEN `c1d38e8` on aarch64 (Asahi); merging master into this beta; pushing this beta; cleaning up the candidate branch/worktree/export
+- NOT DONE Homebrew/Conda/Deno/Distrobox/Nix on real binaries; Pipx local-source exposure; `arch:` data; GUI for tracked project dirs
 
 ## What the Next Agent Should Do First
-1. `scripts/repo-check.sh --peer asahi`. Read-only toward Asahi, no exceptions (no temp files); use `bash -s` for ssh; `git --no-optional-locks`. Never push without the user.
-2. After any candidate change: `scripts/review-export.sh CachyOS/stable-candidate master --force --report <report> --tested "<what ran>"`, then wait ~25 s before verifying from Asahi.
-3. Waiting on the user: apply the 3 `BRANCHING.md` edits? merge `origin/master` into the beta? push the beta / the candidate?
+1. `scripts/repo-check.sh --peer asahi` (read-only toward Asahi: no writes, no temp files; ssh via `bash -s`; `git --no-optional-locks`). Never push without the user; master pushes need the deliberate override.
+2. Expected until Asahi acts: Asahi's local master is behind `origin/master`. That is its to fix.
+3. The merge of master into this beta: take master's side for the 6 feature files; keep the beta's governance files.
 4. Keep the contracts: `[]` ran and found nothing / `DriverError` query broke / `NotImplementedError` unsupported; catalog `name` == driver `name`.
 
 ## Blocking Issues
-None. Open decisions are the push / merge / BRANCHING-sync items above.
+None. Open: the M1 verification of c1d38e8, and the user's decisions on the suggestions below.
 
 ## Build / Test Status
-- Build: OK (candidate CLI/GUI/TUI run clean; review export verified from Asahi)
-- Lint:  OK no pyflakes/syntax errors in changed files (no ruff config in the repo)
-- Tests: OK 348 passed on the beta; candidate 353; stable alone 226. x86_64 only (Asahi reports 330 passed on the M1 for dbd1fbc).
+- Build: OK (candidate CLI/GUI/TUI verified before promotion)
+- Lint:  OK no new findings (the 4 pyflakes hits pre-date the promotion and exist on master)
+- Tests: OK 348 passed on this beta; master (== candidate) 353 on CachyOS; Asahi reports 330 passed for dbd1fbc on the M1. x86_64 only for c1d38e8.

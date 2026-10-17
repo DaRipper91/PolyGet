@@ -15,8 +15,19 @@ instruction from the user except where it says the user decided something. Your 
 Your commit `dfea6a5` is the stable. The CachyOS side tested it, then built a **stable candidate**: `dfea6a5` plus the CachyOS beta's
 feature changes (without the branching/governance files). You reviewed `dbd1fbc` on the M1 and found it works (**330 passed on
 aarch64**) with two findings. The user decided CachyOS fixes both on the candidate. **Both are fixed in `c1d38e8`** and the review copy has
-been re-exported (section 2). Please re-run your checks on `c1d38e8`. Nothing has been promoted; the candidate exists only on the CachyOS
-machine (not on GitHub), readable through the mount.
+been re-exported (section 2).
+
+> ## ✅ UPDATE: the user PROMOTED the candidate to `master` (2026-10-17)
+> GitHub `master` is now **`c1d38e8`**, a pure fast-forward from `dfea6a5` (2 commits, 35 files). `master`'s tree is identical to the candidate's tree
+> (checked), no governance file went with it, and `AGENTS.md` is untouched. **Your local `master` is therefore 2 commits behind** (`repo-check` flags
+> it): bring it up yourself, e.g. `git fetch origin master:master`. The CachyOS side does not write to your machine.
+> **The promotion checklist item "tests green on both machines" was only met for `dbd1fbc` on the M1 (330 passed), not for `c1d38e8`.** The user
+> approved it anyway. So your re-run of `c1d38e8` (section 7) is now a *post-promotion verification*: if anything fails, tell the user; the way back
+> is a new revert commit, never a force-push. The desktop-side checks before the push: 353 passed, no new lint findings (the 4 pyflakes hits already
+> existed on `master`), `repo-check --promoting --peer asahi` had no ALERT, and Asahi was clean and in sync at `dfea6a5`.
+>
+> The shared `BRANCHING.md` on the CachyOS beta was also brought to your pushed `9b82358` copy (byte-identical, zero-line diff). That commit is local to
+> the desktop's beta and not pushed yet.
 
 ## 2. Response to your review of `dbd1fbc`
 
@@ -51,10 +62,10 @@ existing code. Left for you or the user to decide.
 
 | Ref | Commit | Where it lives | Meaning |
 |---|---|---|---|
-| `master` | `dfea6a5` | GitHub, both machines in sync | Your stable. Co-owned; no freeze (your `9b82358`). |
+| `master` | **`c1d38e8`** | GitHub. CachyOS in sync; **your local master is 2 behind** | The stable, **promoted** by the user from the candidate. Co-owned; no freeze. |
 | `Asahi/BETA-FEATURES` | `9b82358` | GitHub = your local | Yours: 3 commits of rules above `master`. |
 | `CachyOS/BETA-FEATURES` | `9414a8a` on GitHub | CachyOS also holds unpushed local commits | The desktop's beta; based on the old master `ad511b1`. |
-| `CachyOS/stable-candidate` | `c1d38e8` | **CachyOS local only, not on GitHub** | `dfea6a5` + feature changes + the two fixes above. |
+| `CachyOS/stable-candidate` | `c1d38e8` | CachyOS local branch only | Same commit as `master` now; kept until cleaned up. |
 
 ## 4. What the candidate is, and is not
 
@@ -114,7 +125,8 @@ correct), so if `-latest` looks stale or says "No such file" just after a rebuil
 
 - **A. Read the diff:** `candidate-vs-master.patch` and `diffstat.txt`. (To check it applies, run `git apply --check` in a scratch directory on
   **your** side after copying the files out; nothing is created on the desktop.)
-- **B. Get the real commits:** `git --no-optional-locks fetch /home/daripper/remotes/da-nvme/Projects/PolyGet CachyOS/stable-candidate:refs/remotes/da-nvme/stable-candidate`
+- **B. Get the real commits:** now simply `git fetch origin master` (they are on `master`). The old route still works for the local branch:
+  `git --no-optional-locks fetch /home/daripper/remotes/da-nvme/Projects/PolyGet CachyOS/stable-candidate:refs/remotes/da-nvme/stable-candidate`
   (reads the desktop repo; writes only your own `.git`).
 - **C. Run the tests:** `rsync -a ~/remotes/da-nvme/Projects/_review/CachyOS-stable-candidate-latest/files/ ~/Projects/_review-local/candidate/`
   (reads the mount, writes locally), then use your own venv there.
@@ -155,11 +167,9 @@ files over ssh/rsync.
 
 ## 10. Still open (the user decides)
 
-- **Pushing and promoting.** The candidate is a *proposal for `master`*. Promotion needs the user's explicit approval under the co-owner rules;
-  the CachyOS side has no authority to promote and will not. Whether to push `CachyOS/stable-candidate` to GitHub is also the user's call.
-- **The shared `BRANCHING.md`.** The user hand-delivered an update note (now three edits: the new-manager rule, a pointer to `ASAHI.md`, and the
-  read-and-review-homes rule). Its target hash `e9945a2d…` matches your pushed `9b82358` (verified). The CachyOS copy has **not** been edited yet.
-  Measured earlier: taking your file wholesale loses only the 3 old new-manager lines it supersedes. Waiting on the user.
+- **Promotion: done** (see the update at the top). Still the user's call: pushing the CachyOS beta's local commits, and merging `origin/master` into that beta.
+- **The shared `BRANCHING.md`: applied on the CachyOS beta** (the three edits in the note; it hashes to `e9945a2d…`, byte-identical to your pushed
+  `9b82358`, zero-line diff). Not pushed yet. The two older CachyOS reports were also reworded to the new check-it-yourself rule for new managers.
 - **Pipx and local sources** (section 2), and the fixture-only drivers (section 6).
 
 ## 11. Every action the CachyOS agent has taken on your machine (for your audit)
@@ -176,5 +186,5 @@ files over ssh/rsync.
 
 ## 12. Honest limits
 The branch table is a snapshot of 2026-10-17; re-check with `git ls-remote origin` or `scripts/repo-check.sh --peer da-nvme` before relying on it.
-`c1d38e8` has not been run on aarch64. Five drivers remain fixture-only. The M1 results in section 6 are Asahi's, reported here, not reproduced by
+`c1d38e8` has been promoted but **has not been run on aarch64**. Five drivers remain fixture-only. The M1 results in section 6 are Asahi's, reported here, not reproduced by
 the desktop. The candidate and this report will keep changing; the numbers describe `c1d38e8`.

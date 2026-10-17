@@ -273,7 +273,8 @@ tables above over the code.
 `python run.py managers` must **not** show AUR (Arch-only) and must **not** show Bundler/Gradle until you run
 `projects add`. Run `python run.py outdated` and a GUI scan: DNF and Flatpak sit on the path whose error handling changed.
 
-**Step 3. 🔔 ASK THE USER about every new manager. Do not probe or install anything first.**
+**Step 3. New managers: check for each one yourself (read-only), report only the ones you actually find, then ask.** *(Updated: the user
+changed this rule on 2026-10-17; it is now in `BRANCHING.md`. Agents no longer ask before checking.)*
 Notice every manager the branch adds that your side doesn't have, plus any added after this document was written:
 
 ```bash
@@ -281,9 +282,10 @@ git diff --name-status origin/master...origin/CachyOS/BETA-FEATURES -- app/core/
 python run.py catalog --json
 ```
 
-For each, ask whether to **(a) check this system for it**, **(b) install it** (using its catalog `self_install` command for
-Fedora/aarch64, if one exists), or **(c) neither**. Never run an install on your own initiative and never use a command you
-invented. Some have no install command on purpose: **Homebrew** (piped-script installer), and **`uv`/`deno` on Fedora**
+For each: **check the system and its projects yourself, read-only** (is its tool here, and does a project on this machine use it?). Report
+**only the managers you actually found**; managers not found need no report. For each one found, ask the user whether to **ignore** it,
+**install** it (using its catalog `self_install` command for Fedora/aarch64, if one exists), or **add** it to PolyGet. Do not install, enable,
+or add anything before they answer, and never use a command you invented. Some have no install command on purpose: **Homebrew** (piped-script installer), and **`uv`/`deno` on Fedora**
 (the unverified `dnf install` lines were removed). **AUR must not be offered on Fedora.**
 
 **Step 4. Implement the architecture ruling for Asahi: aarch64 / the M1, and only that.** The ruling is the same one

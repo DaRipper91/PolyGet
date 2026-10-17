@@ -79,10 +79,16 @@ Run `python run.py system` and match it before writing a report or pushing:
 
 If what you are on does not match the branch you are about to write to, **stop and ask the user.**
 
+Machine-specific rules: Asahi agents also follow `ASAHI.md`.
+
 ## Sharing the repo between the machines (Tailscale + ssh/rsync)
 
 Both machines can reach each other with plain ssh over Tailscale. That lets either one read the other's real checkout,
 uncommitted work included. **The other machine's repo is only ever read; never sync into a working repo.**
+
+- **Either machine may read and review the other's local files and whole user home**, not only the repo, over Tailscale
+  (it works off the local network). Read and review only: never write, edit, run, or delete anything on the other machine.
+  Where each machine mounts the other's home is in its own machine rules.
 
 - `scripts/peer-snapshot.sh --git [peer]`: fetch the peer's *committed* branches as `peer-<name>/*`.
 - `scripts/peer-snapshot.sh --go [peer]`: rsync its working tree into `~/Projects/_devices/<peer>/PolyGet`, read-only.
@@ -107,9 +113,11 @@ the shared promotion rules to its own workflow.
 ## For agents: new managers on sync
 
 Whenever you review or sync a branch, diff `app/core/drivers/` and `app/core/data/manager_catalog.yaml`
-for **new managers**. List each one to the user and **ask** whether to (a) check the system for it or
-(b) install it, or neither. Do not probe or install before they answer, and never invent an install
-command. Review the actual code and run the tests rather than trusting any report.
+for **new managers**. **Check for each one yourself** (read-only): is its tool on this system, and does a
+project on this machine use it? Report to the user **only the managers you actually found**, and for each
+ask whether to **ignore** it, **install** it, or **add** it to PolyGet. Managers that are not found need no
+report. Do not install, enable, or add anything before they answer, and never invent an install command.
+Review the actual code and run the tests rather than trusting any report.
 
 ## For agents: the two machines differ in CPU architecture
 

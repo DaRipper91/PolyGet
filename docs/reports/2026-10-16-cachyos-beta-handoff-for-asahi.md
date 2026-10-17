@@ -27,10 +27,10 @@ If you are an AI agent asked to review this branch, do these in order. Do not sk
    **Bundler** (`bundle`), **Gradle**, **Snap**, **Nix**, **Distrobox**, **Homebrew** (`brew`), **Conda**.
    Also look for any manager added *after* this report was written; list what you find rather than
    assuming this list is complete.
-3. **Ask the user before acting on any new manager.** For each one, ask whether you should
-   **(a) check this system for it** (is the binary present, does the driver work against the real tool) or
-   **(b) install it** (using its catalog `self_install` command for this distro, if one exists), or **neither**.
-   - Do not probe, install, or run a new manager's commands until the user answers.
+3. **New managers: check for each one yourself (read-only), report only those you actually find, then ask.** *(Updated: the user changed
+   this rule on 2026-10-17; it now lives in `BRANCHING.md`, which supersedes this note.)* Is its tool on this system, and does a project
+   here use it? For each one found, ask whether to **ignore**, **install** (catalog `self_install` for this distro, if one exists), or **add** it.
+   - Do not install, enable, or add anything until the user answers.
    - Never run an install command on your own initiative, and never use a command you made up.
    - Some managers have no install command here on purpose: Homebrew (its installer is a piped shell
      script), and `uv` / `deno` on Fedora (see section 6, item 2). Say so and let the user decide.

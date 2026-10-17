@@ -10,6 +10,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class DartPubManager(PackageManager):
     name: str = "Dart Pub"
     category: str = "Language/Dev"
+    changelog_url_template = "https://pub.dev/packages/{name}/changelog"
 
     def is_available(self) -> bool:
         return shutil.which("dart") is not None

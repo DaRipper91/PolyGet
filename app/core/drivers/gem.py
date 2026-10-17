@@ -12,6 +12,7 @@ class GemManager(PackageManager):
 
     name: str = "RubyGems"
     category: str = "Language/Dev"
+    changelog_url_template = "https://rubygems.org/gems/{name}/versions"
 
     def is_available(self) -> bool:
         return shutil.which("gem") is not None
@@ -22,7 +23,7 @@ class GemManager(PackageManager):
                 "gem", "outdated",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # cold cache refetches the whole spec index (~70s seen)
             updates = []
             # Format: "gemname (current < available)"
             import re

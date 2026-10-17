@@ -10,6 +10,7 @@ class FlatpakManager(PackageManager):
 
     name: str = "Flatpak"
     category: str = "Universal"
+    changelog_url_template = "https://flathub.org/apps/{name}"
 
     def is_available(self) -> bool:
         """Check if flatpak is installed and available in the system PATH.
@@ -72,7 +73,7 @@ class FlatpakManager(PackageManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # fetches remote metadata
             except Exception as e:
                 try:
                     proc.kill()

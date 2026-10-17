@@ -10,6 +10,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class YarnManager(PackageManager):
     name: str = "Yarn"
     category: str = "Language/Dev"
+    changelog_url_template = "https://www.npmjs.com/package/{name}?activeTab=versions"
 
     def is_available(self) -> bool:
         return shutil.which("yarn") is not None
@@ -32,7 +33,7 @@ class YarnManager(PackageManager):
 
     async def check_updates(self) -> list[dict[str, Any]]:
         try:
-            _, stdout = await self._run(["yarn", "global", "outdated", "--json"], timeout=15.0)
+            _, stdout = await self._run(["yarn", "global", "outdated", "--json"], timeout=120.0)
             import json
             updates = []
             for line in stdout.decode(errors="ignore").splitlines():

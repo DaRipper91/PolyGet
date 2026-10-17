@@ -10,6 +10,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class PnpmManager(PackageManager):
     name: str = "pnpm"
     category: str = "Language/Dev"
+    changelog_url_template = "https://www.npmjs.com/package/{name}?activeTab=versions"
 
     def __init__(self) -> None:
         super().__init__()
@@ -75,7 +76,7 @@ class PnpmManager(PackageManager):
     async def check_updates(self) -> list[dict[str, Any]]:
         try:
             _, stdout = await self._run(
-                self._pnpm_argv("outdated", "--global", "--format", "json"), timeout=15.0
+                self._pnpm_argv("outdated", "--global", "--format", "json"), timeout=120.0
             )
             import json
             data = json.loads(stdout.decode(errors="ignore") or "{}")

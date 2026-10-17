@@ -53,7 +53,10 @@ def main() -> int:
 
     # Construct the main window interface
     window = MainWindow()
-    window.show()
+    # `--tray` (used by the login autostart entry) starts hidden, but only if the tray icon is
+    # actually up — otherwise there'd be no way to reach the window.
+    if "--tray" not in sys.argv or window.tray is None:
+        window.show()
 
     # Launch the Qt event loop
     return app.exec()

@@ -76,6 +76,21 @@ class PackageManager:
 
     name: str = "Base"
     category: str = "Base"
+    # Where a human reads release notes for a package; "{name}" is replaced with the package
+    # name. None means this manager has no per-package page worth linking to.
+    changelog_url_template: str | None = None
+
+    def changelog_url(self, package: str) -> str | None:
+        from urllib.parse import quote
+        if self.changelog_url_template is None:
+            return None
+        return self.changelog_url_template.format(name=quote(package, safe="@/"))
+
+    async def still_outdated(self, packages: list[str]) -> list[str]:
+        """Which of `packages` this manager still reports as outdated (raises DriverError if the
+        check fails). Used after an upgrade, since several tools exit 0 having changed nothing."""
+        wanted = set(packages)
+        return sorted({u.get("name") for u in await self.check_updates()} & wanted)
 
     def is_available(self) -> bool:
         """Check if the package manager's binary is available in the system PATH.

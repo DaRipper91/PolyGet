@@ -2,14 +2,18 @@ import os
 import glob
 import asyncio
 import shutil
+import shlex
+import sys
+from pathlib import Path
 from typing import Any
-from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QUrl, QSettings, QTimer
+from PySide6.QtGui import QIcon, QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
-    QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu
+    QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
+    QApplication
 )
 from app.core.arch import describe_system
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
@@ -405,6 +409,7 @@ class UpdateItemWidget(QWidget):
 
     def __init__(self, pkg: dict[str, Any], manager_name: str, note: str = "", parent: Any = None):
         super().__init__(parent)
+        self.pkg = pkg
         self.pkg_name = pkg.get("name", "")
         self.manager_name = manager_name
         self.setup_ui(pkg, manager_name, note)
@@ -466,11 +471,11 @@ class UpdateItemWidget(QWidget):
 
         if note:
             lbl_note = QLabel(note)
+            lbl_note.setWordWrap(True)  # unwrapped, a long note sets the whole page's minimum width
             lbl_note.setStyleSheet("color: #fab387; font-size: 11px;")
             details_layout.addWidget(lbl_note)
 
-        layout.addLayout(details_layout)
-        layout.addStretch()
+        layout.addLayout(details_layout, 1)
 
         lbl_source = QLabel(manager_name)
         if manager_name == "DNF":
@@ -480,7 +485,7 @@ class UpdateItemWidget(QWidget):
         else:
             badge_style = "background-color: #581c87; color: #d8b4fe;"
         lbl_source.setStyleSheet(badge_style + "border-radius: 12px; padding: 4px 12px; font-weight: bold; font-size: 11px;")
-        layout.addWidget(lbl_source)
+        layout.addWidget(lbl_source, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.btn_menu = QPushButton("⋯")
         self.btn_menu.setFixedSize(44, 44)  # minimum comfortable touch target
@@ -753,6 +758,45 @@ class RepoItemWidget(QWidget):
         self.toggle_requested.emit(self.repo_id, state == 2)
 
 
+_AUTOSTART_PATH = Path.home() / ".config" / "autostart" / "polyget.desktop"
+
+
+def set_autostart(enabled: bool) -> None:
+    """Add or remove a login autostart entry that launches PolyGet hidden in the tray."""
+    if not enabled:
+        _AUTOSTART_PATH.unlink(missing_ok=True)
+        return
+    run_py = Path(__file__).resolve().parents[2] / "run.py"
+    _AUTOSTART_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _AUTOSTART_PATH.write_text(
+        "[Desktop Entry]\nType=Application\nName=PolyGet\nIcon=polyget\n"
+        f"Exec={shlex.quote(sys.executable)} {shlex.quote(str(run_py))} --tray\n"
+        "X-GNOME-Autostart-enabled=true\n",
+        encoding="utf-8",
+    )
+
+
+# Appended to the theme in touch mode: every tap target at least ~44px.
+_TOUCH_QSS = """
+QPushButton { min-height: 44px; }
+QListWidget#nav-list::item { padding: 14px; }
+QCheckBox { spacing: 14px; min-height: 44px; }
+QCheckBox::indicator { width: 30px; height: 30px; border-radius: 6px; }
+QLineEdit, QComboBox, QSpinBox { min-height: 44px; }
+QListWidget#status-list::item { padding: 14px 10px; }
+QTreeWidget::item { padding: 10px; }
+QMenu::item { padding: 14px 32px; font-size: 15px; }
+QScrollBar:vertical { width: 16px; border-radius: 8px; }
+QScrollBar::handle:vertical { min-height: 48px; border-radius: 8px; }
+QScrollBar:horizontal { height: 16px; }
+"""
+
+
+# Sidebar rows and stacked pages share these indices; keep them in setup_ui's order.
+(PAGE_UPDATES, PAGE_VERSION_CHECK, PAGE_STORE, PAGE_CONSOLE, PAGE_BLUEPRINTS,
+ PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS) = range(9)
+
+
 class MainWindow(QMainWindow):
     """Main window supporting unified updates, package browsing, and logs."""
 
@@ -769,6 +813,8 @@ class MainWindow(QMainWindow):
         self.sync_queue: list[tuple[PackageManager, list[str]]] = []
         self.blueprint_queue: list[tuple[PackageManager, str, list[str]]] = []
         self.upgrade_failures: list[str] = []
+        self.upgrade_results: dict[str, tuple[list[str], bool]] = {}
+        self.pending_verification: dict[str, tuple[list[str], bool]] | None = None
         self.sync_failures: list[str] = []
         self.blueprint_failures: list[tuple[str, str]] = []
         self.scan_in_progress = False
@@ -781,9 +827,23 @@ class MainWindow(QMainWindow):
         self.installing_packages: set[str] = set()
         self.repo_actions_in_flight: set[str] = set()
 
+        self.tray: QSystemTrayIcon | None = None
+        self.bg_timer = QTimer(self)
+        self.bg_timer.timeout.connect(self.background_scan)
+        self.notify_after_scan = False
+        self.notified_updates: set[tuple[str, str, str]] = set()
+        self.really_quit = False
+
         self.setup_ui()
-        self.apply_theme()
-        self.scan_all()
+        self.apply_touch_mode()
+        self.restore_window_state()
+        self.setup_tray()
+
+        from app.core.settings_store import get_settings
+        if get_settings().get("ui.scan_on_launch", True):
+            self.scan_all()
+        else:
+            self.lbl_summary.setText("Press “Check for Updates” to scan.")
 
     def setup_ui(self):
         central = QWidget()
@@ -793,6 +853,7 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter = splitter
         main_layout.addWidget(splitter)
 
         # --- Sidebar Panel ---
@@ -864,6 +925,7 @@ class MainWindow(QMainWindow):
         # includes the ::item padding/margin QSS box. Reuse it verbatim for the widget-based row
         # below so both end up the exact same height instead of guessing at the QSS math.
         native_row_size = item_store.sizeHint()
+        self.nav_native_row_size = native_row_size
 
         item_updates = QListWidgetItem()
         self.nav_list.insertItem(0, item_updates)
@@ -902,6 +964,8 @@ class MainWindow(QMainWindow):
         self.status_list = QListWidget()
         self.status_list.setObjectName("status-list")
         self.status_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.status_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.status_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         sidebar_layout.addWidget(self.status_list)
 
         self.btn_scan = QPushButton("Check for Updates")
@@ -929,8 +993,8 @@ class MainWindow(QMainWindow):
         updates_header = QHBoxLayout()
         self.lbl_summary = QLabel("Checking for updates...")
         self.lbl_summary.setObjectName("summary-label")
-        updates_header.addWidget(self.lbl_summary)
-        updates_header.addStretch()
+        self.lbl_summary.setWordWrap(True)
+        updates_header.addWidget(self.lbl_summary, 1)
 
         self.btn_select_all = QPushButton("Select All")
         self.btn_select_all.setObjectName("btn-scan")
@@ -971,8 +1035,8 @@ class MainWindow(QMainWindow):
         version_check_header = QHBoxLayout()
         self.lbl_version_check_summary = QLabel("Run a cross-manager version scan to find packages with newer versions on other managers.")
         self.lbl_version_check_summary.setObjectName("summary-label")
-        version_check_header.addWidget(self.lbl_version_check_summary)
-        version_check_header.addStretch()
+        self.lbl_version_check_summary.setWordWrap(True)  # else its length is the page's min width
+        version_check_header.addWidget(self.lbl_version_check_summary, 1)
 
         self.btn_version_check = QPushButton("Run Version Scan")
         self.btn_version_check.setObjectName("btn-scan")
@@ -1297,33 +1361,18 @@ class MainWindow(QMainWindow):
 
         self.stacked_widget.addWidget(history_page)
 
-        # PAGE 8: Settings Page
-        settings_page = QWidget()
-        settings_layout = QVBoxLayout(settings_page)
-        settings_layout.setContentsMargins(20, 20, 20, 20)
-        settings_layout.setSpacing(10)
-
-        lbl_ignored = QLabel("Ignored packages — listed but never auto-selected (right-click an update to add)")
-        lbl_ignored.setObjectName("summary-label")
-        settings_layout.addWidget(lbl_ignored)
-        self.settings_ignored_list = QListWidget()
-        self.settings_ignored_list.setObjectName("updates-list")
-        settings_layout.addWidget(self.settings_ignored_list)
-        btn_unignore = QPushButton("Stop Ignoring Selected")
-        btn_unignore.clicked.connect(self.remove_selected_ignore)
-        settings_layout.addWidget(btn_unignore)
-
-        lbl_vendor = QLabel("DNF: allow vendor change — upgrade these even when dnf would skip them")
-        lbl_vendor.setObjectName("summary-label")
-        settings_layout.addWidget(lbl_vendor)
-        self.settings_vendor_list = QListWidget()
-        self.settings_vendor_list.setObjectName("updates-list")
-        settings_layout.addWidget(self.settings_vendor_list)
-        btn_unvendor = QPushButton("Disallow Selected")
-        btn_unvendor.clicked.connect(self.remove_selected_vendor_override)
-        settings_layout.addWidget(btn_unvendor)
-
-        self.stacked_widget.addWidget(settings_page)
+        # PAGE 8: Settings Page (rebuilt from the stores each time it's shown)
+        settings_scroll = QScrollArea()
+        settings_scroll.setObjectName("settings-scroll")
+        settings_scroll.setWidgetResizable(True)
+        settings_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        settings_inner = QWidget()
+        settings_inner.setObjectName("settings-inner")
+        self.settings_layout = QVBoxLayout(settings_inner)
+        self.settings_layout.setContentsMargins(20, 20, 20, 20)
+        self.settings_layout.setSpacing(10)
+        settings_scroll.setWidget(settings_inner)
+        self.stacked_widget.addWidget(settings_scroll)
 
         splitter.addWidget(self.stacked_widget)
 
@@ -1500,6 +1549,20 @@ class MainWindow(QMainWindow):
             QCheckBox::indicator:checked {
                 background-color: #89b4fa;
             }
+            QSpinBox {
+                background-color: #11111b;
+                color: #cdd6f4;
+                border: 1px solid #313244;
+                border-radius: 6px;
+                min-width: 80px;
+            }
+            QScrollArea#settings-scroll, QWidget#settings-inner {
+                background-color: #1e1e2e;
+            }
+            QWidget#settings-entry {
+                background-color: #181825;
+                border-radius: 8px;
+            }
             QSplitter::handle {
                 background-color: #313244;
             }
@@ -1632,18 +1695,18 @@ class MainWindow(QMainWindow):
     def change_page(self, index: int):
         if index >= 0:
             self.stacked_widget.setCurrentIndex(index)
-            self._style_nav_row_text(self.nav_updates_label, selected=(index == 0))
-            if index == 1:
+            self._style_nav_row_text(self.nav_updates_label, selected=(index == PAGE_UPDATES))
+            if index == PAGE_VERSION_CHECK:
                 self._style_nav_row_text(self.nav_version_check_label, selected=True)
             else:
                 self._style_nav_row_text(self.nav_version_check_label, selected=False)
-            if index == 5:
+            if index == PAGE_MANAGERS:
                 self.populate_managers_list()
-            elif index == 6:
+            elif index == PAGE_REPOS:
                 self.populate_repos_managers()
-            elif index == 7:
+            elif index == PAGE_HISTORY:
                 self.populate_history_page()
-            elif index == 8:
+            elif index == PAGE_SETTINGS:
                 self.populate_settings_page()
 
     def run_version_check(self) -> None:
@@ -1742,35 +1805,111 @@ class MainWindow(QMainWindow):
         self.btn_version_check.setEnabled(True)
 
     def populate_settings_page(self) -> None:
+        """Rebuild the Settings page from the current stores. Every control saves immediately."""
         from app.core.ignore_store import IgnoreStore
         from app.core.settings_store import get_settings
-        self.settings_ignored_list.clear()
-        for mgr, pkg in IgnoreStore().all_entries():
-            item = QListWidgetItem(f"{pkg}  ({mgr})")
-            item.setData(Qt.ItemDataRole.UserRole, (mgr, pkg))
-            self.settings_ignored_list.addItem(item)
-        self.settings_vendor_list.clear()
-        self.settings_vendor_list.addItems(get_settings().get("dnf.allow_vendor_change", []))
-
-    def remove_selected_ignore(self) -> None:
-        from app.core.ignore_store import IgnoreStore
-        item = self.settings_ignored_list.currentItem()
-        if item is None:
-            return
-        IgnoreStore().remove(*item.data(Qt.ItemDataRole.UserRole))
-        self.populate_settings_page()
-        self.rebuild_updates_list()
-
-    def remove_selected_vendor_override(self) -> None:
-        from app.core.settings_store import get_settings
-        item = self.settings_vendor_list.currentItem()
-        if item is None:
-            return
         settings = get_settings()
-        settings.set("dnf.allow_vendor_change",
-                     [p for p in settings.get("dnf.allow_vendor_change", []) if p != item.text()])
-        self.populate_settings_page()
-        self.scan_all()
+        layout = self.settings_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        def heading(text: str, hint: str = "") -> None:
+            lbl = QLabel(text)
+            lbl.setObjectName("summary-label")
+            layout.addSpacing(8)
+            layout.addWidget(lbl)
+            if hint:
+                lbl_hint = QLabel(hint)
+                lbl_hint.setWordWrap(True)
+                lbl_hint.setStyleSheet("color: #a6adc8;")
+                layout.addWidget(lbl_hint)
+
+        def toggle(text: str, key: str, default: bool, on_change=None) -> None:
+            box = QCheckBox(text)
+            box.setChecked(bool(settings.get(key, default)))
+            def changed(state, key=key):
+                settings.set(key, state == Qt.CheckState.Checked.value)
+                if on_change:
+                    on_change()
+            box.stateChanged.connect(changed)
+            layout.addWidget(box)
+
+        def entries(rows: list[tuple[str, Any]], empty: str, remove) -> None:
+            if not rows:
+                lbl = QLabel(empty)
+                lbl.setStyleSheet("color: #6c7086; font-style: italic;")
+                layout.addWidget(lbl)
+            for text, key in rows:
+                row = QWidget()
+                row.setObjectName("settings-entry")
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(12, 4, 4, 4)
+                row_layout.addWidget(QLabel(text), 1)
+                btn = QPushButton("Remove")
+                btn.setAccessibleName(f"Remove {text}")
+                btn.clicked.connect(lambda _=False, k=key: (remove(k), self.populate_settings_page()))
+                row_layout.addWidget(btn)
+                layout.addWidget(row)
+
+        heading("General")
+        toggle("Check for updates when PolyGet opens", "ui.scan_on_launch", True)
+        toggle("Show the exact command before running anything", "ui.confirm_commands", True)
+        toggle("Touch mode — bigger buttons, rows and checkboxes", "ui.touch_mode", False,
+               on_change=self.apply_touch_mode)
+
+        heading("Tray & background checks",
+                "With the tray icon on, closing the window keeps PolyGet running so it can "
+                "check for updates in the background and notify you.")
+        toggle("Show tray icon", "tray.enabled", False, on_change=self.setup_tray)
+        interval_row = QWidget()
+        interval_layout = QHBoxLayout(interval_row)
+        interval_layout.setContentsMargins(0, 0, 0, 0)
+        interval_layout.addWidget(QLabel("Check for updates every"))
+        spin = QSpinBox()
+        spin.setRange(0, 168)
+        spin.setSuffix(" h")
+        spin.setSpecialValueText("never")
+        spin.setValue(int(settings.get("tray.scan_interval_hours", 6)))
+        spin.valueChanged.connect(lambda v: (settings.set("tray.scan_interval_hours", v), self.setup_tray()))
+        interval_layout.addWidget(spin)
+        interval_layout.addStretch()
+        layout.addWidget(interval_row)
+        toggle("Notify me when new updates are found", "tray.notify", True)
+        autostart = QCheckBox("Start PolyGet in the tray when I log in")
+        autostart.setChecked(_AUTOSTART_PATH.exists())
+        autostart.stateChanged.connect(lambda state: set_autostart(state == Qt.CheckState.Checked.value))
+        layout.addWidget(autostart)
+
+        heading("Package managers", "Unchecked managers aren't scanned, synced, or upgraded "
+                "(the CLI still uses them when you name them with -m).")
+        disabled = set(settings.disabled_managers())
+        for mgr in sorted(discover_managers(), key=lambda m: m.name.lower()):
+            box = QCheckBox(f"{mgr.name}  ({mgr.category})")
+            box.setChecked(mgr.name not in disabled)
+            box.stateChanged.connect(
+                lambda state, n=mgr.name: settings.set_manager_enabled(n, state == Qt.CheckState.Checked.value)
+            )
+            layout.addWidget(box)
+
+        store = IgnoreStore()
+        heading("Ignored packages", "Still listed, but never ticked automatically. Add one with "
+                "an update's ⋯ button.")
+        entries([(f"{pkg}  ({mgr})", (mgr, pkg)) for mgr, pkg in store.all_entries()],
+                "Nothing ignored.", lambda k: store.remove(*k))
+
+        heading("Skipped versions", "Hidden until a newer version comes out.")
+        entries([(f"{pkg} {ver}  ({mgr})", (mgr, pkg)) for mgr, pkg, ver in settings.all_skipped()],
+                "No skipped versions.", lambda k: settings.unskip_version(*k))
+
+        heading("DNF: allow vendor change", "Upgraded even when dnf would skip them for coming "
+                "from a different vendor.")
+        vendor_ok = settings.get("dnf.allow_vendor_change", [])
+        entries([(pkg, pkg) for pkg in vendor_ok], "No packages allowed.",
+                lambda k: settings.set("dnf.allow_vendor_change",
+                                       [p for p in settings.get("dnf.allow_vendor_change", []) if p != k]))
+        layout.addStretch()
 
     def populate_history_page(self):
         self.history_list.clear()
@@ -1784,6 +1923,8 @@ class MainWindow(QMainWindow):
         for rec in records:
             ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.get("timestamp", 0)))
             status = "✅ SUCCESS" if rec.get("success") else "❌ FAILED"
+            if rec.get("not_upgraded"):
+                status = "⚠ NOT UPGRADED (" + ", ".join(rec["not_upgraded"]) + ")"
             mgr = rec.get("manager", "Unknown")
             pkgs = ", ".join(rec.get("packages", []))
             item = QListWidgetItem(f"[{ts}] {status} - {mgr}: {pkgs}")
@@ -1851,7 +1992,7 @@ class MainWindow(QMainWindow):
 
         self.repo_actions_in_flight.add(repo_id)
         self.log(f"⚡ Toggling repository source: {repo_id} ({' '.join(cmd)})")
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
@@ -1868,7 +2009,7 @@ class MainWindow(QMainWindow):
         cmd = mgr.get_remove_repo_command(repo_id)
         self.repo_actions_in_flight.add(repo_id)
         self.log(f"⚡ Removing repository source: {repo_id} ({' '.join(cmd)})")
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
@@ -1894,7 +2035,7 @@ class MainWindow(QMainWindow):
         self.repo_actions_in_flight.add(repo_url)
         self.log(f"⚡ Adding repository source: {repo_url} ({' '.join(cmd)})")
         self.txt_add_repo.clear()
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
@@ -1939,7 +2080,7 @@ class MainWindow(QMainWindow):
 
         self.installing_managers.add(entry.name)
         self.log(f"⚡ Launching installation process for package manager: {entry.name} ({' '.join(cmd)})")
-        self.nav_list.setCurrentRow(3)  # Switch to console (index 3 with Version Check at 1)
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
@@ -2013,7 +2154,11 @@ class MainWindow(QMainWindow):
         self.lbl_summary.setText("Checking for updates...")
         self.log("🔄 Starting full scan of repositories...")
 
-        available = discover_managers()
+        from app.core.settings_store import get_settings
+        disabled = set(get_settings().disabled_managers())
+        available = [m for m in discover_managers() if m.name not in disabled]
+        if disabled:
+            self.log(f"⏸ Not scanning (disabled in Settings): {', '.join(sorted(disabled))}")
         if not available:
             self.lbl_summary.setText("System is up to date.")
             self.log("⚠️ No active package managers found.")
@@ -2048,6 +2193,13 @@ class MainWindow(QMainWindow):
     ):
         if generation is not None and generation != self.scan_generation:
             return
+
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        skipped = [u.get("name", "") for u in updates if settings.is_skipped(manager_name, u)]
+        if skipped:
+            self.log(f"⏭ {manager_name}: hiding skipped version(s) of {', '.join(skipped)}")
+            updates = [u for u in updates if not settings.is_skipped(manager_name, u)]
 
         self.scan_errors.pop(manager_name, None)
         self.updates_cache[manager_name] = updates
@@ -2095,6 +2247,10 @@ class MainWindow(QMainWindow):
         self.scan_in_progress = False
         if self.active_operation is None:
             self.btn_scan.setEnabled(True)
+        if self.pending_verification is not None:
+            results, self.pending_verification = self.pending_verification, None
+            self.report_upgrade_results(results)
+        self.update_tray_status()
 
     def show_update_context_menu(self, pos) -> None:
         """Right-click on an update row opens the same menu as its "⋯" button."""
@@ -2104,7 +2260,7 @@ class MainWindow(QMainWindow):
             self.show_update_menu(row, self.updates_list.viewport().mapToGlobal(pos))
 
     def show_update_menu(self, row: "UpdateItemWidget", global_pos=None) -> None:
-        """Per-package menu: toggle ignore, and (DNF) toggle vendor-change override."""
+        """Per-package menu: release notes, skip this version, ignore, and (DNF) vendor change."""
         if global_pos is None:
             global_pos = row.btn_menu.mapToGlobal(row.btn_menu.rect().bottomLeft())
         from app.core.ignore_store import IgnoreStore
@@ -2112,6 +2268,11 @@ class MainWindow(QMainWindow):
         store, settings = IgnoreStore(), get_settings()
         mgr, pkg = row.manager_name, row.pkg_name
         menu = QMenu(self)
+        driver = self.managers.get(mgr)
+        url = driver.changelog_url(pkg) if driver else None
+        act_notes = menu.addAction("Release notes / changelog") if url else None
+        new_version = row.pkg.get("new", "")
+        act_skip = menu.addAction(f"Skip version {new_version}") if new_version else None
         ignored = store.is_ignored(mgr, pkg)
         act_ignore = menu.addAction("Stop ignoring" if ignored else "Ignore this package")
         act_vendor = None
@@ -2122,7 +2283,15 @@ class MainWindow(QMainWindow):
         chosen = menu.exec(global_pos)
         if chosen is None:
             return
-        if chosen is act_ignore:
+        if chosen is act_notes:
+            QDesktopServices.openUrl(QUrl(url))
+        elif chosen is act_skip:
+            settings.skip_version(mgr, pkg, new_version)
+            self.updates_cache[mgr] = [u for u in self.updates_cache.get(mgr, []) if u.get("name") != pkg]
+            self.selected_updates.get(mgr, set()).discard(pkg)
+            self.update_updates_badge()
+            self.rebuild_updates_list()
+        elif chosen is act_ignore:
             if ignored:
                 store.remove(mgr, pkg)
             else:
@@ -2160,8 +2329,8 @@ class MainWindow(QMainWindow):
                     notes.append(f"⚠ dnf will skip this ({pkg['blocked']}) — use ⋯ to allow")
                 elif manager_name == "DNF" and pkg_name in vendor_ok:
                     notes.append("Vendor change allowed")
-                row_widget = UpdateItemWidget(pkg, manager_name, "  ·  ".join(notes))
-                row_item.setSizeHint(QSize(0, 80 if notes else 60))
+                row_widget = UpdateItemWidget(pkg, manager_name, "\n".join(notes))
+                row_item.setSizeHint(QSize(0, 60 + 20 * len(notes) + (24 if self.touch_mode else 0)))
                 row_widget.checkbox.setChecked(pkg_name in self.selected_updates[manager_name])
                 row_widget.checked_changed.connect(self.on_item_selection_changed)
                 row_widget.menu_requested.connect(self.show_update_menu)
@@ -2210,19 +2379,58 @@ class MainWindow(QMainWindow):
     def filter_updates(self, text: str):
         self.rebuild_updates_list()
 
-    def start_batch_upgrade(self):
+    def _confirm_commands(self, title: str, commands: list[list[str]]) -> bool:
+        """Show the exact commands about to run, unless turned off in Settings. True = go ahead."""
+        from app.core.settings_store import get_settings
+        if not get_settings().get("ui.confirm_commands", True):
+            return True
+        box = QMessageBox(
+            QMessageBox.Icon.Question, title, "PolyGet will run:",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel, self,
+        )
+        box.setInformativeText("\n\n".join(shlex.join(c) for c in commands))
+        box.button(QMessageBox.StandardButton.Ok).setText("Run")
+        return box.exec() == QMessageBox.StandardButton.Ok
+
+    def start_batch_upgrade(self, retry: dict[str, list[str]] | None = None):
+        """Upgrade the selected packages, or exactly `retry` ({manager: packages}) when given."""
         if self.active_operation is not None:
             self.log(f"⚠️ Cannot start an upgrade while {self.active_operation} is active.")
             return
 
         self.upgrade_queue.clear()
         self.upgrade_failures.clear()
-        for name, manager in self.managers.items():
-            selected = list(self.selected_updates[name])
-            if selected:
-                self.upgrade_queue.append((manager, selected))
+        self.upgrade_results = {}
+        targets = retry if retry is not None else {
+            name: sorted(self.selected_updates.get(name, ())) for name in self.managers
+        }
+        for name, packages in targets.items():
+            if packages and name in self.managers:
+                self.upgrade_queue.append((self.managers[name], list(packages)))
 
         if not self.upgrade_queue:
+            return
+        commands: list[list[str]] = []
+        buildable: list[tuple[PackageManager, list[str]]] = []
+        unbuildable: list[str] = []
+        for mgr, pkgs in self.upgrade_queue:
+            try:
+                commands.append(mgr.get_upgrade_command(pkgs))
+                buildable.append((mgr, pkgs))
+            except (NotImplementedError, DriverError) as e:
+                self._record_unbuildable(mgr.name, pkgs, e)
+                unbuildable.append(mgr.name)
+        self.upgrade_queue[:] = buildable
+        if not self.upgrade_queue:
+            # Nothing is left to run, so no end-of-run dialog will follow: say it here, not only in the console.
+            QMessageBox.warning(
+                self, "Cannot Upgrade",
+                "PolyGet could not build an upgrade command for: " + ", ".join(unbuildable)
+                + ".\n\nCheck the Process Console for the reason.",
+            )
+            return
+        if not self._confirm_commands("Confirm Upgrade", commands):
+            self.upgrade_queue.clear()
             return
 
         self.active_operation = "batch upgrade"
@@ -2231,37 +2439,27 @@ class MainWindow(QMainWindow):
         self.btn_refresh_repos.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
-        
-        self.nav_list.setCurrentRow(2)  # Switch to console
+
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
         self.run_next_upgrade_queue()
+
+    def _record_unbuildable(self, name: str, packages: list[str], error: Exception) -> None:
+        """A manager whose upgrade command cannot be built still failed: log it and record it as a failed
+        result, so the end-of-run dialog (built from upgrade_results) and Retry include it."""
+        self.log(f"❌ {name}: cannot build an upgrade command: {describe_error(error)}")
+        self.upgrade_failures.append(name)
+        self.upgrade_results[name] = (list(packages), False)
 
     def run_next_upgrade_queue(self):
         if not self.upgrade_queue:
             self.progress.setVisible(False)
-            self.btn_scan.setEnabled(True)
             self.btn_refresh_repos.setEnabled(True)
             self.active_operation = None
-            if self.upgrade_failures:
-                failed_list = "\n".join(f"- {name}" for name in self.upgrade_failures)
-                msg_box = QMessageBox(
-                    QMessageBox.Icon.Warning,
-                    "Batch Upgrade Finished With Errors",
-                    f"{len(self.upgrade_failures)} manager(s) failed to upgrade. Check the console for details.\n\n{failed_list}\n\nWould you like to retry the failed manager(s)?",
-                    QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close,
-                    self
-                )
-                res = msg_box.exec()
-                if res == QMessageBox.StandardButton.Retry:
-                    retry_failures = list(self.upgrade_failures)
-                    self.nav_list.setCurrentRow(0)
-                    for name in retry_failures:
-                        if name in self.managers and name in self.selected_updates:
-                            pass
-                    self.start_batch_upgrade()
-                    return
-            else:
-                QMessageBox.information(self, "Batch Upgrade Complete", "All selected package upgrades have finished.")
-            self.nav_list.setCurrentRow(0)
+            # Several tools exit 0 having changed nothing (dnf skipping a vendor change, npm
+            # pinned by a range), so the rescan — not the exit code — decides what upgraded.
+            self.log("🔎 Re-scanning to confirm what actually upgraded...")
+            self.pending_verification = dict(self.upgrade_results)
+            self.nav_list.setCurrentRow(PAGE_UPDATES)
             self.scan_all()
             return
 
@@ -2269,8 +2467,7 @@ class MainWindow(QMainWindow):
         try:
             cmd = manager.get_upgrade_command(packages)
         except (NotImplementedError, DriverError) as e:
-            self.log(f"❌ {manager.name}: cannot build an upgrade command: {describe_error(e)}")
-            self.upgrade_failures.append(manager.name)
+            self._record_unbuildable(manager.name, packages, e)
             self.run_next_upgrade_queue()
             return
 
@@ -2282,14 +2479,59 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def handle_queue_worker_finished(self, success: bool, manager_name: str, packages: list[str]):
-        from app.core.history_store import record_upgrade
-        record_upgrade(manager_name, packages, success)
+        self.upgrade_results[manager_name] = (packages, success)
         if success:
-            self.log(f"✅ Successfully upgraded {manager_name}")
+            self.log(f"✅ {manager_name} upgrade command finished")
         else:
             self.log(f"❌ Failed to upgrade {manager_name}")
             self.upgrade_failures.append(manager_name)
         self.run_next_upgrade_queue()
+
+    def report_upgrade_results(self, results: dict[str, tuple[list[str], bool]]) -> None:
+        """Compare an upgrade run against the rescan that followed it, log it to history, and
+        tell the user what really happened, with Retry limited to what didn't work."""
+        from app.core.history_store import record_upgrade
+        ok, failed, unverified = [], [], []
+        not_upgraded: dict[str, list[str]] = {}
+        for name, (packages, success) in results.items():
+            still = None
+            if success and name in self.scan_errors:
+                unverified.append(name)
+            elif success:
+                outdated = {u.get("name") for u in self.updates_cache.get(name, [])}
+                still = sorted(outdated & set(packages))
+            record_upgrade(name, packages, success, not_upgraded=still)
+            if not success:
+                failed.append(name)
+            elif still:
+                not_upgraded[name] = still
+            else:
+                ok.append(name)
+
+        lines = []
+        if ok:
+            lines.append("✅ Upgraded: " + ", ".join(ok))
+        if failed:
+            lines.append("❌ Command failed: " + ", ".join(failed))
+        if not_upgraded:
+            lines.append("⚠ Finished without an error, but still outdated:\n" + "\n".join(
+                f"    {name}: {', '.join(pkgs)}" for name, pkgs in not_upgraded.items()
+            ) + "\nThe ⋯ button on those rows shows why (e.g. a dnf vendor change) and can skip them.")
+        if unverified:
+            lines.append("❔ Couldn't re-check (scan failed): " + ", ".join(unverified))
+        if not failed and not not_upgraded:
+            QMessageBox.information(self, "Upgrade Complete", "\n\n".join(lines))
+            return
+
+        box = QMessageBox(
+            QMessageBox.Icon.Warning, "Upgrade Finished With Problems",
+            "\n\n".join(lines) + "\n\nCheck the Process Console for details.",
+            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close, self,
+        )
+        if box.exec() == QMessageBox.StandardButton.Retry:
+            retry = {name: results[name][0] for name in failed}
+            retry.update(not_upgraded)
+            self.start_batch_upgrade(retry=retry)
 
     # --- Store Browsing / Searching Functionality ---
 
@@ -2414,14 +2656,6 @@ class MainWindow(QMainWindow):
             self.log(f"⚠️ Installation of {item['name']} via {source} is already in progress.")
             return
 
-        confirm = QMessageBox.question(
-            self, "Install Confirmation",
-            f"Are you sure you want to install {item['name']} via {source}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
-            return
-
         # Prepare installation command based on source
         if source == "Flatpak":
             remote = item.get("remote", "flathub")
@@ -2438,9 +2672,18 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"No installer available for source '{source}'.")
             return
 
+        confirm = QMessageBox.question(
+            self, "Install Confirmation",
+            f"Are you sure you want to install {item['name']} via {source}?\n\n"
+            f"PolyGet will run:\n{shlex.join(cmd)}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
         self.installing_packages.add(install_key)
         self.log(f"📦 Queueing installation of {pkg_id}...")
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
 
         # Start execution worker
         worker = ExecutionWorker(cmd)
@@ -2459,7 +2702,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Installation Complete", f"{app_name} was installed successfully!")
         else:
             QMessageBox.critical(self, "Installation Failed", f"Failed to install {app_name}. Refer to the console logs.")
-        self.nav_list.setCurrentRow(1)  # Return to store page
+        self.nav_list.setCurrentRow(PAGE_STORE)
 
     def sync_repositories(self):
         """Build execution queue for syncing active repositories."""
@@ -2470,7 +2713,9 @@ class MainWindow(QMainWindow):
         self.sync_queue.clear()
         self.sync_failures.clear()
         
-        available = discover_managers()
+        from app.core.settings_store import get_settings
+        disabled = set(get_settings().disabled_managers())
+        available = [m for m in discover_managers() if m.name not in disabled]
         for mgr in available:
             cmd = mgr.get_sync_command()
             if cmd:
@@ -2479,6 +2724,9 @@ class MainWindow(QMainWindow):
         if not self.sync_queue:
             QMessageBox.information(self, "Sync Complete", "No active package managers support repository syncing.")
             return
+        if not self._confirm_commands("Confirm Repository Sync", [cmd for _, cmd in self.sync_queue]):
+            self.sync_queue.clear()
+            return
 
         self.active_operation = "repository sync"
         self.btn_scan.setEnabled(False)
@@ -2486,7 +2734,7 @@ class MainWindow(QMainWindow):
         self.progress.setVisible(True)
         self.progress.setRange(0, 0)
         
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
         self.run_next_sync_queue()
 
     def run_next_sync_queue(self):
@@ -2755,7 +3003,7 @@ class MainWindow(QMainWindow):
 
         self.log(f"📦 Scheduled {len(missing_packages)} packages for installation.")
         self.blueprint_status.setText("Installing missing packages...")
-        self.nav_list.setCurrentRow(2)  # Switch to console
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
         self.run_next_blueprint_sync()
 
     def run_next_blueprint_sync(self):
@@ -2763,7 +3011,7 @@ class MainWindow(QMainWindow):
             self.blueprint_progress.setVisible(False)
             self.blueprint_status.setText("Sync complete.")
             self.log("✅ Blueprint sync complete.")
-            self.nav_list.setCurrentRow(3)  # Return to blueprints page
+            self.nav_list.setCurrentRow(PAGE_BLUEPRINTS)
             self.btn_export_blueprint.setEnabled(True)
             self.btn_load_blueprint.setEnabled(True)
             self.btn_save_blueprint.setEnabled(True)
@@ -2800,8 +3048,125 @@ class MainWindow(QMainWindow):
             self.blueprint_failures.append((manager.name, pkg))
         self.run_next_blueprint_sync()
 
+    # --- Touch mode / window state / tray ---
+
+    @property
+    def touch_mode(self) -> bool:
+        from app.core.settings_store import get_settings
+        return bool(get_settings().get("ui.touch_mode", False))
+
+    def apply_touch_mode(self) -> None:
+        """Re-theme with finger-sized targets (44px+) when touch mode is on; safe to call live."""
+        self.apply_theme()
+        touch = self.touch_mode
+        if touch:
+            self.setStyleSheet(self.styleSheet() + _TOUCH_QSS)
+            # Wider sidebar so the fatter scrollbar doesn't clip the nav labels.
+            sizes = self.main_splitter.sizes()
+            if sizes and sizes[0] < 300:
+                self.main_splitter.setSizes([300, max(sum(sizes) - 300, 400)])
+        for i in range(self.nav_list.count()):
+            item = self.nav_list.item(i)
+            if touch:
+                item.setSizeHint(QSize(0, 52))
+            else:
+                item.setSizeHint(self.nav_native_row_size if i <= PAGE_VERSION_CHECK else QSize())
+        self.rebuild_updates_list()
+
+    def restore_window_state(self) -> None:
+        state = QSettings("PolyGet", "PolyGet")
+        geometry = state.value("window/geometry")
+        if geometry is not None:
+            self.restoreGeometry(geometry)
+        page = int(state.value("window/page", PAGE_UPDATES))
+        if 0 <= page < self.nav_list.count():
+            self.nav_list.setCurrentRow(page)
+
+    def save_window_state(self) -> None:
+        state = QSettings("PolyGet", "PolyGet")
+        state.setValue("window/geometry", self.saveGeometry())
+        state.setValue("window/page", self.nav_list.currentRow())
+
+    def setup_tray(self) -> None:
+        """Create or remove the tray icon and (re)arm the background-scan timer from Settings."""
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        enabled = bool(settings.get("tray.enabled", False)) and QSystemTrayIcon.isSystemTrayAvailable()
+        QApplication.instance().setQuitOnLastWindowClosed(not enabled)
+        if not enabled:
+            if self.tray is not None:
+                self.tray.hide()
+                self.tray = None
+            self.bg_timer.stop()
+            return
+        if self.tray is None:
+            icon = QApplication.windowIcon()
+            self.tray = QSystemTrayIcon(icon if not icon.isNull() else QIcon.fromTheme("polyget"), self)
+            menu = QMenu(self)
+            menu.addAction("Open PolyGet", self.show_from_tray)
+            menu.addAction("Check for Updates", self.background_scan)
+            menu.addSeparator()
+            menu.addAction("Quit", self.quit_from_tray)
+            self.tray.setContextMenu(menu)
+            self.tray.activated.connect(
+                lambda reason: self.show_from_tray()
+                if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+            )
+            self.tray.messageClicked.connect(self.show_from_tray)
+            self.tray.show()
+        hours = int(settings.get("tray.scan_interval_hours", 6))
+        if hours > 0:
+            self.bg_timer.start(hours * 3600 * 1000)
+        else:
+            self.bg_timer.stop()
+        self.update_tray_status()
+
+    def show_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_from_tray(self) -> None:
+        self.really_quit = True
+        if self.close():
+            QApplication.quit()
+        else:
+            self.really_quit = False
+
+    def background_scan(self) -> None:
+        if self.scan_in_progress or self.active_operation is not None:
+            return
+        self.notify_after_scan = True
+        self.scan_all()
+
+    def update_tray_status(self) -> None:
+        """Refresh the tray tooltip, and notify about updates not announced before."""
+        if self.tray is None:
+            return
+        current = {
+            (mgr, u.get("name", ""), u.get("new", ""))
+            for mgr, updates in self.updates_cache.items() for u in updates
+        }
+        self.tray.setToolTip(f"PolyGet — {len(current)} update(s)" if current else "PolyGet — up to date")
+        from app.core.settings_store import get_settings
+        fresh = current - self.notified_updates
+        should_notify = self.notify_after_scan or not self.isVisible()
+        if fresh and should_notify and get_settings().get("tray.notify", True):
+            names = ", ".join(sorted(name for _, name, _ in fresh)[:5])
+            more = f" and {len(fresh) - 5} more" if len(fresh) > 5 else ""
+            self.tray.showMessage(f"{len(fresh)} new update(s)", names + more,
+                                  QSystemTrayIcon.MessageIcon.Information)
+        self.notified_updates |= current
+        self.notify_after_scan = False
+
     def closeEvent(self, event):
         """Prompt user on exit if active background child processes exist, then terminate them."""
+        self.save_window_state()
+        if self.tray is not None and not self.really_quit:
+            # Closing with the tray on just hides the window; Quit is in the tray menu.
+            event.ignore()
+            self.hide()
+            return
         coordinator = SubprocessCoordinator()
         active_pids = coordinator.active_pids
         if active_pids:

@@ -8,14 +8,24 @@ from typing import Any
 _HISTORY_PATH = Path.home() / ".local" / "share" / "polyget" / "history.jsonl"
 
 
-def record_upgrade(manager_name: str, packages: list[str], success: bool, path: Path = _HISTORY_PATH) -> None:
+def record_upgrade(
+    manager_name: str,
+    packages: list[str],
+    success: bool,
+    path: Path = _HISTORY_PATH,
+    not_upgraded: list[str] | None = None,
+) -> None:
+    """Log one upgrade run. `not_upgraded` lists packages still outdated after a run that
+    exited 0; any such package makes the run a failure, since the tool claimed success."""
     path.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "timestamp": time.time(),
         "manager": manager_name,
         "packages": packages,
-        "success": success,
+        "success": success and not not_upgraded,
     }
+    if not_upgraded:
+        entry["not_upgraded"] = not_upgraded
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
 

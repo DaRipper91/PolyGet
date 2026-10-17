@@ -10,6 +10,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class CpanmManager(PackageManager):
     name: str = "cpanm"
     category: str = "Language/Dev"
+    changelog_url_template = "https://metacpan.org/pod/{name}"
 
     def is_available(self) -> bool:
         return shutil.which("cpanm") is not None

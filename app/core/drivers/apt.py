@@ -13,6 +13,7 @@ class AptManager(PackageManager):
 
     name: str = "APT"
     category: str = "System"
+    changelog_url_template = "https://tracker.debian.org/pkg/{name}"
 
     def is_available(self) -> bool:
         """Check if apt-get is installed and available in the system PATH.

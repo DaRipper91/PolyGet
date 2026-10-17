@@ -11,6 +11,8 @@ from app.core.drivers.dart_pub import DartPubManager
 from app.core.drivers.julia import JuliaManager
 from app.core.drivers.cargo import CargoManager
 
+pytestmark = pytest.mark.usefixtures("real_home")  # these query the real system
+
 
 def test_dnf_list_installed_and_install_cmd():
     """Test DnfManager's list_installed parsing and get_install_command."""

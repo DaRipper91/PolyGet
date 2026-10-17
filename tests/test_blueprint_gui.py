@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from PySide6.QtCore import QThread
 from PySide6.QtWidgets import QApplication
 from app.core.manager import PackageManager
-from app.ui.main_window import FetchInstalledWorker, MainWindow
+from app.ui.main_window import PAGE_CONSOLE, FetchInstalledWorker, MainWindow
 
 
 @pytest.fixture(scope="session")
@@ -526,8 +526,8 @@ def test_gui_package_managers_page(mock_scan, qapp):
     with patch.object(QThread, "start", mock_start):
         window.install_manager_backend(row_widget.entry)
 
-    # Verify transition to console (row 3, shifted by Version Check at index 1)
-    assert window.nav_list.currentRow() == 3
+    # Verify transition to console
+    assert window.nav_list.currentRow() == PAGE_CONSOLE
     mock_start.assert_called_once()
 
 
@@ -588,5 +588,5 @@ def test_gui_repositories_page(mock_scan, qapp):
     with patch.object(QThread, "start", mock_start):
         window.add_repository_source()
 
-    assert window.nav_list.currentRow() == 2
+    assert window.nav_list.currentRow() == PAGE_CONSOLE
     mock_start.assert_called_once()

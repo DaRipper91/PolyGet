@@ -68,12 +68,16 @@ def _table(rows: list[dict[str, Any]], columns: list[str]) -> str:
 def _select_managers(names: list[str] | None, available_only: bool = True) -> list[PackageManager]:
     """Resolve --manager values (case-insensitive) against discovered drivers.
 
-    With no names, returns every available manager. An unknown or unavailable name is a usage
-    error rather than a silent skip, so a typo can't masquerade as "no updates".
+    With no names, returns every available manager the user hasn't disabled in Settings. An
+    unknown or unavailable name is a usage error rather than a silent skip, so a typo can't
+    masquerade as "no updates". Naming a disabled manager explicitly still selects it.
     """
+    from app.core.settings_store import get_settings
+
     pool = discover_managers() if available_only else get_all_managers()
     if not names:
-        return pool
+        disabled = set(get_settings().disabled_managers())
+        return [m for m in pool if m.name not in disabled]
     by_name = {m.name.lower(): m for m in pool}
     selected = []
     for name in names:
@@ -126,8 +130,17 @@ def _run_command(cmd: list[str], args: argparse.Namespace) -> int:
     return proc.returncode
 
 
-def _plan_or_execute(args: argparse.Namespace, steps: list[dict[str, Any]], record: bool = False) -> int:
-    """Print the planned commands, and run them only when --yes was given."""
+def _plan_or_execute(
+    args: argparse.Namespace,
+    steps: list[dict[str, Any]],
+    record: bool = False,
+    verify: dict[str, PackageManager] | None = None,
+) -> int:
+    """Print the planned commands, and run them only when --yes was given.
+
+    With `verify` (manager name -> driver), a step that exits 0 is re-checked, and any of its
+    packages still outdated fail the step — several tools exit 0 having changed nothing.
+    """
     if not steps:
         _emit(args, {"executed": False, "steps": []}, "Nothing to do.")
         return EXIT_OK
@@ -144,13 +157,25 @@ def _plan_or_execute(args: argparse.Namespace, steps: list[dict[str, Any]], reco
         code = _run_command(step["command"], args)
         step["returncode"] = code
         step["success"] = code == 0
-        failed |= code != 0
+        mgr = (verify or {}).get(step["manager"])
+        if code == 0 and mgr is not None and step.get("packages"):
+            try:
+                step["not_upgraded"] = asyncio.run(mgr.still_outdated(step["packages"]))
+            except Exception as e:
+                _log(f"! {step['manager']}: could not verify the upgrade: {describe_error(e)}")
+            step["success"] = not step.get("not_upgraded")
+        failed |= not step["success"]
         if record:
             from app.core.history_store import record_upgrade
-            record_upgrade(step["manager"], step.get("packages", []), code == 0)
+            record_upgrade(
+                step["manager"], step.get("packages", []), code == 0,
+                not_upgraded=step.get("not_upgraded"),
+            )
 
     human = "\n".join(
-        f"{'ok  ' if s['success'] else 'FAIL'} [{s['manager']}] exit {s['returncode']}" for s in steps
+        f"{'ok  ' if s['success'] else 'FAIL'} [{s['manager']}] exit {s['returncode']}"
+        + (f", still outdated: {', '.join(s['not_upgraded'])}" if s.get("not_upgraded") else "")
+        for s in steps
     )
     _emit(args, {"executed": True, "steps": steps}, human)
     return EXIT_FAILED if failed else EXIT_OK
@@ -176,7 +201,10 @@ def cmd_managers(args: argparse.Namespace) -> int:
 async def _scan_outdated(managers: list[PackageManager], include_ignored: bool) -> tuple[dict, list[dict]]:
     from app.core.ignore_store import IgnoreStore
 
+    from app.core.settings_store import get_settings
+
     store = IgnoreStore()
+    settings = get_settings()
     results = await _gather_per_manager(managers, "check_updates")
     for name, res in results.items():
         if not res["ok"]:
@@ -184,7 +212,8 @@ async def _scan_outdated(managers: list[PackageManager], include_ignored: bool) 
         updates = []
         for pkg in res["result"]:
             pkg = dict(pkg)
-            pkg["ignored"] = store.is_ignored(name, pkg.get("name", ""))
+            # A skipped version is hidden like an ignored package, until a newer one shows up.
+            pkg["ignored"] = store.is_ignored(name, pkg.get("name", "")) or settings.is_skipped(name, pkg)
             if include_ignored or not pkg["ignored"]:
                 updates.append(pkg)
         res["result"] = updates
@@ -333,7 +362,7 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
             build_failed = True
             continue
         steps.append({"manager": name, "packages": pkgs, "command": command})
-    code = _plan_or_execute(args, steps, record=True)
+    code = _plan_or_execute(args, steps, record=True, verify=by_name)
     return EXIT_FAILED if scan_failed or build_failed else code
 
 

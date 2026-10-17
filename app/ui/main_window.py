@@ -2392,7 +2392,7 @@ class MainWindow(QMainWindow):
         box.button(QMessageBox.StandardButton.Ok).setText("Run")
         return box.exec() == QMessageBox.StandardButton.Ok
 
-    def start_batch_upgrade(self, retry: dict[str, list[str]] | None = None):
+    def start_batch_upgrade(self, *args, retry: dict[str, list[str]] | None = None):
         """Upgrade the selected packages, or exactly `retry` ({manager: packages}) when given."""
         if self.active_operation is not None:
             self.log(f"⚠️ Cannot start an upgrade while {self.active_operation} is active.")

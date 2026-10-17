@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
-    QApplication, QSizePolicy, QStyle
+    QApplication, QSizePolicy, QStyle, QToolButton
 )
 from app.core.arch import describe_system
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
@@ -24,7 +24,7 @@ from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
 from app.core.sudo_secret import load as load_sudo_password
 from app.core.debug_log import debug_log
-from app.ui.updates_view import ManagerGroupHeader
+from app.ui.updates_view import ManagerGroupHeader, SelectionBar
 from app.ui.sidebar import (
     DEFAULT_HEADER_STYLE, DEFAULT_NAV_STYLE, HEADER_STYLES, NAV_STYLES, BannerHeader,
     BrandHeader, GroupedNav, NavEntry, RailNav, StatusCard,
@@ -1277,20 +1277,29 @@ class MainWindow(QMainWindow):
         self.lbl_summary.setWordWrap(True)
         updates_header.addWidget(self.lbl_summary, 1)
 
-        self.btn_select_all = QPushButton("Select All")
-        self.btn_select_all.setObjectName("btn-scan")
-        self.btn_select_all.clicked.connect(self.select_all_updates)
-        updates_header.addWidget(self.btn_select_all)
+        # One checkbox for all/some/none (replaces Select All + Deselect All) and one primary
+        # Update button whose arrow holds the other ways to run an upgrade.
+        self.chk_select_all = QCheckBox("")
+        self.chk_select_all.setObjectName("select-all")
+        self.chk_select_all.setTristate(True)
+        self.chk_select_all.setAccessibleName("Select all updates")
+        self.chk_select_all.clicked.connect(lambda _=False: self.toggle_all_selection())
+        updates_header.addWidget(self.chk_select_all)
 
-        self.btn_deselect_all = QPushButton("Deselect All")
-        self.btn_deselect_all.setObjectName("btn-scan")
-        self.btn_deselect_all.clicked.connect(self.deselect_all_updates)
-        updates_header.addWidget(self.btn_deselect_all)
-
-        self.btn_update_selected = QPushButton("Update Selected")
-        self.btn_update_selected.setObjectName("btn-update-all")
+        self.btn_update_selected = QToolButton()
+        self.btn_update_selected.setObjectName("btn-update-primary")
+        self.btn_update_selected.setText("Update")
+        self.btn_update_selected.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self.btn_update_selected.setEnabled(False)
-        self.btn_update_selected.clicked.connect(self.start_batch_upgrade)
+        self.btn_update_selected.clicked.connect(self.run_primary_update)
+        update_menu = QMenu(self.btn_update_selected)
+        self.act_update_selected = update_menu.addAction("Update selected")
+        self.act_update_selected.triggered.connect(lambda: self.start_batch_upgrade())
+        self.act_update_all = update_menu.addAction("Update all")
+        self.act_update_all.triggered.connect(self.update_all)
+        self.act_update_user = update_menu.addAction("Only user-level (no password)")
+        self.act_update_user.triggered.connect(self.update_user_level)
+        self.btn_update_selected.setMenu(update_menu)
         updates_header.addWidget(self.btn_update_selected)
         updates_layout.addLayout(updates_header)
 
@@ -1299,6 +1308,12 @@ class MainWindow(QMainWindow):
         self.updates_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.updates_list.customContextMenuRequested.connect(self.show_update_context_menu)
         updates_layout.addWidget(self.updates_list)
+
+        self.selection_bar = SelectionBar()
+        self.selection_bar.clear_requested.connect(self.deselect_all_updates)
+        self.selection_bar.update_requested.connect(lambda: self.start_batch_upgrade())
+        self.selection_bar.hide()
+        updates_layout.addWidget(self.selection_bar)
 
         # Progress bar
         self.progress = QProgressBar()
@@ -1811,6 +1826,56 @@ class MainWindow(QMainWindow):
             QLabel#status-checked {
                 font-size: 11px;
                 color: #7f849c;
+            }
+            QToolButton#btn-update-primary {
+                background-color: #89b4fa;
+                color: #11111b;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 18px;
+                padding-right: 30px;
+                font-weight: bold;
+            }
+            QToolButton#btn-update-primary:hover {
+                background-color: #b4befe;
+            }
+            QToolButton#btn-update-primary:disabled {
+                background-color: #313244;
+                color: #585b70;
+            }
+            QToolButton#btn-update-primary::menu-button {
+                border-left: 1px solid #11111b;
+                width: 24px;
+            }
+            QCheckBox#select-all {
+                color: #a6adc8;
+                spacing: 8px;
+            }
+            QFrame#selection-bar {
+                background-color: #313244;
+                border-radius: 10px;
+            }
+            QFrame#selection-bar QLabel {
+                background: transparent;
+            }
+            QLabel#selection-count {
+                font-weight: bold;
+                color: #cdd6f4;
+            }
+            QLabel#selection-admin {
+                color: #a6adc8;
+            }
+            QLabel#selection-admin[warn="true"] {
+                color: #f9e2af;
+                font-weight: bold;
+            }
+            QPushButton#selection-clear {
+                background-color: transparent;
+                color: #a6adc8;
+            }
+            QPushButton#selection-clear:hover {
+                background-color: #45475a;
+                color: #cdd6f4;
             }
             QWidget#group-header {
                 background-color: #11111b;
@@ -3246,17 +3311,12 @@ class MainWindow(QMainWindow):
             self.lbl_summary.setText(
                 f"Scan failed for {len(self.scan_errors)} manager(s); see the console for details."
             )
-            self.btn_update_selected.setEnabled(False)
         elif total_updates == 0:
             self.lbl_summary.setText("System is up to date.")
-            self.btn_update_selected.setEnabled(False)
         else:
-            selected_count = sum(len(s) for s in self.selected_updates.values())
             suffix = f"; {len(self.scan_errors)} scan(s) failed" if self.scan_errors else ""
-            self.lbl_summary.setText(
-                f"{total_updates} update(s) available ({selected_count} selected){suffix}"
-            )
-            self.btn_update_selected.setEnabled(selected_count > 0)
+            self.lbl_summary.setText(f"{total_updates} update(s) available{suffix}")
+        self.refresh_update_controls()
 
     def _update_group_order(self) -> list[str]:
         """Managers in scan order, then any with cached results that weren't in this scan."""
@@ -3331,6 +3391,89 @@ class MainWindow(QMainWindow):
             if state == "scanning":
                 self.manager_scan_state[name] = "done"
 
+    def _selection_counts(self) -> tuple[int, int, int, list[str], dict[str, set[str]]]:
+        """(pending, selected, selected needing admin, admin managers, selected per manager)."""
+        pending = 0
+        selected: dict[str, set[str]] = {}
+        for manager, updates in self.updates_cache.items():
+            names = {u.get("name", "") for u in updates}
+            pending += len(names)
+            selected[manager] = self.selected_updates.get(manager, set()) & names
+        admin_managers = sorted(m for m, picks in selected.items() if picks and self._needs_admin(m))
+        n_selected = sum(len(p) for p in selected.values())
+        n_admin = sum(len(selected[m]) for m in admin_managers)
+        return pending, n_selected, n_admin, admin_managers, selected
+
+    def refresh_update_controls(self) -> None:
+        """Sync the select-all box, the primary Update button and its menu, and the bottom bar."""
+        pending, n_selected, n_admin, admin_managers, _ = self._selection_counts()
+        n_user = n_selected - n_admin
+        box = self.chk_select_all
+        box.setCheckState(Qt.CheckState.Unchecked if n_selected == 0 else
+                          Qt.CheckState.Checked if n_selected >= pending else
+                          Qt.CheckState.PartiallyChecked)
+        box.setText(f"{n_selected} of {pending}" if pending else "")
+        box.setEnabled(pending > 0)
+
+        button = self.btn_update_selected
+        button.setText(f"Update {n_selected}" if n_selected else
+                       f"Update all ({len(self._all_update_targets_flat())})" if pending else "Update")
+        button.setEnabled(pending > 0)
+        self.act_update_selected.setText(f"Update selected ({n_selected})")
+        self.act_update_selected.setEnabled(n_selected > 0)
+        self.act_update_all.setText(f"Update all ({len(self._all_update_targets_flat())})")
+        self.act_update_user.setText(f"Only user-level, no password ({n_user})")
+        self.act_update_user.setEnabled(n_user > 0)
+
+        self.selection_bar.update_state(n_selected, n_admin, admin_managers)
+        self.selection_bar.setVisible(n_selected > 0)
+
+    def _all_update_targets(self) -> dict[str, list[str]]:
+        """Every pending update except ignored ones and those dnf would skip anyway."""
+        from app.core.ignore_store import IgnoreStore
+        store = IgnoreStore()
+        return {m: sorted(u.get("name", "") for u in ups
+                          if not u.get("blocked") and not store.is_ignored(m, u.get("name", "")))
+                for m, ups in self.updates_cache.items()}
+
+    def _all_update_targets_flat(self) -> list[str]:
+        return [p for pkgs in self._all_update_targets().values() for p in pkgs]
+
+    def run_primary_update(self) -> None:
+        """The button face: update the selection, or everything when nothing is ticked."""
+        if self._selection_counts()[1]:
+            self.start_batch_upgrade()
+        else:
+            self.update_all()
+
+    def update_all(self) -> None:
+        self.start_batch_upgrade(targets=self._all_update_targets())
+
+    def update_user_level(self) -> None:
+        """Upgrade the ticked packages of managers that don't need pkexec/sudo; no password."""
+        selected = self._selection_counts()[4]
+        self.start_batch_upgrade(targets={
+            m: sorted(picks) for m, picks in selected.items() if picks and not self._needs_admin(m)})
+
+    def toggle_all_selection(self) -> None:
+        """Header checkbox: select everything, or nothing when everything already is."""
+        pending, n_selected = self._selection_counts()[:2]
+        if pending and n_selected >= pending:
+            self.deselect_all_updates()
+        else:
+            self.select_all_updates()
+
+    def _sync_group_header(self, manager_name: str) -> None:
+        names = {u.get("name", "") for u in self.updates_cache.get(manager_name, [])}
+        picked = len(self.selected_updates.get(manager_name, set()) & names)
+        for i in range(self.updates_list.count()):
+            row = self.updates_list.itemWidget(self.updates_list.item(i))
+            if isinstance(row, ManagerGroupHeader) and row.manager == manager_name:
+                row.checkbox.setCheckState(
+                    Qt.CheckState.Unchecked if picked == 0 else
+                    Qt.CheckState.Checked if picked >= len(names) else Qt.CheckState.PartiallyChecked)
+                return
+
     def select_all_updates(self):
         for manager_name, updates in self.updates_cache.items():
             self.selected_updates.setdefault(manager_name, set())
@@ -3349,10 +3492,10 @@ class MainWindow(QMainWindow):
         else:
             self.selected_updates[manager_name].discard(pkg_name)
             
-        selected_count = sum(len(s) for s in self.selected_updates.values())
-        total_updates = sum(len(u) for u in self.updates_cache.values())
-        self.lbl_summary.setText(f"{total_updates} update(s) available ({selected_count} selected)")
-        self.btn_update_selected.setEnabled(selected_count > 0)
+        self.refresh_update_controls()
+        # The group header's partial/all/none box reflects row ticks; rebuilding would reset
+        # the scroll position, so only the header for this manager needs to follow.
+        self._sync_group_header(manager_name)
 
     def filter_updates(self, text: str):
         self.rebuild_updates_list()
@@ -3370,8 +3513,11 @@ class MainWindow(QMainWindow):
         box.button(QMessageBox.StandardButton.Ok).setText("Run")
         return box.exec() == QMessageBox.StandardButton.Ok
 
-    def start_batch_upgrade(self, *args, retry: dict[str, list[str]] | None = None):
-        """Upgrade the selected packages, or exactly `retry` ({manager: packages}) when given."""
+    def start_batch_upgrade(self, *args, retry: dict[str, list[str]] | None = None,
+                            targets: dict[str, list[str]] | None = None):
+        """Upgrade the selected packages, or exactly `retry`/`targets` ({manager: packages})."""
+        if retry is None:
+            retry = targets
         if self.active_operation is not None:
             self.log(f"⚠️ Cannot start an upgrade while {self.active_operation} is active.")
             return
@@ -3428,6 +3574,7 @@ class MainWindow(QMainWindow):
         self.active_operation = "batch upgrade"
         self._show_terminal("⚡ Upgrade in progress")
         self.btn_update_selected.setEnabled(False)
+        self.selection_bar.hide()
         self.btn_scan.setEnabled(False)
         self.btn_refresh_repos.setEnabled(False)
         self.progress.setVisible(True)

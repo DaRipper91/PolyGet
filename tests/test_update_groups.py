@@ -108,3 +108,52 @@ def test_group_checkbox_selects_all_then_none(window):
     assert window.selected_updates["DNF"] == {"firefox", "mesa"}
     window.toggle_manager_selection("DNF")
     assert window.selected_updates["DNF"] == set()
+
+
+def test_controls_count_selection_and_warn_about_admin(window):
+    _scan(window)  # DNF 2 (pkexec) + NPM 1, all auto-selected
+    assert window.chk_select_all.text() == "3 of 3"
+    assert window.btn_update_selected.text() == "Update 3"
+    bar = window.selection_bar
+    assert not bar.isHidden()
+    assert bar.admin.text() == "2 need your admin password (DNF)"
+    assert window.act_update_user.text() == "Only user-level, no password (1)"
+
+
+def test_nothing_ticked_hides_the_bar_and_primary_updates_all(window):
+    _scan(window)
+    window.deselect_all_updates()
+    assert window.selection_bar.isHidden()
+    assert window.chk_select_all.text() == "0 of 3"
+    assert window.btn_update_selected.text() == "Update all (3)"
+    assert window.btn_update_selected.isEnabled()
+    with patch.object(MainWindow, "start_batch_upgrade") as start:
+        window.run_primary_update()
+    assert start.call_args.kwargs["targets"] == {
+        "DNF": ["firefox", "mesa"], "NPM": ["typescript"], "Pipx": [], "Cargo": []}
+
+
+def test_user_level_upgrade_skips_password_managers(window):
+    _scan(window)
+    with patch.object(MainWindow, "start_batch_upgrade") as start:
+        window.update_user_level()
+    assert start.call_args.kwargs["targets"] == {"NPM": ["typescript"]}
+
+
+def test_select_all_checkbox_toggles_everything(window):
+    _scan(window)
+    window.selected_updates["DNF"] = {"firefox"}
+    window.refresh_update_controls()
+    assert window.chk_select_all.checkState().name == "PartiallyChecked"
+    window.toggle_all_selection()
+    assert window.chk_select_all.text() == "3 of 3"
+    window.toggle_all_selection()
+    assert window.chk_select_all.text() == "0 of 3"
+
+
+def test_row_tick_updates_bar_and_group_header_without_rebuild(window):
+    _scan(window)
+    window.on_item_selection_changed(False, "firefox", "DNF")
+    assert window.selection_bar.admin.text() == "1 needs your admin password (DNF)"
+    dnf = next(r for r in _rows(window) if isinstance(r, ManagerGroupHeader) and r.manager == "DNF")
+    assert dnf.checkbox.checkState().name == "PartiallyChecked"

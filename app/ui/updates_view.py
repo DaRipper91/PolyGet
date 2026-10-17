@@ -1,7 +1,7 @@
 """Widgets for the Updates page: per-manager group headers and the selection bar."""
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QPushButton, QWidget
+from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButton, QWidget
 
 from app.ui.sidebar import time_ago, manager_tone
 
@@ -75,3 +75,47 @@ class ManagerGroupHeader(QWidget):
             self.btn_retry.setToolTip(error or f"Scan {manager} again")
             self.btn_retry.clicked.connect(lambda: self.retry_requested.emit(self.manager))
             layout.addWidget(self.btn_retry)
+
+
+class SelectionBar(QFrame):
+    """Bar under the update list while anything is ticked: how many, and how many will ask for
+    the admin password, before Update is pressed — so pkexec prompts never come as a surprise."""
+
+    clear_requested = Signal()
+    update_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("selection-bar")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 8, 8, 8)
+        layout.setSpacing(14)
+        self.count = QLabel("")
+        self.count.setObjectName("selection-count")
+        layout.addWidget(self.count)
+        self.admin = QLabel("")
+        self.admin.setObjectName("selection-admin")
+        layout.addWidget(self.admin)
+        layout.addStretch()
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setObjectName("selection-clear")
+        self.btn_clear.clicked.connect(self.clear_requested.emit)
+        layout.addWidget(self.btn_clear)
+        self.btn_update = QPushButton("Update")
+        self.btn_update.clicked.connect(self.update_requested.emit)
+        layout.addWidget(self.btn_update)
+
+    def update_state(self, selected: int, admin: int, admin_managers: list[str]) -> None:
+        self.count.setText(f"{selected} selected")
+        self.btn_update.setText(f"Update {selected}")
+        if admin:
+            who = ", ".join(admin_managers)
+            self.admin.setText(f"{admin} need{'s' if admin == 1 else ''} your admin password ({who})")
+            self.admin.setToolTip(f"{who} upgrades run through pkexec: expect "
+                                  f"{len(admin_managers)} password prompt(s), one per manager.")
+        else:
+            self.admin.setText("No password needed")
+            self.admin.setToolTip("")
+        self.admin.setProperty("warn", bool(admin))
+        self.admin.style().unpolish(self.admin)
+        self.admin.style().polish(self.admin)

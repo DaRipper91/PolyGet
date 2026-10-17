@@ -2320,6 +2320,24 @@ class MainWindow(QMainWindow):
         font_layout.addStretch()
         layout.addWidget(font_row)
 
+        heading("Sudo password",
+                "The GUI caches your sudo password in the system keyring so pkexec can "
+                "fall back to sudo when no polkit agent is bound. Clear it here if you "
+                "change your password or want to re-enter it next time.")
+        from app.core import sudo_secret as _ss
+        has_pw = _ss.available() and _ss.load() is not None
+        btn_forget_pw = QPushButton("Forget saved sudo password")
+        btn_forget_pw.setEnabled(has_pw)
+        btn_forget_pw.setToolTip("Remove the stored sudo password from the keyring")
+        btn_forget_pw.clicked.connect(lambda: self._forget_sudo_password(btn_forget_pw))
+        layout.addWidget(btn_forget_pw)
+        lbl_pw_status = QLabel(
+            "Saved password: yes" if has_pw else "No saved password (keyring unavailable or none stored)."
+        )
+        lbl_pw_status.setObjectName("sudo-pw-status")
+        lbl_pw_status.setStyleSheet("color: #6c7086; font-size: 11px;")
+        layout.addWidget(lbl_pw_status)
+
         heading("Debug",
                 "Write every package-manager command and result to a JSONL log file so "
                 "AI coding assistants can read it. View live output in the Debug Console page.")
@@ -2605,6 +2623,18 @@ class MainWindow(QMainWindow):
 
     def console_clear(self):
         self.console.clear()
+
+    def _forget_sudo_password(self, btn: QPushButton) -> None:
+        """Remove the stored sudo password from the keyring."""
+        from app.core import sudo_secret as _ss
+        removed = _ss.forget()
+        btn.setEnabled(False)
+        lbl = self.findChild(QLabel, "sudo-pw-status")
+        if lbl is not None:
+            lbl.setText("No saved password (keyring unavailable or none stored)." if removed
+                        else "Could not remove stored password.")
+        self.log("🔑 Saved sudo password removed from keyring." if removed
+                 else "⚠️ Could not remove saved sudo password.")
 
     def log(self, text: str):
         # Feed the terminal overlay if it's visible

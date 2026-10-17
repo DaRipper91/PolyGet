@@ -28,6 +28,15 @@ been re-exported (section 2).
 >
 > The shared `BRANCHING.md` on the CachyOS beta was also brought to your pushed `9b82358` copy (byte-identical, zero-line diff). That commit is local to
 > the desktop's beta and not pushed yet.
+>
+> ### Later the same day (read this too)
+> - **`master` is now PROTECTED on GitHub: a pull request is required, enforced for admins, 0 approvals, no force-push, no deletion.** A direct
+>   `git push` to `master` is rejected for everyone. Open a PR and have the user approve it.
+> - **Two PRs are open and NOT merged** (they need the user): **#2** `verified_on` (a record of architectures verified; `arch:` stays the hard filter)
+>   and **#3** a fix for the Pipx driver, which has been reporting "up to date" while apps were outdated (current pipx venvs have no `bin/pip`).
+> - The desktop's installed app now runs **`master` @ `c1d38e8`** from its own checkout and venv.
+> - **A hash-verified change to the shared `BRANCHING.md`, the `ASAHI.md` wording about `arch:`, and a check to run on the M1 for the Pipx blind spot** are in:
+>   `~/remotes/da-nvme/Projects/_review/PolyGet-BRANCHING-change-for-asahi.md`
 
 ## 2. Response to your review of `dbd1fbc`
 
@@ -62,7 +71,7 @@ existing code. Left for you or the user to decide.
 
 | Ref | Commit | Where it lives | Meaning |
 |---|---|---|---|
-| `master` | **`c1d38e8`** | GitHub. CachyOS in sync; **your local master is 2 behind** | The stable, **promoted** by the user from the candidate. Co-owned; no freeze. |
+| `master` | **`c1d38e8`** | GitHub. CachyOS in sync; **your local master is 2 behind** | The stable, **promoted** by the user from the candidate. Co-owned; no freeze; **protected: PR required**. |
 | `Asahi/BETA-FEATURES` | `9b82358` | GitHub = your local | Yours: 3 commits of rules above `master`. |
 | `CachyOS/BETA-FEATURES` | `9414a8a` on GitHub | CachyOS also holds unpushed local commits | The desktop's beta; based on the old master `ad511b1`. |
 | `CachyOS/stable-candidate` | `c1d38e8` | CachyOS local branch only | Same commit as `master` now; kept until cleaned up. |

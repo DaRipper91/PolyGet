@@ -1,50 +1,43 @@
 # Agent Report
 
 ## Summary
-Branch `CachyOS/BETA-FEATURES` (CachyOS desktop, x86_64). Pushed so far: through `1fd1012`. `master` on GitHub is still `ad511b1`.
-**Everything from this turn is local and unpushed (it changes policy, so it needs the user's go-ahead).**
+Machine: CachyOS desktop (x86_64, arch). Branch `CachyOS/BETA-FEATURES` is pushed through `9414a8a`. This file is the only change not pushed.
 
-- **Master co-ownership** (the user's direction): `master` is co-owned by both machines; each beta branch has exactly one owner.
-  `BRANCHING.md` gains "Who owns what", "Start of every session: run the repo check", an identity table that no longer says "never master",
-  and a rewritten guard section. Every "Asahi owns master" / "do not install the guard on Asahi" statement in the docs was updated.
-- **`scripts/repo-check.sh`** (new, read-only apart from `git fetch`): flags local `master` != `origin/master` (and, the key case, a beta
-  that matches its remote while master does not), a beta behind `origin/master`, unpushed commits, uncommitted work, diverged branches,
-  and with `--peer <host>` the other machine's master / uncommitted work. Exit 0 clean / 1 review suggested / 2 alert.
-  `--promoting` mode treats "local master ahead" as expected and "behind" as an alert. Verified by a 10-scenario matrix and 13 pytest tests.
-- **Real finding:** pointing it at Asahi showed that the laptop's work is now a local commit, `dfea6a5` ("Add upgrade verification, settings
-  page, tray, touch mode, skip version", 27 files, +735/-162), NOT pushed; GitHub's master is still `ad511b1`. Merging this branch with that
-  real commit conflicts in exactly three files: `app/cli.py`, `app/core/settings_store.py`, `tests/conftest.py`.
-- **`scripts/git-hooks/pre-push`** reworked: master pushes need a deliberate override, the override still runs `repo-check --promoting` and
-  refuses on ALERT, and it **fails closed** if the script is missing. My own tests exposed that the first version silently skipped the check
-  when `master` lacked the script. Also learned: git rejects non-fast-forward pushes before any hook runs, so the hook's real value is
-  against forced pushes.
-- **Fixed in both `repo-check.sh` and `peer-snapshot.sh`:** Asahi's login shell is fish, which broke a bash-style ssh one-liner. Remote
-  commands now go through `bash -s` on stdin.
-- `tests/test_repo_check.py` (13 tests, real git against simulated machines); stale architecture wording in BRANCHING.md corrected;
-  `~/Projects/_devices/asahi/` snapshot refreshed.
+**Asahi published the stable.** GitHub `master` is now `dfea6a5` ("Add upgrade verification, settings page, tray, touch mode, skip version"),
+Asahi's former local commit, and `Asahi/BETA-FEATURES` (`417accc`) exists. Local `master` was fast-forwarded to match.
 
-Earlier: 12 drivers, architecture detection (`app/core/arch.py`), project dirs, AGENTS.md pointer block (pushed), Asahi read-once report.
+**This turn: tested the stable here, then built a stable candidate.**
+- Stage 1: `dfea6a5` unmodified on CachyOS: **226 passed**; real CLI, offscreen GUI and managers all fine. No errors found in the stable.
+- Stage 2: local branch `CachyOS/stable-candidate` (worktree `~/Projects/PolyGet-stable-candidate`, commit `dbd1fbc`) = `master` + this beta's feature
+  changes, with the governance files left out (BRANCHING.md, AGENTS.md pointer, agent reports, docs/reports, repo-check/peer-snapshot/setup-machine
+  scripts, pre-push hook, test_repo_check). Made with `git merge --squash`, so it claims no ancestry from the beta.
+- Conflicts (exactly the three predicted): `tests/conftest.py` (kept Asahi's HOME isolation + added the scripted-subprocess fixture),
+  `app/core/settings_store.py` (kept both defaults), `app/cli.py` (semantic merge: my guarded step loop feeding Asahi's `verify=` call).
+- **Bug found at the seam:** the stable's new confirm-commands code built every queued upgrade command in one unguarded comprehension, so a manager
+  that cannot build one (Bundler across projects, Go with nothing installed, Deno) would have broken the dialog. Fixed; regression test fails without it.
+- Stage 3: candidate **330 passed**; real CLI full `outdated` scan exits 0 over 13 managers (Deno reported as unsupported, not failed); real GUI scan with
+  isolated HOME finished with 0 error lines and shows the system line; headless TUI scan fine.
+- Comparison facts: Asahi's `AGENTS.md` pointer block is byte-identical to ours. Asahi's `ASAHI.md` says master is "owned by this laptop" and not to
+  install the pre-push guard, which DISAGREES with our co-ownership wording in `BRANCHING.md`; its own text says to ask the user.
 
 ## Feature / Task Status
-- OK Repo-drift check + promotion-aware mode + fail-closed push guard, tested
-- OK Co-ownership documented consistently
-- OK Architecture detection, 12 drivers (AUR, uv, Go, Bundler, Gradle verified on real tools; others fixture-only)
-- OPEN User must confirm the co-ownership policy and say whether to push this turn's commit
-- NOT DONE Anything verified on aarch64/M1; GitHub branch protection (a remote setting); GUI for tracked project dirs
+- OK Stable `dfea6a5` verified on CachyOS (226 tests, real CLI/GUI)
+- OK Stable candidate built, resolved, tested, smoke-tested here (local, not pushed)
+- OPEN Candidate not pushed; the user decides. Beta not yet merged with the new master.
+- OPEN Governance disagreement (co-owned vs Asahi-owned master) needs the user
+- NOT DONE Nothing verified on aarch64; Snap/Nix/Distrobox/Homebrew/Conda/Bun still fixture-only
 
 ## What the Next Agent Should Do First
-1. Run `scripts/repo-check.sh --peer asahi` (from Asahi: `--peer da-nvme`) before anything else. Do not write to the other machine.
-2. Do not push until the user says so. Do not merge anything into `master` outside the promotion steps in `BRANCHING.md`.
-3. Asahi agents: read `docs/reports/ASAHI-READ-ONCE-2026-10-16.md` once, follow section 7 then section 14; resolve the three conflicts by
-   keeping both sides; Asahi's `dfea6a5` still needs a decision (push as a fast-forward, or onto `Asahi/BETA-FEATURES`).
-4. Keep the contracts: `[]` ran and found nothing / `DriverError` query broke / `NotImplementedError` unsupported; catalog `name` ==
-   driver `name`; ssh to either machine goes through `bash -s` because the login shell may be fish.
+1. `scripts/repo-check.sh --peer asahi`; do not write to Asahi; do not push without the user's say-so.
+2. Candidate lives at `~/Projects/PolyGet-stable-candidate` (branch `CachyOS/stable-candidate`). Run tests with the main venv:
+   `PYTHONPATH=. QT_QPA_PLATFORM=offscreen ~/Projects/PolyGet/.venv/bin/python -m pytest -q`.
+3. To bring the beta up to the new master: merge (not rebase) `origin/master` into `CachyOS/BETA-FEATURES`; `rerere` already holds the resolutions.
+4. Asahi must still test the candidate's feature set on aarch64/Fedora before anything is promoted to `master`.
 
 ## Blocking Issues
-None. Open: co-ownership policy confirmation and the push decision. Known gaps: TUI detail pane shows an unsupported manager as "Up to
-date"; `assets/polyget.desktop` still has the wrong-case path; the hook's `master` gate is untested on aarch64.
+None. Open decisions: push the candidate? merge master into the beta? who owns master (see above)?
 
 ## Build / Test Status
-- Build: OK GUI launches offscreen and shows the system line; TUI header shows the architecture
-- Lint:  OK no pyflakes/syntax errors in changed files (no ruff config in the repo)
-- Tests: OK 338 passed, 0 failed (master baseline: 222). x86_64 only; nothing run on aarch64.
+- Build: OK (GUI/TUI/CLI run on the candidate)
+- Lint:  OK no pyflakes/syntax errors in changed files (repo has no ruff config)
+- Tests: stable 226 passed; candidate 330 passed; beta branch 338 passed (includes 13 governance tests). x86_64 only.

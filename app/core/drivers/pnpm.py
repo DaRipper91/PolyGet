@@ -2,6 +2,7 @@
 
 import asyncio
 import shutil
+import subprocess
 from typing import Any
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager
 
@@ -26,29 +27,31 @@ class PnpmManager(PackageManager):
         return self._pnpm_path
 
     def _needs_shell_fallback(self) -> bool:
-        """Detect pnpm's shebang-less placeholder shim.
+        """Detect whether pnpm's binary needs an explicit `sh` hop.
 
-        pnpm 11+ ships its `pnpm` bin entry as a shebang-less `sh` script until
-        its install script places the native binary. Interactive shells retry
-        such files under `sh`, but a direct `execve` (what asyncio and Qt use)
-        fails with `[Errno 8] Exec format error` — so the command works in a
-        terminal yet fails from PolyGet. Detect the placeholder once per
-        instance and route through `sh` explicitly via an argv list (never a
-        shell string).
+        pnpm 11+ can ship its `pnpm` bin entry as a placeholder shim that a
+        direct `execve` (what asyncio and Qt use) rejects with
+        `[Errno 8] Exec format error`, even though an interactive shell retries
+        it under `sh`. Detect this by actually running `pnpm --version`
+        directly: if it fails with Exec format error or another OS error,
+        route through `sh` explicitly via an argv list (never a shell string).
+
+        Result is cached per instance so the probe runs at most once.
         """
         if self._shell_fallback is None:
             path = shutil.which("pnpm")
             needs = False
             if path:
                 try:
-                    with open(path, "rb") as f:
-                        magic = f.read(2)
-                    # Executables start with a `#!` shebang or an ELF/Mach-O
-                    # magic byte; anything else (e.g. pnpm's `# ...` comment
-                    # placeholder) needs the explicit `sh` hop.
-                    needs = magic != b"#!" and magic[:1] != b"\x7f" and magic != b"\xcf\xfa"
-                except OSError:
+                    subprocess.run(
+                        [path, "--version"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5.0,
+                    )
                     needs = False
+                except (FileNotFoundError, OSError, subprocess.SubprocessError):
+                    needs = True
             self._shell_fallback = needs
         return self._shell_fallback
 

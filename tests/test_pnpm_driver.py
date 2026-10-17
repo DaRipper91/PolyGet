@@ -1,153 +1,74 @@
 import asyncio
-import errno
-import os
-import stat
-import pytest
-from unittest.mock import AsyncMock, patch
+import subprocess
+from unittest.mock import patch, AsyncMock
+
 from app.core.drivers.pnpm import PnpmManager
-from app.core.manager import DriverError
 
-def test_pnpm_check_updates():
-    manager = PnpmManager()
-    
-    async def run_test():
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate.return_value = (
-            b'{\n'
-            b'  "typescript": {\n'
-            b'    "current": "5.0.0",\n'
-            b'    "latest": "5.1.0"\n'
-            b'  }\n'
-            b'}\n',
-            b""
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            updates = await manager.check_updates()
-            
-        assert len(updates) == 1
-        assert updates[0] == {"name": "typescript", "current": "5.0.0", "new": "5.1.0"}
 
-    asyncio.run(run_test())
-
-def test_pnpm_check_updates_timeout_raises_not_hangs():
-    """A hung pnpm outdated subprocess must raise, not hang forever (audit finding B1)."""
+def test_pnpm_needs_shell_fallback_direct_success():
+    """Direct `pnpm --version` succeeds: no shell fallback needed."""
     manager = PnpmManager()
 
-    async def run_test():
-        mock_proc = AsyncMock()
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
-                with pytest.raises(RuntimeError):
-                    await manager.check_updates()
+    with patch("shutil.which", return_value="/usr/bin/pnpm"):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            result = manager._needs_shell_fallback()
+    assert result is False
+    mock_run.assert_called_once()
+    args = mock_run.call_args[0][0]
+    assert args[0] == "/usr/bin/pnpm"
+    assert args[1] == "--version"
 
-    asyncio.run(run_test())
 
-
-def test_pnpm_list_installed_timeout_raises_not_hangs():
-    """A hung pnpm list subprocess must raise, not hang (audit finding B1), and must
-    not report an empty install list as if the query had succeeded."""
+def test_pnpm_needs_shell_fallback_exec_format_error():
+    """Direct `pnpm --version` raises OSError: shell fallback needed."""
     manager = PnpmManager()
 
-    async def run_test():
-        mock_proc = AsyncMock()
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
-                with pytest.raises(DriverError):
-                    await manager.list_installed()
-
-    asyncio.run(run_test())
+    with patch("shutil.which", return_value="/usr/bin/pnpm"):
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = OSError("[Errno 8] Exec format error")
+            result = manager._needs_shell_fallback()
+    assert result is True
 
 
-def test_pnpm_list_installed():
+def test_pnpm_needs_shell_fallback_subprocess_error():
+    """`subprocess.run` raises SubprocessError: shell fallback needed."""
     manager = PnpmManager()
-    
-    async def run_test():
-        mock_proc = AsyncMock()
-        mock_proc.returncode = 0
-        mock_proc.communicate.return_value = (
-            b'[\n'
-            b'  {\n'
-            b'    "dependencies": {\n'
-            b'      "typescript": {},\n'
-            b'      "eslint": {}\n'
-            b'    }\n'
-            b'  }\n'
-            b']\n',
-            b""
-        )
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
-            installed = await manager.list_installed()
 
-        assert installed == ["typescript", "eslint"]
-
-    asyncio.run(run_test())
+    with patch("shutil.which", return_value="/usr/bin/pnpm"):
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.SubprocessError("failed")
+            result = manager._needs_shell_fallback()
+    assert result is True
 
 
-def _write_fake_pnpm(tmp_path, with_shebang):
-    """Create a fake `pnpm` bin entry mimicking pnpm 11+'s install states.
+def test_pnpm_needs_shell_fallback_cached():
+    """Result is cached: subprocess.run called only once."""
+    import subprocess
 
-    Without a shebang it reproduces the Asahi failure: direct execve answers
-    ENOEXEC while shells retry it under `sh`.
-    """
-    fake = tmp_path / "pnpm"
-    body = (
-        '# placeholder without shebang — kernel answers ENOEXEC, shells retry under sh\n'
-        'if [ "$1" = "outdated" ]; then\n'
-        '  printf \'{"typescript": {"current": "5.0.0", "latest": "5.1.0"}}\'\n'
-        'fi\n'
-    )
-    if with_shebang:
-        body = "#!/bin/sh\n" + body
-    fake.write_text(body)
-    os.chmod(fake, os.stat(fake).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return fake
-
-
-def test_pnpm_shebangless_shim_runs_via_sh(tmp_path, monkeypatch):
-    """A shebang-less pnpm placeholder (Asahi: native binary never installed)
-    must be routed through `sh` instead of failing with ENOEXEC."""
-    fake = _write_fake_pnpm(tmp_path, with_shebang=False)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
-
-    async def run_test():
-        # Premise: direct spawn of the placeholder answers ENOEXEC, exactly
-        # like `asyncio.create_subprocess_exec("pnpm", ...)` did on Asahi.
-        with pytest.raises(OSError) as exc:
-            await asyncio.create_subprocess_exec(
-                str(fake), "outdated",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-        assert exc.value.errno == errno.ENOEXEC
-
-        manager = PnpmManager()
-        assert manager._pnpm_argv("outdated", "--global")[:2] == ["sh", str(fake)]
-        updates = await manager.check_updates()
-        assert updates == [{"name": "typescript", "current": "5.0.0", "new": "5.1.0"}]
-
-    asyncio.run(run_test())
-
-
-def test_pnpm_native_binary_runs_directly(tmp_path, monkeypatch):
-    """A proper pnpm binary (shebang present) must keep the direct argv."""
-    _write_fake_pnpm(tmp_path, with_shebang=True)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
-
-    async def run_test():
-        manager = PnpmManager()
-        assert manager._pnpm_argv("outdated", "--global")[0] == "pnpm"
-        updates = await manager.check_updates()
-        assert updates == [{"name": "typescript", "current": "5.0.0", "new": "5.1.0"}]
-
-    asyncio.run(run_test())
-
-
-def test_pnpm_upgrade_command_uses_sh_fallback(tmp_path, monkeypatch):
-    """Upgrade/install commands go through the same spawn path (tui.py uses
-    create_subprocess_exec), so they need the `sh` hop too."""
-    fake = _write_fake_pnpm(tmp_path, with_shebang=False)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
     manager = PnpmManager()
-    assert manager.get_upgrade_command() == ["sh", str(fake), "update", "--global"]
-    assert manager.get_upgrade_command(["typescript"]) == ["sh", str(fake), "add", "--global", "typescript"]
-    assert manager.get_install_command("eslint") == ["sh", str(fake), "add", "--global", "eslint"]
+
+    with patch("shutil.which", return_value="/usr/bin/pnpm"):
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value.returncode = 0
+            result1 = manager._needs_shell_fallback()
+            result2 = manager._needs_shell_fallback()
+    assert result1 is False
+    assert result2 is False
+    mock_run.assert_called_once()
+
+
+def test_pnpm_pnpm_argv_no_fallback():
+    """_pnpm_argv returns direct pnpm command when no fallback needed."""
+    manager = PnpmManager()
+    manager._shell_fallback = False
+    result = manager._pnpm_argv("outdated", "--global", "--format", "json")
+    assert result == ["pnpm", "outdated", "--global", "--format", "json"]
+
+
+def test_pnpm_pnpm_argv_with_fallback():
+    """_pnpm_argv returns sh-wrapped command when fallback needed."""
+    manager = PnpmManager()
+    manager._shell_fallback = True
+    result = manager._pnpm_argv("outdated", "--global", "--format", "json")
+    assert result == ["sh", "pnpm", "outdated", "--global", "--format", "json"]

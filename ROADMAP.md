@@ -25,7 +25,7 @@ that file is the *why* and *how*.
 - [x] Settings page — general options, tray, managers, ignored packages, skipped versions, vendor-change allowances
 
 - [x] Package pin/ignore list — persist per-package exclusions so outdated packages don't get force-selected on every scan (CLI `ignore`; GUI ⋯ menu + Settings page)
-- [ ] Optional vulnerability scanning — detect `pacman-audit`/`pip-audit`/`osv-scanner`/`cargo-audit` and surface advisories, gated on a scanner actually being present. See the "rejected" note below for why this is a scanner-availability feature, not a version-comparison guard.
+- [x] Optional vulnerability scanning — **not doing** (rejected 2026-09-29). No scanners installed on either machine (`pacman-audit`, `pip-audit`, `osv-scanner`, `cargo-audit`, `trivy`, `grype` all absent). "No scanner installed" is indistinguishable from "no vulnerabilities." Revisit only once scanners are detectable. See the "Rejected / not doing" section.
 - [x] Update history log — append-only record of what got upgraded, when, and whether it succeeded (now records packages still outdated after an exit-0 run)
 - [x] System tray + background scan — tray icon, close-to-tray, scan every N hours, notifications for new updates, optional login autostart (`--tray`)
 

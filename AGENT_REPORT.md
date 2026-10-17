@@ -2,7 +2,7 @@
 
 ## Summary
 
-Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03 through FIX-08 done and committed. Now on FIX-09 (tui.py kdeconnect silent failure).
+Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03 through FIX-09 done and committed. Only REF-01 remains (documentation only, no code change).
 
 Files created/modified this session:
 - `app/core/settings_store.py` — threading.Lock around `_save()` (FIX-03)
@@ -14,7 +14,8 @@ Files created/modified this session:
 - `app/core/drivers/dnf.py` — vendor-change detection logged + flagged instead of swallowed (FIX-06)
 - `app/core/drivers/pnpm.py` — behavior-based shim detection instead of magic bytes (FIX-07)
 - `app/ui/main_window.py` — _parse_icon_from_file targeted exception handling + logging (FIX-08)
-- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py`, `tests/test_aur_driver.py`, `tests/test_dnf_driver.py`, `tests/test_pnpm_driver.py`, `tests/test_main_window.py` — new/updated test files
+- `app/ui/tui.py` — _send_phone_notification targeted exception handling + logging (FIX-09)
+- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py`, `tests/test_aur_driver.py`, `tests/test_dnf_driver.py`, `tests/test_pnpm_driver.py`, `tests/test_main_window.py`, `tests/test_tui.py` — new/updated test files
 - `AGENT_REPORT.md` — updated
 
 ## Feature / Task Status
@@ -29,12 +30,19 @@ Files created/modified this session:
 - ✅ FIX-06 (`dnf.py`) — vendor-change swallow
 - ✅ FIX-07 (`pnpm.py`) — shim detection drift
 - ✅ FIX-08 (`main_window.py`) — icon read swallow
-- ❌ FIX-09 (`tui.py`) — kdeconnect silent failure, not started
-- ❌ REF-01 — documentation only, not started
+- ✅ FIX-09 (`tui.py`) — kdeconnect silent failure
+- ⚪ REF-01 — `assets/polyget.desktop` hardcoded `Polyget` path. Already mitigated by
+  install-time sed in scripts/install-desktop.sh (lines 40-43 replace Exec/TryExec
+  with $REPO_ROOT/run.py). No code change needed — documentation only.
 
 ## What the Next Agent Should Do First
 
-Continue with FIX-09: read `app/ui/tui.py` line 552, replace bare `except Exception: pass` in `_send_phone_notification` with targeted exception handling + logging via `_log()`, optionally surface a non-blocking TUI notification. Add a test in `tests/test_tui.py`. Then REF-01 (desktop file documentation).
+All 10 fix tasks + 1 reference note from the audit fix plan are complete.
+Next steps:
+1. Run full test suite one final time to confirm 414 passed, 0 failed
+2. Commit AGENT_REPORT.md
+3. Consider pushing CachyOS/BETA-FEATURES to origin (currently ahead by commits)
+4. Optionally merge master into beta to pick up any upstream changes
 
 ## Blocking Issues
 
@@ -42,6 +50,6 @@ None.
 
 ## Build / Test Status
 
-- Build: ✅ passing (411 tests passed, 0 failed; all entry points verified)
+- Build: ✅ passing (414 tests passed, 0 failed; all entry points verified)
 - Lint: ⚠️ ruff stylistic errors pre-existing (no new findings from changes)
-- Tests: ✅ 411 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)
+- Tests: ✅ 414 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)

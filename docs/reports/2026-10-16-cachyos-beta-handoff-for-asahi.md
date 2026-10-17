@@ -3,6 +3,9 @@
 **Branch under review:** `CachyOS/BETA-FEATURES` · **Commits on top of `master`:** `2e86ecc` (drivers), `0d32a2c` (branching doc + guard), plus the commit carrying this report ·
 **Written:** 2026-10-16 on the CachyOS desktop (Arch, x86_64) · **Reader:** the Asahi laptop (Fedora, aarch64)
 
+> 📌 **Asahi agents: read `ASAHI-READ-ONCE-2026-10-16.md` (same folder) first.** It is the complete, current
+> version and supersedes this shorter handoff, which was written before architecture detection existed.
+>
 > **Nothing here has been merged into `master`, and nothing should be until Asahi has reviewed it.**
 > `master` on GitHub is still `ad511b1`. This branch adds one feature commit and one docs/tooling commit on top of it.
 

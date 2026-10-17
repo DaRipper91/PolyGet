@@ -2,6 +2,7 @@
 
 import asyncio
 import shutil
+import sys
 from typing import Any
 from rich.markup import escape
 from textual.app import App, ComposeResult
@@ -14,6 +15,10 @@ from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
 from app.core.version_scan import cross_manager_newest
 from app.core.settings_store import get_settings
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
 
 
 class HelpModal(ModalScreen[None]):
@@ -559,8 +564,10 @@ class PolyGetTuiApp(App[None]):
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL
                 )
-        except Exception:
-            pass
+        except FileNotFoundError as e:
+            _log(f"tui: kdeconnect-cli not found: {e}")
+        except OSError as e:
+            _log(f"tui: phone notification failed: {e}")
 
     async def _upgrade_manager(
         self,

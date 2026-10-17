@@ -2,7 +2,7 @@
 
 ## Summary
 
-Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03 through FIX-07 done and committed. Now on FIX-08 (main_window.py icon read swallow).
+Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03 through FIX-08 done and committed. Now on FIX-09 (tui.py kdeconnect silent failure).
 
 Files created/modified this session:
 - `app/core/settings_store.py` — threading.Lock around `_save()` (FIX-03)
@@ -13,7 +13,8 @@ Files created/modified this session:
 - `app/core/drivers/aur.py` — off-by-one range fix in search_packages() (FIX-05)
 - `app/core/drivers/dnf.py` — vendor-change detection logged + flagged instead of swallowed (FIX-06)
 - `app/core/drivers/pnpm.py` — behavior-based shim detection instead of magic bytes (FIX-07)
-- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py`, `tests/test_aur_driver.py`, `tests/test_dnf_driver.py`, `tests/test_pnpm_driver.py` — new/updated test files
+- `app/ui/main_window.py` — _parse_icon_from_file targeted exception handling + logging (FIX-08)
+- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py`, `tests/test_aur_driver.py`, `tests/test_dnf_driver.py`, `tests/test_pnpm_driver.py`, `tests/test_main_window.py` — new/updated test files
 - `AGENT_REPORT.md` — updated
 
 ## Feature / Task Status
@@ -27,13 +28,13 @@ Files created/modified this session:
 - ✅ FIX-05 (`aur.py`) — off-by-one range skip
 - ✅ FIX-06 (`dnf.py`) — vendor-change swallow
 - ✅ FIX-07 (`pnpm.py`) — shim detection drift
-- ❌ FIX-08 (`main_window.py`) — icon read swallow, not started
+- ✅ FIX-08 (`main_window.py`) — icon read swallow
 - ❌ FIX-09 (`tui.py`) — kdeconnect silent failure, not started
 - ❌ REF-01 — documentation only, not started
 
 ## What the Next Agent Should Do First
 
-Continue with FIX-08: read `app/ui/main_window.py` line 71, replace bare `except Exception: pass` in `_parse_icon_from_file` with targeted exception handling + logging via `_log()`. Add a test in `tests/test_main_window.py`. Then FIX-09 (tui.py kdeconnect).
+Continue with FIX-09: read `app/ui/tui.py` line 552, replace bare `except Exception: pass` in `_send_phone_notification` with targeted exception handling + logging via `_log()`, optionally surface a non-blocking TUI notification. Add a test in `tests/test_tui.py`. Then REF-01 (desktop file documentation).
 
 ## Blocking Issues
 
@@ -41,6 +42,6 @@ None.
 
 ## Build / Test Status
 
-- Build: ✅ passing (406 tests passed, 0 failed; all entry points verified)
+- Build: ✅ passing (411 tests passed, 0 failed; all entry points verified)
 - Lint: ⚠️ ruff stylistic errors pre-existing (no new findings from changes)
-- Tests: ✅ 406 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)
+- Tests: ✅ 411 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)

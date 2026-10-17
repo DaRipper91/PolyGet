@@ -2412,15 +2412,22 @@ class MainWindow(QMainWindow):
             return
         commands: list[list[str]] = []
         buildable: list[tuple[PackageManager, list[str]]] = []
+        unbuildable: list[str] = []
         for mgr, pkgs in self.upgrade_queue:
             try:
                 commands.append(mgr.get_upgrade_command(pkgs))
                 buildable.append((mgr, pkgs))
             except (NotImplementedError, DriverError) as e:
-                self.log(f"❌ {mgr.name}: cannot build an upgrade command: {describe_error(e)}")
-                self.upgrade_failures.append(mgr.name)
+                self._record_unbuildable(mgr.name, pkgs, e)
+                unbuildable.append(mgr.name)
         self.upgrade_queue[:] = buildable
         if not self.upgrade_queue:
+            # Nothing is left to run, so no end-of-run dialog will follow: say it here, not only in the console.
+            QMessageBox.warning(
+                self, "Cannot Upgrade",
+                "PolyGet could not build an upgrade command for: " + ", ".join(unbuildable)
+                + ".\n\nCheck the Process Console for the reason.",
+            )
             return
         if not self._confirm_commands("Confirm Upgrade", commands):
             self.upgrade_queue.clear()
@@ -2435,6 +2442,13 @@ class MainWindow(QMainWindow):
 
         self.nav_list.setCurrentRow(PAGE_CONSOLE)
         self.run_next_upgrade_queue()
+
+    def _record_unbuildable(self, name: str, packages: list[str], error: Exception) -> None:
+        """A manager whose upgrade command cannot be built still failed: log it and record it as a failed
+        result, so the end-of-run dialog (built from upgrade_results) and Retry include it."""
+        self.log(f"❌ {name}: cannot build an upgrade command: {describe_error(error)}")
+        self.upgrade_failures.append(name)
+        self.upgrade_results[name] = (list(packages), False)
 
     def run_next_upgrade_queue(self):
         if not self.upgrade_queue:
@@ -2453,8 +2467,7 @@ class MainWindow(QMainWindow):
         try:
             cmd = manager.get_upgrade_command(packages)
         except (NotImplementedError, DriverError) as e:
-            self.log(f"❌ {manager.name}: cannot build an upgrade command: {describe_error(e)}")
-            self.upgrade_failures.append(manager.name)
+            self._record_unbuildable(manager.name, packages, e)
             self.run_next_upgrade_queue()
             return
 

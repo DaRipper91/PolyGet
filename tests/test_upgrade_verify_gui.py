@@ -68,3 +68,45 @@ def test_unbuildable_upgrade_command_is_reported_not_raised_and_the_rest_still_c
     assert seen["commands"] == [["cargo", "install-update", "-a"]]
     assert "Bundler" in window.upgrade_failures
     assert window.upgrade_queue == []  # declined, so the queue was cleared rather than left half-built
+    # recorded as a failed RESULT too, since that is what the end-of-run dialog and Retry are built from
+    assert window.upgrade_results["Bundler"] == (["rake @ /p/a", "rake @ /p/b"], False)
+
+
+def _unbuildable_manager(name="Bundler"):
+    bad = MagicMock()
+    bad.name = name
+    from app.core.manager import DriverError
+    bad.get_upgrade_command.side_effect = DriverError("upgrades one project at a time")
+    return bad
+
+
+def test_unbuildable_manager_appears_in_the_final_dialog_and_in_retry(window):
+    """If it only reached the console it would be missing from 'Upgrade Finished With Problems' and Retry."""
+    window.updates_cache = {"Bundler": []}
+    window.scan_errors = {}
+    window.upgrade_results = {}
+    window._record_unbuildable("Bundler", ["rake @ /p/a"], RuntimeError("upgrades one project at a time"))
+    box = MagicMock()
+    box.exec.return_value = QMessageBox.StandardButton.Retry
+    with patch("app.ui.main_window.QMessageBox", wraps=QMessageBox) as mb, \
+         patch.object(window, "start_batch_upgrade") as retry:
+        mb.return_value = box
+        mb.StandardButton = QMessageBox.StandardButton
+        mb.Icon = QMessageBox.Icon
+        window.report_upgrade_results(window.upgrade_results)
+    assert "Bundler" in mb.call_args.args[2]
+    retry.assert_called_once_with(retry={"Bundler": ["rake @ /p/a"]})
+
+
+def test_when_every_queued_manager_is_unbuildable_a_warning_names_them(window):
+    a, b = _unbuildable_manager("Bundler"), _unbuildable_manager("Gradle")
+    window.managers = {"Bundler": a, "Gradle": b}
+    window.selected_updates = {"Bundler": {"rake @ /p/a"}, "Gradle": {"gradle wrapper @ /p/g"}}
+    window.active_operation = None
+    with patch("app.ui.main_window.QMessageBox") as mb, patch.object(window, "_confirm_commands") as confirm:
+        window.start_batch_upgrade()
+    confirm.assert_not_called()
+    mb.warning.assert_called_once()
+    text = mb.warning.call_args.args[2]
+    assert "Bundler" in text and "Gradle" in text
+    assert window.upgrade_queue == [] and set(window.upgrade_results) == {"Bundler", "Gradle"}

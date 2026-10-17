@@ -1,6 +1,7 @@
 """Base package manager interface and discovery utilities."""
 
 import asyncio
+import importlib
 import json
 from pathlib import Path
 from typing import Type, Any
@@ -274,7 +275,7 @@ def discover_managers() -> list[PackageManager]:
     """
     # Import drivers to trigger their decorators
     try:
-        import app.core.drivers
+        importlib.import_module("app.core.drivers")
     except ImportError:
         pass
 
@@ -293,7 +294,7 @@ def get_all_managers() -> list[PackageManager]:
         list[PackageManager]: A list of all registered package manager driver instances.
     """
     try:
-        import app.core.drivers
+        importlib.import_module("app.core.drivers")
     except ImportError:
         pass
     return [cls() for cls in _REGISTRY]

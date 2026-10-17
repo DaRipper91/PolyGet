@@ -1,0 +1,19 @@
+#!/bin/sh
+# Refuse pushes to master from a beta-only machine. Install with:
+#   cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+# Deliberate override (one push):  git -c polyget.allowMasterPush=true push ...
+# Do not install this on the machine that owns the stable line.
+
+if [ "$(git config --bool polyget.allowMasterPush)" = "true" ]; then
+    exit 0
+fi
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    if [ "$remote_ref" = "refs/heads/master" ]; then
+        echo "BLOCKED: this machine does not push to master." >&2
+        echo "  master is the stable line, proven on both Asahi and CachyOS." >&2
+        echo "  Push your beta branch instead, or see BRANCHING.md." >&2
+        exit 1
+    fi
+done
+exit 0

@@ -5,6 +5,7 @@ import pytest
 
 import app.cli as cli
 from app.core import arch
+from app.core.arch import normalize_arch
 from app.core.catalog import CatalogEntry, load_catalog
 
 
@@ -139,3 +140,56 @@ def test_gui_console_shows_detected_system_after_the_scan_clears_it(qapp):
     text = window.console.toPlainText()
     assert "Detected system: aarch64 / fedora" in text
     window.close()
+
+
+# --- verified_on is a record of what was tested; arch is the only filter ---
+
+def test_verified_on_never_filters_support_or_install_offers():
+    # Recording "verified on x86_64" must not make the tool look unsupported (or uninstallable) on the M1.
+    e = entry(verified_on=["x86_64"], self_install={"fedora": ["dnf", "install", "tool"]})
+    m, f = _on("aarch64", "fedora")
+    with m, f:
+        assert e.supports_this_arch()
+        assert e.get_self_install_command() == ["dnf", "install", "tool"]
+        assert not e.verified_here()
+
+
+def test_verified_here_follows_the_machine_and_normalizes_aliases():
+    e = entry(verified_on=["x86_64", "arm64"])
+    for machine, expected in (("x86_64", True), ("aarch64", True), ("riscv64", False)):
+        m, f = _on(machine, "arch")
+        with m, f:
+            assert e.verified_here() is expected
+    assert entry().verified_here() is False
+
+
+def test_arch_still_filters_while_verified_on_does_not():
+    e = entry(arch=["x86_64"], verified_on=["aarch64"])
+    m, f = _on("aarch64", "fedora")
+    with m, f:
+        assert not e.supports_this_arch()      # arch excludes aarch64 ...
+        assert e.verified_here()                # ... however verified_on says it was tested there
+
+
+def test_real_catalog_verified_on_is_canonical_and_only_for_drivers():
+    allowed = {"x86_64", "aarch64"}
+    for e in load_catalog():
+        for a in e.verified_on:
+            assert normalize_arch(a) == a, f"{e.id}: '{a}' is not the canonical spelling"
+            assert a in allowed, f"{e.id}: unexpected architecture '{a}'"
+        assert not e.verified_on or e.has_driver, f"{e.id}: cannot be verified without a driver"
+        assert len(set(e.verified_on)) == len(e.verified_on), f"{e.id}: duplicate architecture"
+
+
+def test_real_catalog_never_filters_by_arch_yet():
+    # No tool is known to be x86-only, so nothing may use the hard filter by accident (it would hide installs on the M1).
+    assert [e.id for e in load_catalog() if e.arch] == []
+
+
+def test_cli_catalog_reports_verified_on(capsys):
+    fake = [entry(id="a", name="A", verified_on=["x86_64"]), entry(id="b", name="B")]
+    with patch("app.core.catalog.load_catalog", return_value=fake), \
+         patch("app.core.catalog.get_machine_arch", return_value="x86_64"):
+        code, rows = run_json(capsys, "catalog")
+    got = {r["id"]: (r["verified_on"], r["verified_on_this_arch"]) for r in rows}
+    assert code == cli.EXIT_OK and got == {"a": (["x86_64"], True), "b": ([], False)}

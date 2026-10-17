@@ -464,12 +464,14 @@ def cmd_catalog(args: argparse.Namespace) -> int:
             "has_driver": e.has_driver,
             "arch": e.arch,
             "supported_on_this_arch": e.supports_this_arch(),
+            "verified_on": e.verified_on,
+            "verified_on_this_arch": e.verified_here(),
             "self_install": e.get_self_install_command(),
         }
         for e in load_catalog()
     ]
     human_rows = [{**r, "self_install": " ".join(r["self_install"] or [])} for r in rows]
-    _emit(args, rows, _table(human_rows, ["id", "category", "installed", "has_driver", "supported_on_this_arch", "self_install"]))
+    _emit(args, rows, _table(human_rows, ["id", "category", "installed", "has_driver", "supported_on_this_arch", "verified_on_this_arch", "self_install"]))
     return EXIT_OK
 
 

@@ -1,11 +1,16 @@
 """Append-only JSON Lines log of upgrade attempts."""
 
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 _HISTORY_PATH = Path.home() / ".local" / "share" / "polyget" / "history.jsonl"
+
+# Serialize writes to history.jsonl so concurrent GUI + CLI (or two GUI
+# instances) can't interleave partial writes or corrupt JSONL lines.
+_save_lock = threading.Lock()
 
 
 def record_upgrade(
@@ -27,7 +32,8 @@ def record_upgrade(
     if not_upgraded:
         entry["not_upgraded"] = not_upgraded
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry) + "\n")
+        with _save_lock:
+            f.write(json.dumps(entry) + "\n")
 
 
 def load_history(path: Path = _HISTORY_PATH, limit: int = 200) -> list[dict[str, Any]]:

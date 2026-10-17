@@ -125,7 +125,7 @@
   description: Canonical's sandboxed universal app packages.
   icon: emblem-downloads
   binary: snap
-  has_driver: false
+  has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "snapd"]
     debian: ["pkexec", "apt-get", "install", "-y", "snapd"]
@@ -193,12 +193,12 @@
     debian: ["pkexec", "apt-get", "install", "-y", "composer"]
 
 - id: go
-  name: Go Modules
+  name: Go
   category: Language/Dev
   description: Go's built-in module and binary installer (go install).
   icon: text-x-generic
   binary: go
-  has_driver: false
+  has_driver: true
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "golang"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "go"]
@@ -353,3 +353,23 @@
     fedora: ["pkexec", "dnf", "install", "-y", "gradle"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "gradle"]
     debian: ["pkexec", "apt-get", "install", "-y", "gradle"]
+
+- id: uv
+  name: uv
+  category: Language/Dev
+  description: Fast Python package and tool manager (uv tool install).
+  icon: text-x-generic
+  binary: uv
+  has_driver: true
+  self_install:
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "uv"]
+
+- id: bun
+  name: Bun
+  category: Language/Dev
+  description: JavaScript runtime and package manager (global packages via bun add -g).
+  icon: text-x-generic
+  binary: bun
+  has_driver: true
+  self_install:
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "bun"]

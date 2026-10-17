@@ -1,5 +1,8 @@
 """Base package manager interface and discovery utilities."""
 
+import asyncio
+import json
+from pathlib import Path
 from typing import Type, Any
 
 
@@ -25,6 +28,47 @@ class DriverError(RuntimeError):
     with nothing to report. Callers that need the distinction can use
     `NotImplementedError` (query not supported by this manager) as they already do.
     """
+
+
+async def run_capture(
+    argv: list[str],
+    *,
+    label: str,
+    timeout: float = 15.0,
+    ok_codes: tuple[int, ...] = (0,),
+    cwd: str | Path | None = None,
+) -> str:
+    """Run a read-only query command and return its stdout, mapping every failure to DriverError.
+
+    `ok_codes` lists exit statuses that still carry a valid answer (e.g. `pacman -Qu`
+    exits 1 when nothing is outdated). Anything else, a hang, or a missing binary
+    raises, so a dead query is never mistaken for an empty result.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv, cwd=cwd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except Exception as e:
+        raise DriverError(f"{label} failed: {describe_error(e)}") from e
+    if proc.returncode not in ok_codes:
+        detail = stderr.decode(errors="ignore").strip().splitlines()
+        suffix = f": {detail[0]}" if detail else ""
+        raise DriverError(f"{label} failed: `{argv[0]}` exited with status {proc.returncode}{suffix}")
+    return stdout.decode(errors="ignore")
+
+
+async def fetch_json(url: str, *, label: str, timeout: float = 15.0) -> Any:
+    """GET a JSON document via curl (the same transport the Pipx driver uses)."""
+    out = await run_capture(
+        ["curl", "-fsS", "--max-time", str(int(timeout)), "-H", "Accept: application/json", url],
+        label=label, timeout=timeout + 5.0,
+    )
+    try:
+        return json.loads(out)
+    except ValueError as e:
+        raise DriverError(f"{label} failed: response was not valid JSON") from e
 
 
 class PackageManager:

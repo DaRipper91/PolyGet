@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QUrl, QSettings, QTimer
+from dataclasses import dataclass, field
 from PySide6.QtGui import QIcon, QDesktopServices
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -914,6 +915,28 @@ QScrollBar:horizontal { height: 16px; }
  PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS, PAGE_DEBUG) = range(10)
 
 
+@dataclass
+class UpgradeTask:
+    """A single package-manager upgrade to run."""
+    manager: PackageManager
+    packages: list[str]
+
+
+@dataclass
+class SyncTask:
+    """A repository-metadata sync to run."""
+    manager: PackageManager
+    command: list[str]
+
+
+@dataclass
+class BlueprintInstallTask:
+    """A single package to install during a blueprint sync."""
+    manager: PackageManager
+    package: str
+    command: list[str]
+
+
 class MainWindow(QMainWindow):
     """Main window supporting unified updates, package browsing, and logs."""
 
@@ -926,12 +949,12 @@ class MainWindow(QMainWindow):
         self.scan_errors: dict[str, str] = {}
         self.selected_updates: dict[str, set[str]] = {}
         self.active_workers: list[QThread] = []
-        self.upgrade_queue: list[tuple[PackageManager, list[str]]] = []
-        self._elevated_queue: list[tuple[PackageManager, list[str]]] = []
-        self._parallel_queue: list[tuple[PackageManager, list[str]]] = []
+        self.upgrade_queue: list[UpgradeTask] = []
+        self._elevated_queue: list[UpgradeTask] = []
+        self._parallel_queue: list[UpgradeTask] = []
         self._running_workers: int = 0
-        self.sync_queue: list[tuple[PackageManager, list[str]]] = []
-        self.blueprint_queue: list[tuple[PackageManager, str, list[str]]] = []
+        self.sync_queue: list[SyncTask] = []
+        self.blueprint_queue: list[BlueprintInstallTask] = []
         self.upgrade_failures: list[str] = []
         self.upgrade_results: dict[str, tuple[list[str], bool]] = {}
         self.upgrade_unbuildable: set[str] = set()  # failed because no command could be built: Retry would fail identically
@@ -2606,17 +2629,18 @@ class MainWindow(QMainWindow):
         }
         for name, packages in targets.items():
             if packages and name in self.managers:
-                self.upgrade_queue.append((self.managers[name], list(packages)))
+                self.upgrade_queue.append(UpgradeTask(self.managers[name], list(packages)))
 
         if not self.upgrade_queue:
             return
         commands: list[list[str]] = []
-        buildable: list[tuple[PackageManager, list[str]]] = []
+        buildable: list[UpgradeTask] = []
         unbuildable: list[str] = []
-        for mgr, pkgs in self.upgrade_queue:
+        for task in self.upgrade_queue:
+            mgr, pkgs = task.manager, task.packages
             try:
                 commands.append(mgr.get_upgrade_command(pkgs))
-                buildable.append((mgr, pkgs))
+                buildable.append(UpgradeTask(mgr, pkgs))
             except (NotImplementedError, DriverError) as e:
                 self._record_unbuildable(mgr.name, pkgs, e)
                 unbuildable.append(mgr.name)
@@ -2637,12 +2661,13 @@ class MainWindow(QMainWindow):
         # Elevated managers need sequential execution for interactive sudo auth.
         self._elevated_queue = []
         self._parallel_queue = []
-        for mgr, pkgs in self.upgrade_queue:
+        for task in self.upgrade_queue:
+            mgr, pkgs = task.manager, task.packages
             cmd = mgr.get_upgrade_command(pkgs)
             if cmd and cmd[0] in ("pkexec", "sudo"):
-                self._elevated_queue.append((mgr, pkgs))
+                self._elevated_queue.append(UpgradeTask(mgr, pkgs))
             else:
-                self._parallel_queue.append((mgr, pkgs))
+                self._parallel_queue.append(UpgradeTask(mgr, pkgs))
 
         self.active_operation = "batch upgrade"
         self.btn_update_selected.setEnabled(False)
@@ -2692,7 +2717,8 @@ class MainWindow(QMainWindow):
         self._running_workers -= 1
         # Start next elevated manager if any remain
         if self._elevated_queue:
-            mgr, pkgs = self._elevated_queue.pop(0)
+            _task = self._elevated_queue.pop(0)
+            mgr, pkgs = _task.manager, _task.packages
             self._running_workers += 1
             self._start_upgrade_worker(mgr, pkgs)
         # If all workers done, finish
@@ -2722,7 +2748,8 @@ class MainWindow(QMainWindow):
 
         # Start first elevated worker (rest queued in _elevated_queue)
         if self._elevated_queue:
-            mgr, pkgs = self._elevated_queue.pop(0)
+            _task = self._elevated_queue.pop(0)
+            mgr, pkgs = _task.manager, _task.packages
             self._start_upgrade_worker(mgr, pkgs)
 
         # If nothing was started, finish
@@ -2968,7 +2995,7 @@ class MainWindow(QMainWindow):
         for mgr in available:
             cmd = mgr.get_sync_command()
             if cmd:
-                self.sync_queue.append((mgr, cmd))
+                self.sync_queue.append(SyncTask(mgr, cmd))
                 
         if not self.sync_queue:
             QMessageBox.information(self, "Sync Complete", "No active package managers support repository syncing.")
@@ -3006,7 +3033,8 @@ class MainWindow(QMainWindow):
             self.scan_all()
             return
 
-        manager, cmd = self.sync_queue.pop(0)
+        _task = self.sync_queue.pop(0)
+        manager, cmd = _task.manager, _task.command
         self.log(f"🔄 Syncing repository metadata for {manager.name}...")
         
         worker = ExecutionWorker(cmd)
@@ -3248,7 +3276,7 @@ class MainWindow(QMainWindow):
         self.blueprint_failures.clear()
         for mgr, pkg in missing_packages:
             cmd = mgr.get_install_command(pkg)
-            self.blueprint_queue.append((mgr, pkg, cmd))
+            self.blueprint_queue.append(BlueprintInstallTask(mgr, pkg, cmd))
 
         self.log(f"📦 Scheduled {len(missing_packages)} packages for installation.")
         self.blueprint_status.setText("Installing missing packages...")
@@ -3279,7 +3307,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Sync Complete", "All missing blueprint packages have been installed.")
             return
 
-        manager, pkg, cmd = self.blueprint_queue.pop(0)
+        _task = self.blueprint_queue.pop(0)
+        manager, pkg, cmd = _task.manager, _task.package, _task.command
         self.log(f"⚡ Sync-installing: {pkg} via {manager.name} ({' '.join(cmd)})")
         
         worker = ExecutionWorker(cmd)

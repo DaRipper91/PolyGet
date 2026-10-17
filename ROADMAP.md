@@ -35,7 +35,7 @@ that file is the *why* and *how*.
 - [x] Make `search_packages()` failure legible per manager, without failing the search — 13 drivers swallowed a failed registry query into `[]`, so a dead registry, an unreachable index, and a query that matched nothing were all reported as "0 results". Drivers now raise `DriverError`, Julia reports no search API as unsupported, and `cmd_search` keeps ok/empty / unsupported / failed distinct while still exiting 0 (`40676a3`)
 - [x] Retry action on the batch-upgrade failure dialog — re-runs only failed managers and packages still outdated
 - [x] Audit `handle_sync_worker_finished` / `handle_blueprint_sync_worker_finished` for the same silent-success pattern just fixed in the main upgrade queue — verified: sync commands (makecache, pacman -Sy, flatpak update --appstream) and install commands are fire-and-forget; no "still outdated" check needed. No silent-success issue.
-- [ ] Parallelize independent (non-elevated) managers in the batch-upgrade queue
+- [x] Parallelize independent (non-elevated) managers in the batch-upgrade queue — non-elevated managers (Flatpak, Pipx, uv, Cargo, NPM, etc.) now run concurrently; elevated managers (DNF, Pacman, APT, Snap) still run sequentially for sudo auth. `run_next_upgrade_queue` splits the queue and tracks running workers.
 - [ ] Split `self.upgrade_queue`'s overloaded tuple shape into three correctly-typed queues (upgrade / sync / blueprint-install)
 - [x] Per-package changelog/release notes — ⋯ → "Release notes / changelog" opens the registry page (`changelog_url_template` per driver)
 - [x] Semver-aware coloring (major/minor/patch) in the updates list

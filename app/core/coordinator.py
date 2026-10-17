@@ -41,28 +41,35 @@ class SubprocessCoordinator:
             return set(self._pids)
 
     def terminate_all(self) -> None:
-        """Terminate all active background child processes using process groups."""
+        """Terminate all active background child processes using process groups.
+
+        Holds the PID lock for the entire kill loop so a PID cannot be reused
+        by a new session-leader between the snapshot and the kill (PID-reuse
+        race). os.killpg/os.kill are fast syscalls and will not meaningfully
+        serialize shutdown.
+        """
         with self._pid_lock:
             pids_to_kill = list(self._pids)
 
-        for pid in pids_to_kill:
-            try:
-                # Since preexec_fn=os.setsid is used, the spawned process has a process group ID
-                # equal to its PID. We send SIGTERM to the entire process group.
-                os.killpg(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                # The process or process group does not exist (already exited).
-                pass
-            except PermissionError:
-                # We may lack permission to kill this process group (e.g. if privileges dropped or escalated),
-                # try killing the process directly as a fallback.
+            for pid in pids_to_kill:
                 try:
-                    os.kill(pid, signal.SIGTERM)
+                    # Since preexec_fn=os.setsid is used, the spawned process has a
+                    # process group ID equal to its PID. We send SIGTERM to the entire
+                    # process group.
+                    os.killpg(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    # The process or process group does not exist (already exited).
+                    pass
+                except PermissionError:
+                    # We may lack permission to kill this process group (e.g. if
+                    # privileges dropped or escalated), try killing the process directly
+                    # as a fallback.
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
-            except Exception:
-                pass
 
-            # Cleanup regardless of whether kill succeeded
-            with self._pid_lock:
+                # Cleanup regardless of whether kill succeeded, still under the lock.
                 self._pids.discard(pid)

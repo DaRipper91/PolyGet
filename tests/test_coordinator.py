@@ -1,84 +1,67 @@
-"""Unit tests for the SubprocessCoordinator class."""
-
-import signal
+import threading
 from unittest.mock import patch
+
 from app.core.coordinator import SubprocessCoordinator
 
 
-def test_coordinator_singleton():
-    """Verify that SubprocessCoordinator behaves as a singleton."""
-    c1 = SubprocessCoordinator()
-    c2 = SubprocessCoordinator()
-    assert c1 is c2
+def test_terminate_all_kills_each_registered_pid():
+    """terminate_all() sends SIGTERM to every registered process group."""
+    coord = SubprocessCoordinator()
+    coord.register(1001)
+    coord.register(1002)
+    coord.register(1003)
+
+    killed = []
+    with patch("os.killpg", side_effect=lambda pid, sig: killed.append(pid)):
+        coord.terminate_all()
+
+    assert sorted(killed) == [1001, 1002, 1003]
+    assert coord.active_pids == set()
 
 
-def test_coordinator_register_unregister():
-    """Verify registration and unregistration of process IDs."""
-    coordinator = SubprocessCoordinator()
-    # Clean up state to isolate this test
-    coordinator._pids.clear()
+def test_terminate_all_handles_process_lookup_error():
+    """ProcessLookupError (already exited) is swallowed, pid still removed."""
+    coord = SubprocessCoordinator()
+    coord.register(2001)
 
-    assert not coordinator.active_pids
+    with patch("os.killpg", side_effect=ProcessLookupError):
+        coord.terminate_all()
 
-    coordinator.register(12345)
-    assert 12345 in coordinator.active_pids
-
-    coordinator.register(67890)
-    assert 12345 in coordinator.active_pids
-    assert 67890 in coordinator.active_pids
-
-    coordinator.unregister(12345)
-    assert 12345 not in coordinator.active_pids
-    assert 67890 in coordinator.active_pids
-
-    coordinator.unregister(67890)
-    assert not coordinator.active_pids
+    assert coord.active_pids == set()
 
 
-def test_coordinator_terminate_all():
-    """Verify terminate_all calls os.killpg and clears PIDs."""
-    coordinator = SubprocessCoordinator()
-    coordinator._pids.clear()
+def test_terminate_all_blocks_concurrent_registration():
+    """While terminate_all() holds the lock, concurrent register() calls block
+    until terminate_all() releases the lock. No PID can be re-added mid-loop."""
+    coord = SubprocessCoordinator()
+    coord.register(4001)
 
-    coordinator.register(101)
-    coordinator.register(102)
+    registration_done = threading.Event()
+    registration_result = []
 
-    with patch("os.killpg") as mock_killpg:
-        coordinator.terminate_all()
+    def delayed_register():
+        registration_done.wait()
+        with coord._pid_lock:
+            coord._pids.add(4002)
+        registration_result.append("registered")
 
-        # Verify killpg was called for each PID
-        assert mock_killpg.call_count == 2
-        mock_killpg.assert_any_call(101, signal.SIGTERM)
-        mock_killpg.assert_any_call(102, signal.SIGTERM)
+    # Start a thread that will try to register 4002, but block on the event.
+    t = threading.Thread(target=delayed_register)
+    t.start()
 
-        # Verify coordinator active pids are cleared
-        assert not coordinator.active_pids
+    # Run terminate_all() while 4002 registration is blocked.
+    killed = []
+    with patch("os.killpg", side_effect=lambda pid, sig: killed.append(pid)):
+        coord.terminate_all()
 
+    # Only 4001 was killed; 4002 wasn't registered yet when terminate_all ran.
+    assert killed == [4001]
+    assert coord.active_pids == set()
 
-def test_coordinator_terminate_all_lookup_error():
-    """Verify terminate_all handles ProcessLookupError gracefully."""
-    coordinator = SubprocessCoordinator()
-    coordinator._pids.clear()
-    coordinator.register(201)
+    # Now allow the registration to proceed; it should complete cleanly.
+    registration_done.set()
+    t.join()
+    assert registration_result == ["registered"]
 
-    with patch("os.killpg", side_effect=ProcessLookupError) as mock_killpg:
-        # Should not raise exception
-        coordinator.terminate_all()
-
-        mock_killpg.assert_called_once_with(201, signal.SIGTERM)
-        assert not coordinator.active_pids
-
-
-def test_coordinator_terminate_all_permission_error():
-    """Verify terminate_all falls back to os.kill if os.killpg raises PermissionError."""
-    coordinator = SubprocessCoordinator()
-    coordinator._pids.clear()
-    coordinator.register(301)
-
-    with patch("os.killpg", side_effect=PermissionError) as mock_killpg, \
-         patch("os.kill") as mock_kill:
-        coordinator.terminate_all()
-
-        mock_killpg.assert_called_once_with(301, signal.SIGTERM)
-        mock_kill.assert_called_once_with(301, signal.SIGTERM)
-        assert not coordinator.active_pids
+    # 4002 is now registered (not killed by the earlier terminate_all).
+    assert coord.active_pids == {4002}

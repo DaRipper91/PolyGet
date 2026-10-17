@@ -814,6 +814,7 @@ class MainWindow(QMainWindow):
         self.blueprint_queue: list[tuple[PackageManager, str, list[str]]] = []
         self.upgrade_failures: list[str] = []
         self.upgrade_results: dict[str, tuple[list[str], bool]] = {}
+        self.upgrade_unbuildable: set[str] = set()  # failed because no command could be built: Retry would fail identically
         self.pending_verification: dict[str, tuple[list[str], bool]] | None = None
         self.sync_failures: list[str] = []
         self.blueprint_failures: list[tuple[str, str]] = []
@@ -2401,6 +2402,7 @@ class MainWindow(QMainWindow):
         self.upgrade_queue.clear()
         self.upgrade_failures.clear()
         self.upgrade_results = {}
+        self.upgrade_unbuildable = set()
         targets = retry if retry is not None else {
             name: sorted(self.selected_updates.get(name, ())) for name in self.managers
         }
@@ -2449,6 +2451,7 @@ class MainWindow(QMainWindow):
         self.log(f"❌ {name}: cannot build an upgrade command: {describe_error(error)}")
         self.upgrade_failures.append(name)
         self.upgrade_results[name] = (list(packages), False)
+        self.upgrade_unbuildable.add(name)
 
     def run_next_upgrade_queue(self):
         if not self.upgrade_queue:
@@ -2491,7 +2494,7 @@ class MainWindow(QMainWindow):
         """Compare an upgrade run against the rescan that followed it, log it to history, and
         tell the user what really happened, with Retry limited to what didn't work."""
         from app.core.history_store import record_upgrade
-        ok, failed, unverified = [], [], []
+        ok, failed, unbuildable, unverified = [], [], [], []
         not_upgraded: dict[str, list[str]] = {}
         for name, (packages, success) in results.items():
             still = None
@@ -2501,7 +2504,9 @@ class MainWindow(QMainWindow):
                 outdated = {u.get("name") for u in self.updates_cache.get(name, [])}
                 still = sorted(outdated & set(packages))
             record_upgrade(name, packages, success, not_upgraded=still)
-            if not success:
+            if not success and name in self.upgrade_unbuildable:
+                unbuildable.append(name)
+            elif not success:
                 failed.append(name)
             elif still:
                 not_upgraded[name] = still
@@ -2513,24 +2518,29 @@ class MainWindow(QMainWindow):
             lines.append("✅ Upgraded: " + ", ".join(ok))
         if failed:
             lines.append("❌ Command failed: " + ", ".join(failed))
+        if unbuildable:
+            lines.append("🚫 No upgrade command could be built (Retry would fail the same way): " + ", ".join(unbuildable))
         if not_upgraded:
             lines.append("⚠ Finished without an error, but still outdated:\n" + "\n".join(
                 f"    {name}: {', '.join(pkgs)}" for name, pkgs in not_upgraded.items()
             ) + "\nThe ⋯ button on those rows shows why (e.g. a dnf vendor change) and can skip them.")
         if unverified:
             lines.append("❔ Couldn't re-check (scan failed): " + ", ".join(unverified))
-        if not failed and not not_upgraded:
+        if not failed and not unbuildable and not not_upgraded:
             QMessageBox.information(self, "Upgrade Complete", "\n\n".join(lines))
             return
 
+        retry = {name: results[name][0] for name in failed}
+        retry.update(not_upgraded)
+        buttons = QMessageBox.StandardButton.Close
+        if retry:
+            buttons |= QMessageBox.StandardButton.Retry
         box = QMessageBox(
             QMessageBox.Icon.Warning, "Upgrade Finished With Problems",
             "\n\n".join(lines) + "\n\nCheck the Process Console for details.",
-            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Close, self,
+            buttons, self,
         )
-        if box.exec() == QMessageBox.StandardButton.Retry:
-            retry = {name: results[name][0] for name in failed}
-            retry.update(not_upgraded)
+        if box.exec() == QMessageBox.StandardButton.Retry and retry:
             self.start_batch_upgrade(retry=retry)
 
     # --- Store Browsing / Searching Functionality ---

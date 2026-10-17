@@ -297,6 +297,8 @@ class PolyGetTuiApp(App[None]):
         # Outdated package cache, dynamically populated
         self.updates_cache: dict[str, list[dict[str, Any]]] = {}
         self.scan_errors: dict[str, str] = {}
+        # Managers that cannot report outdated packages at all (NotImplementedError): not "Up to date", not a failure.
+        self.unsupported_checks: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         """Compose the TUI layout widgets.
@@ -347,6 +349,7 @@ class PolyGetTuiApp(App[None]):
         except NotImplementedError as e:
             self.updates_cache[mgr.name] = []
             self.scan_errors.pop(mgr.name, None)
+            self.unsupported_checks[mgr.name] = describe_error(e)
             self.notify(f"Scan skipped: {mgr.name} ({describe_error(e)})", title="Upgrader", severity="information", timeout=3)
             return
         except Exception as e:
@@ -354,6 +357,7 @@ class PolyGetTuiApp(App[None]):
             error = str(e)
 
         self.updates_cache[mgr.name] = updates
+        self.unsupported_checks.pop(mgr.name, None)
         if error:
             self.scan_errors[mgr.name] = error
             self.notify(
@@ -403,6 +407,8 @@ class PolyGetTuiApp(App[None]):
         updates = self.updates_cache.get(mgr.name, [])
         if mgr.name in self.scan_errors:
             return f"{selected_mark} ❌ {mgr.name} (Scan failed)"
+        if mgr.name in self.unsupported_checks:
+            return f"{selected_mark} ➖ {mgr.name} (Update check not supported)"
         if updates:
             return f"{selected_mark} ⚠️ {mgr.name} ({len(updates)} updates)"
         else:
@@ -437,10 +443,14 @@ class PolyGetTuiApp(App[None]):
         checking = manager_name in self.checking_managers
         updates = self.updates_cache.get(mgr.name, [])
         scan_error = self.scan_errors.get(mgr.name)
+        unsupported = self.unsupported_checks.get(mgr.name)
 
         if scan_error:
             status_style = "bold #f38ba8"
             status_text = f"Scan failed: {scan_error}"
+        elif unsupported:
+            status_style = "bold #94a3b8"
+            status_text = f"Update check not supported: {unsupported}"
         elif checking:
             status_style = "bold #38bdf8"
             status_text = "Checking for updates..."

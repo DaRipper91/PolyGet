@@ -80,8 +80,8 @@ def _unbuildable_manager(name="Bundler"):
     return bad
 
 
-def test_unbuildable_manager_appears_in_the_final_dialog_and_in_retry(window):
-    """If it only reached the console it would be missing from 'Upgrade Finished With Problems' and Retry."""
+def test_unbuildable_manager_appears_in_the_final_dialog_but_is_not_offered_for_retry(window):
+    """It must be named in 'Upgrade Finished With Problems' (not only in the console), but Retry would fail the same way."""
     window.updates_cache = {"Bundler": []}
     window.scan_errors = {}
     window.upgrade_results = {}
@@ -94,8 +94,27 @@ def test_unbuildable_manager_appears_in_the_final_dialog_and_in_retry(window):
         mb.StandardButton = QMessageBox.StandardButton
         mb.Icon = QMessageBox.Icon
         window.report_upgrade_results(window.upgrade_results)
-    assert "Bundler" in mb.call_args.args[2]
-    retry.assert_called_once_with(retry={"Bundler": ["rake @ /p/a"]})
+    assert "Bundler" in mb.call_args.args[2] and "Retry would fail the same way" in mb.call_args.args[2]
+    assert not (mb.call_args.args[3] & QMessageBox.StandardButton.Retry)   # only Close is offered
+    retry.assert_not_called()
+
+
+def test_retry_offers_only_managers_whose_command_actually_ran(window):
+    window.updates_cache = {"Cargo": [], "Bundler": []}
+    window.scan_errors = {}
+    window.upgrade_results = {"Cargo": (["dua-cli"], False)}
+    window.upgrade_unbuildable = set()
+    window._record_unbuildable("Bundler", ["rake @ /p/a"], RuntimeError("upgrades one project at a time"))
+    box = MagicMock()
+    box.exec.return_value = QMessageBox.StandardButton.Retry
+    with patch("app.ui.main_window.QMessageBox", wraps=QMessageBox) as mb, \
+         patch.object(window, "start_batch_upgrade") as retry:
+        mb.return_value = box
+        mb.StandardButton = QMessageBox.StandardButton
+        mb.Icon = QMessageBox.Icon
+        window.report_upgrade_results(window.upgrade_results)
+    assert mb.call_args.args[3] & QMessageBox.StandardButton.Retry
+    retry.assert_called_once_with(retry={"Cargo": ["dua-cli"]})
 
 
 def test_when_every_queued_manager_is_unbuildable_a_warning_names_them(window):

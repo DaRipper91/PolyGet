@@ -1,8 +1,11 @@
 # Optional per-entry fields beyond the basics:
-#   arch:         [x86_64, aarch64]   architectures verified to work; omit if unknown (never guess)
-#   self_install: keys are a distro family ("fedora") or family:arch ("fedora:aarch64"); the
-#                 arch-qualified key wins when both exist. If `arch` is set and excludes this
-#                 machine, no install command is offered.
+#   arch:         [x86_64]            a HARD FILTER: the only CPUs this tool exists for. Any CPU not listed is treated as
+#                                     unsupported (no install offered). Leave it out unless that is really true.
+#   verified_on:  [x86_64, aarch64]   a RECORD, never a filter: CPUs on which the driver was run against the real tool
+#                                     and returned real data. Add only the architecture you verified on your own hardware;
+#                                     unverified means absent. Shown by `catalog` as verified_on_this_arch.
+#   self_install: keys are a distro family ("fedora") or family:arch ("fedora:aarch64"); the arch-qualified key wins
+#                 when both exist. If `arch` is set and excludes this machine, no install command is offered.
 - id: dnf
   name: DNF
   category: System
@@ -19,6 +22,7 @@
   icon: package-x-generic
   binary: pacman
   has_driver: true
+  verified_on: [x86_64]
 
 - id: aur
   name: AUR
@@ -27,6 +31,7 @@
   icon: package-x-generic
   binary: paru
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "paru"]
 
@@ -37,6 +42,7 @@
   icon: emblem-downloads
   binary: flatpak
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "flatpak"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "flatpak"]
@@ -50,6 +56,7 @@
   icon: text-x-script
   binary: npm
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "nodejs"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "nodejs", "npm"]
@@ -74,6 +81,7 @@
   icon: text-x-generic
   binary: cargo
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "cargo"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "rust"]
@@ -180,6 +188,7 @@
   icon: text-x-generic
   binary: gem
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "ruby"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "ruby"]
@@ -204,6 +213,7 @@
   icon: text-x-generic
   binary: go
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "golang"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "go"]
@@ -338,6 +348,7 @@
   icon: text-x-generic
   binary: bundle
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "rubygem-bundler"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "ruby-bundler"]
@@ -352,6 +363,7 @@
   icon: text-x-generic
   binary: gradle
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     fedora: ["pkexec", "dnf", "install", "-y", "gradle"]
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "gradle"]
@@ -364,6 +376,7 @@
   icon: text-x-generic
   binary: uv
   has_driver: true
+  verified_on: [x86_64]
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "uv"]
 

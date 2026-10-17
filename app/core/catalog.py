@@ -19,14 +19,22 @@ class CatalogEntry:
     binary: str
     has_driver: bool
     self_install: dict[str, list[str]] = field(default_factory=dict)
-    # CPU architectures this manager is known to support. Empty means unspecified (assumed to
-    # work everywhere), not "all verified"; only list architectures that were checked on real hardware.
+    # A HARD FILTER: CPU architectures this manager is known to support. Listing any makes every other
+    # CPU unsupported (no install offered). Leave empty unless the tool genuinely does not exist elsewhere;
+    # to record what has merely been tested, use `verified_on`.
     arch: list[str] = field(default_factory=list)
+    # A RECORD, never a filter: CPU architectures on which this manager's driver was run against the real
+    # tool and returned real data. Each machine adds only the architecture it verified on its own hardware.
+    verified_on: list[str] = field(default_factory=list)
     installed: bool = False
 
     def supports_this_arch(self) -> bool:
         """False only when the entry lists architectures and this machine's is not among them."""
         return not self.arch or get_machine_arch() in {normalize_arch(a) for a in self.arch}
+
+    def verified_here(self) -> bool:
+        """True if this manager has been verified on real hardware of this machine's architecture."""
+        return get_machine_arch() in {normalize_arch(a) for a in self.verified_on}
 
     def get_self_install_command(self) -> list[str] | None:
         """Return the install command for this distro family and architecture, if known.

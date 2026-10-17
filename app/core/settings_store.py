@@ -1,10 +1,15 @@
 """PolyGet settings — alias maps, UI preferences, and scan policies."""
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
 _SETTINGS_PATH = Path.home() / ".config" / "polyget" / "settings.json"
+
+# Serialize writes to settings.json so concurrent GUI + CLI (or two GUI
+# instances) can't interleave partial writes or lose updates.
+_save_lock = threading.Lock()
 
 
 class SettingsStore:
@@ -90,7 +95,8 @@ class SettingsStore:
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        with _save_lock:
+            self._path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
 
     # --- Accessors ---
 

@@ -69,7 +69,9 @@ class AurManager(PackageManager):
         lines = out.splitlines()
         results = []
         # Two lines per result: "aur/name version (+votes popularity)" then an indented description.
-        for i in range(0, len(lines) - 1, 2):
+        # Use len(lines) - (len(lines) % 2) so a trailing odd line (which can't form a pair)
+        # is ignored rather than silently dropped via len(lines) - 1.
+        for i in range(0, len(lines) - (len(lines) % 2), 2):
             header = lines[i].split()
             if len(header) >= 2:
                 name = header[0].split("/", 1)[-1]

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03, FIX-04, FIX-02, FIX-01 done and committed. Now on FIX-10 (kill fallback swallow in coordinator.py, depends on FIX-01 — complete).
+Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03, FIX-04, FIX-02, FIX-01, FIX-10 done and committed. Now on FIX-05 (aur.py off-by-one range skip).
 
 Files created/modified this session:
 - `app/core/settings_store.py` — threading.Lock around `_save()` (FIX-03)
@@ -20,7 +20,7 @@ Files created/modified this session:
 - ✅ FIX-04 (`ignore_store.py`) — data-store locking, committed
 - ✅ FIX-02 (`history_store.py`) — history JSONL locking, committed
 - ✅ FIX-01 (`coordinator.py`) — PID-reuse race, committed (c66659c)
-- 🔄 FIX-10 (`coordinator.py`) — kill fallback swallow, in progress
+- ✅ FIX-10 (`coordinator.py`) — kill fallback swallow, committed (ec6eace)
 - ❌ FIX-05 (`aur.py`) — off-by-one range skip, not started
 - ❌ FIX-06 (`dnf.py`) — vendor-change swallow, not started
 - ❌ FIX-07 (`pnpm.py`) — shim detection drift, not started
@@ -30,7 +30,7 @@ Files created/modified this session:
 
 ## What the Next Agent Should Do First
 
-Continue with FIX-10: in `app/core/coordinator.py`, the `except Exception: pass` on the `os.kill` fallback (line ~70 in current code) swallows kill failures. Replace with targeted exception handling + logging via `_log()`. Add a concurrent test. Then FIX-05 (aur.py off-by-one).
+Continue with FIX-05: read `app/core/drivers/aur.py` line 72, fix `range(0, len(lines) - 1, 2)` to `range(0, len(lines) - (len(lines) % 2), 2)` so odd line counts don't drop the final entry. Add a concurrent test in `tests/test_aur_driver.py`. Then FIX-06 (dnf.py vendor-change swallow).
 
 ## Blocking Issues
 
@@ -38,6 +38,6 @@ None.
 
 ## Build / Test Status
 
-- Build: ✅ passing (416 tests passed, 0 failed; all entry points verified)
+- Build: ✅ passing (417 tests passed, 0 failed; all entry points verified)
 - Lint: ⚠️ ruff stylistic errors pre-existing (no new findings from changes)
-- Tests: ✅ 416 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)
+- Tests: ✅ 417 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)

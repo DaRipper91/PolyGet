@@ -19,6 +19,7 @@ from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
+from app.core.sudo_secret import load as load_sudo_password
 
 
 def find_icon_for_package(pkg_name: str, manager_name: str) -> str:
@@ -153,41 +154,110 @@ class FetchReposWorker(QThread):
 
 
 class ExecutionWorker(QThread):
-    """General purpose execution worker piping command outputs to the logs."""
+    """General purpose execution worker piping command outputs to the logs.
+
+    If the command starts with ``pkexec`` and fails because no polkit
+    authentication agent is bound to the session (common over SSH or in a
+    minimal terminal), the worker transparently retries with ``sudo`` instead.
+    A saved sudo password (keyring via :mod:`app.core.sudo_secret`) is supplied
+    to ``sudo -S``; an empty password works for NOPASSWD sudoers entries.
+    """
+
     log_signal = Signal(str)
     finished_signal = Signal(bool)
+
+    _PKEXEC_NO_AGENT_MARKERS = (
+        "authentication agent",
+        "no session for cookie",
+        "not authorized",
+        "cannot determine the session",
+    )
 
     def __init__(self, cmd: list[str], parent: Any = None):
         super().__init__(parent)
         self.cmd = cmd
+
+    @staticmethod
+    def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
+        """True when pkexec failed specifically because no polkit agent is bound."""
+        lowered = stderr_text.lower()
+        return any(marker in lowered for marker in ExecutionWorker._PKEXEC_NO_AGENT_MARKERS)
 
     def run(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self.log_signal.emit(f"⚡ Executing: {' '.join(self.cmd)}")
         try:
-            async def run_cmd():
-                run_cmd_list = list(self.cmd)
+            async def run_once(cmd: list[str], password: str | None = None) -> tuple[int, list[str]]:
+                """Run one command attempt; returns (returncode, stderr_lines)."""
+                stdin_kind: int = (
+                    asyncio.subprocess.PIPE if password is not None else asyncio.subprocess.DEVNULL
+                )
                 proc = await asyncio.create_subprocess_exec(
-                    *run_cmd_list,
+                    *cmd,
+                    stdin=stdin_kind,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.STDOUT,
-                    start_new_session=True
+                    stderr=asyncio.subprocess.PIPE,
+                    start_new_session=True,
                 )
                 coordinator = SubprocessCoordinator()
                 coordinator.register(proc.pid)
+                stderr_lines: list[str] = []
                 try:
-                    while True:
-                        line = await proc.stdout.readline()
-                        if not line:
-                            break
-                        line_str = line.decode(errors="ignore").strip()
-                        self.log_signal.emit(line_str)
-                    return await proc.wait()
+                    async def read_stream(
+                        stream: asyncio.StreamReader, capture: list[str] | None = None
+                    ) -> None:
+                        while True:
+                            line = await stream.readline()
+                            if not line:
+                                break
+                            text = line.decode(errors="ignore").rstrip()
+                            if capture is not None:
+                                capture.append(text)
+                            self.log_signal.emit(text)
+
+                    if password is not None:
+                        assert proc.stdin is not None
+                        proc.stdin.write(password.encode() + b"\n")
+                        await proc.stdin.drain()
+                    if proc.stdin is not None:
+                        proc.stdin.close()
+
+                    await asyncio.gather(
+                        read_stream(proc.stdout),
+                        read_stream(proc.stderr, stderr_lines),
+                        proc.wait(),
+                    )
                 finally:
                     coordinator.unregister(proc.pid)
+                return proc.returncode, stderr_lines
 
-            exit_code = loop.run_until_complete(run_cmd())
+            async def run_with_fallback() -> int:
+                cmd = list(self.cmd)
+                is_pkexec = bool(cmd) and cmd[0] == "pkexec"
+
+                code, stderr_lines = await run_once(cmd)
+                if code == 0:
+                    return 0
+
+                stderr_text = "\n".join(stderr_lines)
+
+                # pkexec failed because no polkit agent is bound: retry with sudo.
+                if is_pkexec and self._looks_like_pkexec_no_agent_failure(stderr_text):
+                    sudo_cmd = ["sudo"] + cmd[1:]
+                    if "-S" not in sudo_cmd:
+                        sudo_cmd.insert(1, "-S")
+                    self.log_signal.emit(
+                        " ⚠️ No polkit authentication agent bound to this session — "
+                        "falling back to sudo."
+                    )
+                    password = load_sudo_password()
+                    code2, _ = await run_once(sudo_cmd, password=password)
+                    return code2
+
+                return code
+
+            exit_code = loop.run_until_complete(run_with_fallback())
             self.finished_signal.emit(exit_code == 0)
         except Exception as e:
             self.log_signal.emit(f"❌ Execution error: {str(e)}")

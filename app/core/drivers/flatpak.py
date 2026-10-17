@@ -240,6 +240,9 @@ class FlatpakManager(PackageManager):
         """
         return ["flatpak", "install", "-y", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["flatpak", "uninstall", "-y"] + packages
+
     supports_repos: bool = True
 
     async def list_repos(self) -> list[dict[str, Any]]:

@@ -222,6 +222,9 @@ class NpmManager(PackageManager):
         """
         return ["npm", "install", "-g", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["npm", "uninstall", "-g"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         """Search for NPM packages globally."""
         try:

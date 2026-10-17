@@ -33,7 +33,7 @@ drives the same driver layer as the GUI, with no Qt import. Prefer it over ad-ho
 - Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `audit`, `repos`,
   `history`, `catalog`, `ignore list`. All accept `-m/--manager NAME` (repeatable,
   case-insensitive).
-- Mutating: `upgrade`, `install`, `sync` **only print the planned commands** unless `--yes` is
+- Mutating: `upgrade`, `install`, `remove`, `sync` **only print the planned commands** unless `--yes` is
   passed. Never pass `--yes` on your own initiative; show the plan and let the user run it.
   System managers (DNF/Pacman/APT) use `pkexec`, which fails without a TTY/polkit agent, so the
   user should run those themselves via `! polyget upgrade -m dnf --yes`.

@@ -3,7 +3,7 @@
 import asyncio
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
 @register_manager
@@ -96,6 +96,18 @@ class PacmanManager(PackageManager):
 
     def get_install_command(self, package: str) -> list[str]:
         return ["pkexec", "pacman", "-S", "--noconfirm", package]
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "pacman", "-Rs", "--noconfirm"] + packages
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        # `--print` resolves the transaction without root; a missing package or a broken
+        # dependency exits non-zero, which run_capture surfaces as the reason.
+        out = await run_capture(
+            ["pacman", "-Rs", "--print", "--print-format", "%n"] + packages,
+            label=f"{self.name} removal preview", timeout=20.0,
+        )
+        return [line.strip() for line in out.splitlines() if line.strip()]
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         try:

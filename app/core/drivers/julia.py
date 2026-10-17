@@ -67,6 +67,9 @@ class JuliaManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["julia", "-e", "using Pkg; Pkg.add(ARGS[1])", "--", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["julia", "-e", "using Pkg; Pkg.rm(ARGS)", "--"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # No official Julia registry search HTTP API — General registry search
         # tools exist as third-party sites only, not a stable programmatic

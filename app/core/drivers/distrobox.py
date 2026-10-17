@@ -43,3 +43,6 @@ class DistroboxManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         container = re.sub(r"[^\w.\-]", "-", package.rsplit("/", 1)[-1].split(":")[0]) or "container"
         return ["distrobox", "create", "--yes", "--name", container, "--image", package]
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["distrobox", "rm", "--force"] + packages

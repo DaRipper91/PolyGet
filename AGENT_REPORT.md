@@ -2,7 +2,7 @@
 
 ## Summary
 
-Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03, FIX-04, FIX-02, FIX-01, FIX-10 done and committed. Now on FIX-05 (aur.py off-by-one range skip).
+Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03 through FIX-05 done and committed. Now on FIX-06 (dnf.py vendor-change swallow).
 
 Files created/modified this session:
 - `app/core/settings_store.py` — threading.Lock around `_save()` (FIX-03)
@@ -10,18 +10,19 @@ Files created/modified this session:
 - `app/core/history_store.py` — threading.Lock around `record_upgrade()` (FIX-02)
 - `app/core/coordinator.py` — lock held across kill loop in `terminate_all()` (FIX-01)
 - `app/core/coordinator.py` — kill fallback errors logged instead of swallowed (FIX-10)
-- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py` — new/updated test files
+- `app/core/drivers/aur.py` — off-by-one range fix in search_packages() (FIX-05)
+- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py`, `tests/test_aur_driver.py` — new/updated test files
 - `AGENT_REPORT.md` — updated
 
 ## Feature / Task Status
 
 - ✅ Stage 01–06 — full audit chain complete, clean pass
-- ✅ FIX-03 (`settings_store.py`) — data-store locking, committed
-- ✅ FIX-04 (`ignore_store.py`) — data-store locking, committed
-- ✅ FIX-02 (`history_store.py`) — history JSONL locking, committed
-- ✅ FIX-01 (`coordinator.py`) — PID-reuse race, committed (c66659c)
-- ✅ FIX-10 (`coordinator.py`) — kill fallback swallow, committed (ec6eace)
-- ❌ FIX-05 (`aur.py`) — off-by-one range skip, not started
+- ✅ FIX-03 (`settings_store.py`) — data-store locking
+- ✅ FIX-04 (`ignore_store.py`) — data-store locking
+- ✅ FIX-02 (`history_store.py`) — history JSONL locking
+- ✅ FIX-01 (`coordinator.py`) — PID-reuse race
+- ✅ FIX-10 (`coordinator.py`) — kill fallback swallow
+- ✅ FIX-05 (`aur.py`) — off-by-one range skip
 - ❌ FIX-06 (`dnf.py`) — vendor-change swallow, not started
 - ❌ FIX-07 (`pnpm.py`) — shim detection drift, not started
 - ❌ FIX-08 (`main_window.py`) — icon read swallow, not started
@@ -30,7 +31,7 @@ Files created/modified this session:
 
 ## What the Next Agent Should Do First
 
-Continue with FIX-05: read `app/core/drivers/aur.py` line 72, fix `range(0, len(lines) - 1, 2)` to `range(0, len(lines) - (len(lines) % 2), 2)` so odd line counts don't drop the final entry. Add a concurrent test in `tests/test_aur_driver.py`. Then FIX-06 (dnf.py vendor-change swallow).
+Continue with FIX-06: read `app/core/drivers/dnf.py` lines 69-70, replace `except Exception: return updates` with logged error + optional `vendor_change_detection_failed` flag so the UI can surface that vendor-change blocking couldn't be verified. Add tests in `tests/test_dnf_driver.py`. Then FIX-07 (pnpm.py shim detection drift).
 
 ## Blocking Issues
 
@@ -38,6 +39,6 @@ None.
 
 ## Build / Test Status
 
-- Build: ✅ passing (417 tests passed, 0 failed; all entry points verified)
+- Build: ✅ passing (414 tests passed, 0 failed; all entry points verified)
 - Lint: ⚠️ ruff stylistic errors pre-existing (no new findings from changes)
-- Tests: ✅ 417 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)
+- Tests: ✅ 414 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)

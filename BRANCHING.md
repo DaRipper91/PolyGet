@@ -46,6 +46,13 @@ A change reaches `master` only when all of these are true:
 
 Keep commits small and one-feature-each so they can be taken or left individually.
 
+## For agents: new managers on sync
+
+Whenever you review or sync a branch, diff `app/core/drivers/` and `app/core/data/manager_catalog.yaml`
+for **new managers**. List each one to the user and **ask** whether to (a) check the system for it or
+(b) install it, or neither. Do not probe or install before they answer, and never invent an install
+command. Review the actual code and run the tests rather than trusting any report.
+
 ## Guarding `master` on beta-only machines
 
 `scripts/git-hooks/pre-push` refuses any push to `master`. Hooks are not versioned, so install it per

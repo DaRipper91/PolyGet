@@ -8,6 +8,34 @@
 
 ---
 
+## 📣 NOTE FOR AGENTS (read before doing anything else)
+
+If you are an AI agent asked to review this branch, do these in order. Do not skip to the summary.
+
+1. **Review the code, not just this report.** Reports go stale and are written by an agent that may be wrong.
+   Read the actual diff (`git diff origin/master...origin/CachyOS/BETA-FEATURES`), read each new driver in
+   `app/core/drivers/`, and run the test suite yourself. Verify claims against the live code and system.
+2. **Notice every new manager.** Compare what the branch adds against what is on your side:
+   ```bash
+   git diff --name-status origin/master...origin/CachyOS/BETA-FEATURES -- app/core/drivers app/core/data/manager_catalog.yaml
+   python run.py catalog --json      # id, name, installed, has_driver, self_install for every manager
+   ```
+   The managers new in this branch are: **AUR** (`paru`/`yay`), **uv**, **Go**, **Bun**, **Deno**,
+   **Bundler** (`bundle`), **Gradle**, **Snap**, **Nix**, **Distrobox**, **Homebrew** (`brew`), **Conda**.
+   Also look for any manager added *after* this report was written; list what you find rather than
+   assuming this list is complete.
+3. **Ask the user before acting on any new manager.** For each one, ask whether you should
+   **(a) check this system for it** (is the binary present, does the driver work against the real tool) or
+   **(b) install it** (using its catalog `self_install` command for this distro, if one exists), or **neither**.
+   - Do not probe, install, or run a new manager's commands until the user answers.
+   - Never run an install command on your own initiative, and never use a command you made up.
+   - Some managers have no install command here on purpose: Homebrew (its installer is a piped shell
+     script), and `uv` / `deno` on Fedora (see section 6, item 2). Say so and let the user decide.
+   - **AUR is Arch-only.** On Fedora, do not offer to install it; it is expected to be hidden.
+4. **Do not merge into `master`**, and do not pull this branch into a working branch, as part of a review.
+
+---
+
 ## 1. TL;DR
 
 - This branch adds **12 package-manager drivers** (15 → 27) plus the shared plumbing they need.
@@ -16,8 +44,8 @@
   any of it reaches `master`.
 - **Asahi probably has newer files than GitHub's `master`.** This branch was built on `ad511b1`, which may be
   stale. Check for that *before* reading the diff (section 3).
-- Section 6 lists **what only Asahi can verify**, including two catalog lines for Fedora that I wrote
-  without being able to check them.
+- Section 6 lists **what only Asahi can verify**, including Fedora self-install commands for
+  `uv` and `deno`, which were removed as unverified (section 6, item 2).
 
 ## 2. The project model
 
@@ -94,7 +122,7 @@ Files in your likely conflict zone: `app/core/manager.py`, `app/cli.py`, `app/ui
 | # | Item | Why it matters |
 |---|---|---|
 | 1 | **Run the full test suite on Fedora/aarch64.** | Only x86_64 Arch has run it. |
-| 2 | **`fedora: dnf install -y uv` and `fedora: dnf install -y deno` in `manager_catalog.yaml`.** | I wrote these without checking Fedora's repos. `uv` may be packaged; **`deno` likely is not in the official repos.** Treat both as unverified and correct or remove them. |
+| 2 | **Fedora self-install for `uv` and `deno`.** | The unverified `dnf install` lines I first wrote for these two were **removed**, so they currently have no Fedora self-install command (Arch only). If you want one, find the real Fedora package or COPR yourself and add it. Do not guess. |
 | 3 | **DNF/Flatpak still behave.** | The scan/upgrade guards in section 5 sit on the path every driver uses, including DNF. Run `python run.py outdated` and a GUI scan on the laptop. |
 | 4 | **Real runs of Snap, Nix, Distrobox, Homebrew, Conda, Bun** if installed. | None of these exist on the CachyOS machine. Their parsers are tested against **fixtures built from documentation only**. Highest-risk guesses: `nix profile list --json` shape across versions, `brew search` non-TTY output, `conda search --json` error body, `bun update -g`. |
 | 5 | **Distrobox in particular.** | Asahi is the likelier machine to have it, and it manages *containers*, not packages (installed = containers, upgrade = each container's own manager, install = create from an image). Confirm that is the behavior you want. |

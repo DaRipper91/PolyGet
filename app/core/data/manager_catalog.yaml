@@ -361,7 +361,6 @@
   has_driver: true
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "uv"]
-    fedora: ["pkexec", "dnf", "install", "-y", "uv"]
 
 - id: bun
   name: Bun
@@ -382,7 +381,6 @@
   has_driver: true
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "deno"]
-    fedora: ["pkexec", "dnf", "install", "-y", "deno"]
 
 # Self-install is empty on purpose: Homebrew's official installer is a curl-piped shell script,
 # which cannot be expressed as a safe argv. Install it from https://brew.sh.

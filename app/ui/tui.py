@@ -8,6 +8,7 @@ from textual.app import App, ComposeResult
 from textual.screen import ModalScreen
 from textual.widgets import Header, Footer, ListView, ListItem, Label, RichLog, ProgressBar, Input, Button, Checkbox, DataTable
 from textual.containers import Horizontal, Vertical
+from app.core.arch import get_machine_arch
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
@@ -411,7 +412,7 @@ class PolyGetTuiApp(App[None]):
         """Update the application's subtitle with global status statistics."""
         active_count = len(self.managers)
         total_updates = sum(len(up) for up in self.updates_cache.values())
-        self.sub_title = f"{active_count} active managers | {total_updates} total updates pending"
+        self.sub_title = f"{active_count} active managers | {total_updates} total updates pending | {get_machine_arch()}"
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         """Handle list item highlighting to update the details panel dynamically.

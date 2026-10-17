@@ -1,3 +1,8 @@
+# Optional per-entry fields beyond the basics:
+#   arch:         [x86_64, aarch64]   architectures verified to work; omit if unknown (never guess)
+#   self_install: keys are a distro family ("fedora") or family:arch ("fedora:aarch64"); the
+#                 arch-qualified key wins when both exist. If `arch` is set and excludes this
+#                 machine, no install command is offered.
 - id: dnf
   name: DNF
   category: System

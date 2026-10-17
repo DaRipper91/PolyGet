@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu
 )
+from app.core.arch import describe_system
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
 from app.core.coordinator import SubprocessCoordinator
 from app.core.blueprint import BlueprintManager
@@ -782,6 +783,8 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
         self.apply_theme()
+        system = describe_system()
+        self.log(f"🖥️ Detected system: {system['arch']} / {system['distro_family']}")
         self.scan_all()
 
     def setup_ui(self):

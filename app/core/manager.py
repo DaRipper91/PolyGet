@@ -104,6 +104,37 @@ class PackageManager:
         """
         raise NotImplementedError("Subclasses must implement is_available()")
 
+    async def get_self_version(self) -> str | None:
+        """Return the package manager's own version string, or None if undetectable.
+
+        The default implementation runs ``{binary} --version`` and returns the
+        first line of output. Drivers override this when the binary name differs
+        from the driver name or the version flag is non-standard.
+        """
+        import shutil
+        binary = shutil.which(self.name.lower())
+        if binary is None:
+            return None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                binary, "--version",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            line = stdout.decode(errors="ignore").strip().splitlines()
+            return line[0].strip() if line else None
+        except Exception:
+            return None
+
+    async def check_self_update(self) -> dict[str, str] | None:
+        """Check whether the package manager itself has a newer version available.
+
+        Returns:
+            dict with 'current' and 'latest' keys, or None when the manager has
+            no self-update mechanism or the check is unsupported.
+        """
+        return None
+
     async def check_updates(self) -> list[dict[str, Any]]:
         """Asynchronously query the package manager for outdated packages.
 

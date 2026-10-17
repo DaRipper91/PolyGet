@@ -10,6 +10,7 @@ class NpmManager(PackageManager):
 
     name: str = "NPM"
     category: str = "Language/Dev"
+    changelog_url_template = "https://www.npmjs.com/package/{name}?activeTab=versions"
 
     def __init__(self) -> None:
         """Initialize the NPM package manager driver."""
@@ -54,7 +55,7 @@ class NpmManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # registry round-trips; slow networks need minutes, not seconds
             if not stdout:
                 return []
             import json

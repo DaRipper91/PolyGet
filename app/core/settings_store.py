@@ -10,7 +10,7 @@ _SETTINGS_PATH = Path.home() / ".config" / "polyget" / "settings.json"
 class SettingsStore:
     """JSON-backed settings store with versioned schema."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, path: Path = _SETTINGS_PATH) -> None:
         self._path = path
@@ -53,9 +53,22 @@ class SettingsStore:
                 # repo) even though dnf.conf's allow_vendor_change is off.
                 "allow_vendor_change": [],
             },
+            # Managers the user switched off: not scanned by the GUI, and left out of CLI
+            # commands that don't name managers explicitly.
+            "disabled_managers": [],
+            # Updates hidden until a newer version appears: {manager: {package: version}}.
+            "skipped_versions": {},
             "ui": {
                 "show_version_check_badge": True,
                 "compact_mode": False,
+                "scan_on_launch": True,
+                "confirm_commands": True,  # show the exact command before PolyGet runs it
+                "touch_mode": False,
+            },
+            "tray": {
+                "enabled": False,  # tray icon, close-to-tray, and background scans
+                "scan_interval_hours": 6,  # 0 = no background scans
+                "notify": True,
             },
         }
 
@@ -147,6 +160,41 @@ class SettingsStore:
         if normalized_name in alias_map and manager in alias_map[normalized_name]:
             return alias_map[normalized_name][manager]
         return None
+
+    # --- Disabled managers / skipped versions ---
+
+    def disabled_managers(self) -> list[str]:
+        return list(self._data.get("disabled_managers", []))
+
+    def set_manager_enabled(self, manager: str, enabled: bool) -> None:
+        disabled = [m for m in self.disabled_managers() if m != manager]
+        if not enabled:
+            disabled.append(manager)
+        self.set("disabled_managers", sorted(disabled))
+
+    def skipped_version(self, manager: str, package: str) -> str | None:
+        return self._data.get("skipped_versions", {}).get(manager, {}).get(package)
+
+    def is_skipped(self, manager: str, update: dict[str, Any]) -> bool:
+        """True when the user skipped exactly the version this update offers."""
+        skipped = self.skipped_version(manager, update.get("name", ""))
+        return skipped is not None and skipped == update.get("new")
+
+    def skip_version(self, manager: str, package: str, version: str) -> None:
+        self._data.setdefault("skipped_versions", {}).setdefault(manager, {})[package] = version
+        self._save()
+
+    def unskip_version(self, manager: str, package: str) -> None:
+        per_manager = self._data.get("skipped_versions", {}).get(manager, {})
+        if per_manager.pop(package, None) is not None:
+            if not per_manager:
+                del self._data["skipped_versions"][manager]
+            self._save()
+
+    def all_skipped(self) -> list[tuple[str, str, str]]:
+        return sorted(
+            (m, p, v) for m, pkgs in self._data.get("skipped_versions", {}).items() for p, v in pkgs.items()
+        )
 
     # --- Version scan settings ---
 

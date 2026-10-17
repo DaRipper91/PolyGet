@@ -13,6 +13,7 @@ class PipxManager(PackageManager):
 
     name: str = "Pipx"
     category: str = "Language/Dev"
+    changelog_url_template = "https://pypi.org/project/{name}/#history"
 
     def is_available(self) -> bool:
         """Check if pipx is installed and available in the system PATH.

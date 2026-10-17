@@ -10,6 +10,7 @@ class CargoManager(PackageManager):
 
     name: str = "Cargo"
     category: str = "Language/Dev"
+    changelog_url_template = "https://crates.io/crates/{name}/versions"
 
     def is_available(self) -> bool:
         """Check if cargo is installed and available in the system PATH.
@@ -33,7 +34,7 @@ class CargoManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # queries crates.io for every installed crate
             updates = []
             # Parse output: lines look like "pkg_name  current_version  latest_version  needs_update"
             for line in stdout.decode(errors="ignore").splitlines():
@@ -109,7 +110,7 @@ class CargoManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             if proc.returncode != 0:
                 raise DriverError(
                     f"{self.name} installed-package query failed: "
@@ -143,7 +144,7 @@ class CargoManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
             if proc.returncode != 0:
                 raise DriverError(
                     f"{self.name} installed-version query failed: "

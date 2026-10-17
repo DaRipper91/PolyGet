@@ -15,6 +15,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class JuliaManager(PackageManager):
     name: str = "Julia"
     category: str = "Language/Dev"
+    changelog_url_template = "https://juliahub.com/ui/Packages/General/{name}"
 
     def is_available(self) -> bool:
         return shutil.which("julia") is not None

@@ -14,6 +14,7 @@ class DnfManager(PackageManager):
 
     name: str = "DNF"
     category: str = "System"
+    changelog_url_template = "https://packages.fedoraproject.org/search?query={name}"
 
     def is_available(self) -> bool:
         """Check if dnf is installed and available in the system PATH.

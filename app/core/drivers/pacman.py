@@ -12,6 +12,7 @@ class PacmanManager(PackageManager):
 
     name: str = "Pacman"
     category: str = "System"
+    changelog_url_template = "https://archlinux.org/packages/?q={name}"
 
     def is_available(self) -> bool:
         return shutil.which("pacman") is not None

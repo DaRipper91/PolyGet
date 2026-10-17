@@ -10,6 +10,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class HexManager(PackageManager):
     name: str = "Hex"
     category: str = "Language/Dev"
+    changelog_url_template = "https://hex.pm/packages/{name}"
 
     def is_available(self) -> bool:
         return shutil.which("mix") is not None

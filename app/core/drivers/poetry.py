@@ -17,6 +17,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, regist
 class PoetryManager(PackageManager):
     name: str = "Poetry"
     category: str = "Language/Dev"
+    changelog_url_template = "https://pypi.org/project/{name}/#history"
 
     def is_available(self) -> bool:
         return shutil.which("poetry") is not None

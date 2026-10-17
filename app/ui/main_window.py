@@ -992,13 +992,16 @@ class MainWindow(QMainWindow):
     def setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
+        main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter = splitter
         main_layout.addWidget(splitter)
+
+        # --- Terminal Overlay (hidden by default, shows live logs during operations) ---
+        self._build_terminal_overlay(main_layout)
 
         # --- Sidebar Panel ---
         sidebar_widget = QWidget()
@@ -1555,9 +1558,78 @@ class MainWindow(QMainWindow):
 
         splitter.setSizes([250, 750])
 
+    def _build_terminal_overlay(self, parent_layout) -> None:
+        """Build a collapsible terminal overlay at the bottom of the main window.
+
+        Shows live log output from ExecutionWorker during upgrades and store installs.
+        Hidden by default; auto-shows when an operation starts.
+        """
+        self.terminal_overlay = QFrame()
+        self.terminal_overlay.setObjectName("terminal-overlay")
+        self.terminal_overlay.setFixedHeight(200)
+        self.terminal_overlay.hide()
+        overlay_layout = QVBoxLayout(self.terminal_overlay)
+        overlay_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_layout.setSpacing(0)
+
+        # Title bar
+        title_bar = QWidget()
+        title_bar.setObjectName("terminal-titlebar")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(10, 4, 10, 4)
+        title_layout.setSpacing(8)
+
+        lbl_term_title = QLabel("⚡ Live Output")
+        lbl_term_title.setObjectName("terminal-title")
+        title_layout.addWidget(lbl_term_title)
+
+        self._terminal_title_label = lbl_term_title
+
+        title_layout.addStretch()
+
+        btn_term_clear = QPushButton("Clear")
+        btn_term_clear.setAccessibleName("Clear terminal output")
+        btn_term_clear.clicked.connect(self._clear_terminal)
+        btn_term_clear.setFixedWidth(60)
+        title_layout.addWidget(btn_term_clear)
+
+        btn_term_close = QPushButton("✕")
+        btn_term_close.setAccessibleName("Close terminal overlay")
+        btn_term_close.clicked.connect(self.terminal_overlay.hide)
+        btn_term_close.setFixedWidth(30)
+        title_layout.addWidget(btn_term_close)
+
+        overlay_layout.addWidget(title_bar)
+
+        # Log output area
+        self.terminal_output = QTextEdit()
+        self.terminal_output.setReadOnly(True)
+        self.terminal_output.setObjectName("terminal-output")
+        overlay_layout.addWidget(self.terminal_output)
+
+        parent_layout.addWidget(self.terminal_overlay)
+
+    def _clear_terminal(self) -> None:
+        self.terminal_output.clear()
+
+    def _show_terminal(self, title: str = "⚡ Live Output") -> None:
+        """Show the terminal overlay with an optional title."""
+        self._terminal_title_label.setText(title)
+        self.terminal_overlay.show()
+        self.terminal_output.verticalScrollBar().setValue(
+            self.terminal_output.verticalScrollBar().maximum()
+        )
+
+    def _append_terminal(self, text: str) -> None:
+        """Append a line to the terminal overlay and auto-scroll."""
+        self.terminal_output.append(text)
+        self.terminal_output.verticalScrollBar().setValue(
+            self.terminal_output.verticalScrollBar().maximum()
+        )
+
     def apply_theme(self):
         """Apply a premium dark-mode theme stylesheet."""
-        self.setStyleSheet("""
+        self.setStyleSheet(self._scale_qss("""
             QMainWindow {
                 background-color: #1e1e2e;
             }
@@ -1695,6 +1767,27 @@ class MainWindow(QMainWindow):
                 font-size: 12px;
                 padding: 10px;
             }
+            QFrame#terminal-overlay {
+                background-color: #11111b;
+                border-top: 1px solid #313244;
+            }
+            QWidget#terminal-titlebar {
+                background-color: #181825;
+                border-bottom: 1px solid #313244;
+            }
+            QLabel#terminal-title {
+                color: #a6adc8;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QTextEdit#terminal-output {
+                background-color: #11111b;
+                border: none;
+                font-family: 'Fira Code', 'Courier New', monospace;
+                color: #a6e3a1;
+                font-size: 12px;
+                padding: 6px;
+            }
             QPlainTextEdit#blueprint-editor {
                 background-color: #11111b;
                 border: 1px solid #313244;
@@ -1794,7 +1887,7 @@ class MainWindow(QMainWindow):
                 border: none;
                 background: none;
             }
-        """)
+        """))
 
     def _create_nav_row(self, icon_name: str, text: str) -> tuple[QWidget, QLabel, QLabel]:
         """Build a nav-list row with an icon, label, and a right-aligned pending-count badge.
@@ -2073,6 +2166,21 @@ class MainWindow(QMainWindow):
         toggle("Touch mode — bigger buttons, rows and checkboxes", "ui.touch_mode", False,
                on_change=self.apply_touch_mode)
 
+        scale_row = QWidget()
+        scale_layout = QHBoxLayout(scale_row)
+        scale_layout.setContentsMargins(0, 0, 0, 0)
+        scale_layout.addWidget(QLabel("UI scale"))
+        scale_spin = QSpinBox()
+        scale_spin.setRange(75, 200)
+        scale_spin.setSingleStep(5)
+        scale_spin.setSuffix(" %")
+        scale_spin.setValue(int(settings.get("ui.scale_percent", 100)))
+        scale_spin.valueChanged.connect(
+            lambda v: (settings.set("ui.scale_percent", v), self.apply_touch_mode()))
+        scale_layout.addWidget(scale_spin)
+        scale_layout.addStretch()
+        layout.addWidget(scale_row)
+
         heading("Debug",
                 "Write every package-manager command and result to a JSONL log file so "
                 "AI coding assistants can read it. View live output in the Debug Console page.")
@@ -2342,6 +2450,10 @@ class MainWindow(QMainWindow):
         self.console.clear()
 
     def log(self, text: str):
+        # Feed the terminal overlay if it's visible
+        overlay = getattr(self, "terminal_overlay", None)
+        if overlay is not None and overlay.isVisible():
+            self._append_terminal(text)
         # Color mapping for terminal log prefixes
         color_map = {
             "✅": "#a6e3a1",  # green
@@ -2687,6 +2799,7 @@ class MainWindow(QMainWindow):
                 self._parallel_queue.append(UpgradeTask(mgr, pkgs))
 
         self.active_operation = "batch upgrade"
+        self._show_terminal("⚡ Upgrade in progress")
         self.btn_update_selected.setEnabled(False)
         self.btn_scan.setEnabled(False)
         self.btn_refresh_repos.setEnabled(False)
@@ -2975,6 +3088,7 @@ class MainWindow(QMainWindow):
             return
 
         self.installing_packages.add(install_key)
+        self._show_terminal(f"📦 Installing {item['name']} via {source}")
         self.log(f"📦 Queueing installation of {pkg_id}...")
         self.nav_list.setCurrentRow(PAGE_CONSOLE)
 
@@ -3022,6 +3136,7 @@ class MainWindow(QMainWindow):
             return
 
         self.active_operation = "repository sync"
+        self._show_terminal("🔄 Repository sync in progress")
         self.btn_scan.setEnabled(False)
         self.btn_refresh_repos.setEnabled(False)
         self.progress.setVisible(True)
@@ -3193,6 +3308,7 @@ class MainWindow(QMainWindow):
             return
 
         self.active_operation = "blueprint sync"
+        self._show_terminal("📋 Blueprint sync in progress")
 
         self.btn_export_blueprint.setEnabled(False)
         self.btn_load_blueprint.setEnabled(False)
@@ -3349,6 +3465,28 @@ class MainWindow(QMainWindow):
     def touch_mode(self) -> bool:
         from app.core.settings_store import get_settings
         return bool(get_settings().get("ui.touch_mode", False))
+
+    @property
+    def ui_scale(self) -> float:
+        """UI scale factor: 1.0 = 100%, 1.5 = 150%, etc."""
+        from app.core.settings_store import get_settings
+        return float(get_settings().get("ui.scale_percent", 100)) / 100.0
+
+    def _px(self, base: int) -> int:
+        """Scale a pixel value by the current UI scale factor."""
+        return max(1, round(base * self.ui_scale))
+
+    def _scale_qss(self, qss: str) -> str:
+        """Scale all font-size values in a QSS string by the current UI scale factor."""
+        import re
+        factor = self.ui_scale
+        if abs(factor - 1.0) < 0.001:
+            return qss
+        return re.sub(
+            r'font-size:\s*(\d+)px',
+            lambda m: f'font-size: {max(1, round(int(m.group(1)) * factor))}px',
+            qss,
+        )
 
     def apply_touch_mode(self) -> None:
         """Re-theme with finger-sized targets (44px+) when touch mode is on; safe to call live."""

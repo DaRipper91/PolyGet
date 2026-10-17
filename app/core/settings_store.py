@@ -48,6 +48,11 @@ class SettingsStore:
                 # of waiting for a code change.
                 "untrusted_pairs": [],
             },
+            "dnf": {
+                # Packages allowed to switch vendor on upgrade (e.g. Fedora → a third-party
+                # repo) even though dnf.conf's allow_vendor_change is off.
+                "allow_vendor_change": [],
+            },
             "ui": {
                 "show_version_check_badge": True,
                 "compact_mode": False,

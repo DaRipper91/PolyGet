@@ -2,6 +2,10 @@ import asyncio
 import shutil
 from typing import Any
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.settings_store import get_settings
+
+# Any dnf call may first refresh expired repo metadata, which routinely takes well over 15s.
+DNF_TIMEOUT = 120.0
 
 
 @register_manager
@@ -20,6 +24,56 @@ class DnfManager(PackageManager):
         return shutil.which("dnf") is not None
 
     async def check_updates(self) -> list[dict[str, Any]]:
+        """Query DNF for outdated system packages that `dnf upgrade` will actually apply."""
+        return await self._mark_vendor_blocked(await self._query_updates())
+
+    async def _mark_vendor_blocked(self, updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Flag upgrades that change vendor while dnf's allow_vendor_change is off.
+
+        `dnf check-update` still lists those, but `dnf upgrade` skips them and exits 0, so they
+        would sit in the list forever after every "successful" upgrade. Flagged entries get a
+        `blocked` reason; packages on the user's dnf.allow_vendor_change list are left alone
+        (get_upgrade_command passes --allow-vendor-change for them). Best-effort: if any query
+        fails, the list is returned unflagged.
+        """
+        allowed = set(get_settings().get("dnf.allow_vendor_change", []))
+        names = [u["name"] for u in updates if u["name"] not in allowed]
+        if not names:
+            return updates
+
+        async def run(*args: str) -> str:
+            proc = await asyncio.create_subprocess_exec(
+                *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+            )
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
+            except Exception:
+                proc.kill()
+                await proc.wait()
+                raise
+            return stdout.decode(errors="ignore")
+
+        def vendors(text: str) -> dict[str, str]:
+            return dict(line.split(" ", 1) for line in text.splitlines() if " " in line)
+
+        try:
+            config = await run("dnf", "--dump-main-config")
+            if "allow_vendor_change = 0" not in config:
+                return updates
+            new_vendor = vendors(await run(
+                "dnf", "repoquery", "--upgrades", "--latest-limit=1",
+                "--qf", "%{name} %{vendor}\n", *names
+            ))
+            old_vendor = vendors(await run("rpm", "-q", "--qf", "%{NAME} %{VENDOR}\n", *names))
+        except Exception:
+            return updates
+        for u in updates:
+            old, new = old_vendor.get(u["name"]), new_vendor.get(u["name"])
+            if u["name"] in names and old and new and old != new:
+                u["blocked"] = f"vendor change: {old} → {new}"
+        return updates
+
+    async def _query_updates(self) -> list[dict[str, Any]]:
         """Query DNF for outdated system packages.
 
         Returns:
@@ -33,7 +87,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
             if proc.returncode in (0, 100) and stdout:
                 import json
                 try:
@@ -72,7 +126,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
             # DNF returns 100 when updates exist, 0 when none
             if proc.returncode not in (0, 100):
                 raise RuntimeError("dnf update check failed")
@@ -101,7 +155,11 @@ class DnfManager(PackageManager):
             list[str]: The upgrade command and its arguments.
         """
         if packages:
-            return ["pkexec", "dnf", "upgrade", "-y"] + packages
+            # ponytail: the flag covers the whole transaction, so dependencies may switch vendor
+            # too; split into two dnf runs if that ever matters.
+            allowed = set(get_settings().get("dnf.allow_vendor_change", []))
+            flag = ["--allow-vendor-change"] if allowed.intersection(packages) else []
+            return ["pkexec", "dnf", "upgrade", "-y"] + flag + packages
         return ["pkexec", "dnf", "upgrade", "-y"]
 
     def get_sync_command(self) -> list[str] | None:
@@ -124,7 +182,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
             if proc.returncode != 0:
                 raise DriverError(
                     f"{self.name} installed-package query failed: "
@@ -159,7 +217,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
             if proc.returncode != 0:
                 raise DriverError(
                     f"{self.name} installed-version query failed: "
@@ -209,7 +267,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
             # A failed repolist would otherwise render as "no repositories configured",
             # which is a false claim about the system's state.
             if proc.returncode != 0:
@@ -272,7 +330,7 @@ class DnfManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DNF_TIMEOUT)
             import re
             pattern = re.compile(r'^\s*([a-zA-Z0-9\-_+.]+)\.([a-zA-Z0-9_]+)\s+(.+)$')
             results = []

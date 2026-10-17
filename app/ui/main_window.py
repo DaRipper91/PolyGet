@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
-    QTreeWidget, QTreeWidgetItem, QHeaderView
+    QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu
 )
 from app.core.manager import discover_managers, PackageManager
 from app.core.coordinator import SubprocessCoordinator
@@ -398,14 +398,15 @@ class FetchInstalledWorker(QThread):
 class UpdateItemWidget(QWidget):
     """Custom row widget replicating KDE Discover's update list items."""
     checked_changed = Signal(bool, str, str)
+    menu_requested = Signal(object)  # the "⋯" button; same menu as right-click, for touch
 
-    def __init__(self, pkg: dict[str, Any], manager_name: str, parent: Any = None):
+    def __init__(self, pkg: dict[str, Any], manager_name: str, note: str = "", parent: Any = None):
         super().__init__(parent)
         self.pkg_name = pkg.get("name", "")
         self.manager_name = manager_name
-        self.setup_ui(pkg, manager_name)
+        self.setup_ui(pkg, manager_name, note)
 
-    def setup_ui(self, pkg: dict[str, Any], manager_name: str):
+    def setup_ui(self, pkg: dict[str, Any], manager_name: str, note: str = ""):
         self.setObjectName("update-item-card")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
@@ -460,6 +461,11 @@ class UpdateItemWidget(QWidget):
         lbl_version.setStyleSheet(f"color: {semver_color}; font-size: 12px;")
         details_layout.addWidget(lbl_version)
 
+        if note:
+            lbl_note = QLabel(note)
+            lbl_note.setStyleSheet("color: #fab387; font-size: 11px;")
+            details_layout.addWidget(lbl_note)
+
         layout.addLayout(details_layout)
         layout.addStretch()
 
@@ -472,6 +478,16 @@ class UpdateItemWidget(QWidget):
             badge_style = "background-color: #581c87; color: #d8b4fe;"
         lbl_source.setStyleSheet(badge_style + "border-radius: 12px; padding: 4px 12px; font-weight: bold; font-size: 11px;")
         layout.addWidget(lbl_source)
+
+        self.btn_menu = QPushButton("⋯")
+        self.btn_menu.setFixedSize(44, 44)  # minimum comfortable touch target
+        self.btn_menu.setToolTip("Package options")
+        self.btn_menu.setAccessibleName(f"Options for {self.pkg_name}")
+        self.btn_menu.setStyleSheet(
+            "background-color: #313244; color: #cdd6f4; font-size: 20px; padding: 0; border-radius: 22px;"
+        )
+        self.btn_menu.clicked.connect(lambda: self.menu_requested.emit(self))
+        layout.addWidget(self.btn_menu)
 
     def on_checkbox_toggled(self, state: int):
         self.checked_changed.emit(state == 2, self.pkg_name, self.manager_name)
@@ -836,6 +852,10 @@ class MainWindow(QMainWindow):
         item_history.setIcon(QIcon.fromTheme("document-open-recent"))
         self.nav_list.addItem(item_history)
 
+        item_settings = QListWidgetItem("Settings")
+        item_settings.setIcon(QIcon.fromTheme("configure"))
+        self.nav_list.addItem(item_settings)
+
         # A plain-text item's sizeHint (queried only once it's actually in the list — before
         # that, QListWidgetItem.sizeHint() isn't backed by a real style/delegate context) already
         # includes the ::item padding/margin QSS box. Reuse it verbatim for the widget-based row
@@ -928,6 +948,8 @@ class MainWindow(QMainWindow):
 
         self.updates_list = QListWidget()
         self.updates_list.setObjectName("updates-list")
+        self.updates_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.updates_list.customContextMenuRequested.connect(self.show_update_context_menu)
         updates_layout.addWidget(self.updates_list)
 
         # Progress bar
@@ -1272,6 +1294,34 @@ class MainWindow(QMainWindow):
 
         self.stacked_widget.addWidget(history_page)
 
+        # PAGE 8: Settings Page
+        settings_page = QWidget()
+        settings_layout = QVBoxLayout(settings_page)
+        settings_layout.setContentsMargins(20, 20, 20, 20)
+        settings_layout.setSpacing(10)
+
+        lbl_ignored = QLabel("Ignored packages — listed but never auto-selected (right-click an update to add)")
+        lbl_ignored.setObjectName("summary-label")
+        settings_layout.addWidget(lbl_ignored)
+        self.settings_ignored_list = QListWidget()
+        self.settings_ignored_list.setObjectName("updates-list")
+        settings_layout.addWidget(self.settings_ignored_list)
+        btn_unignore = QPushButton("Stop Ignoring Selected")
+        btn_unignore.clicked.connect(self.remove_selected_ignore)
+        settings_layout.addWidget(btn_unignore)
+
+        lbl_vendor = QLabel("DNF: allow vendor change — upgrade these even when dnf would skip them")
+        lbl_vendor.setObjectName("summary-label")
+        settings_layout.addWidget(lbl_vendor)
+        self.settings_vendor_list = QListWidget()
+        self.settings_vendor_list.setObjectName("updates-list")
+        settings_layout.addWidget(self.settings_vendor_list)
+        btn_unvendor = QPushButton("Disallow Selected")
+        btn_unvendor.clicked.connect(self.remove_selected_vendor_override)
+        settings_layout.addWidget(btn_unvendor)
+
+        self.stacked_widget.addWidget(settings_page)
+
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1590,6 +1640,8 @@ class MainWindow(QMainWindow):
                 self.populate_repos_managers()
             elif index == 7:
                 self.populate_history_page()
+            elif index == 8:
+                self.populate_settings_page()
 
     def run_version_check(self) -> None:
         """Run the cross-manager version check scan in a worker thread."""
@@ -1685,6 +1737,37 @@ class MainWindow(QMainWindow):
         """Clean up after version check worker finishes."""
         self.version_check_progress.setVisible(False)
         self.btn_version_check.setEnabled(True)
+
+    def populate_settings_page(self) -> None:
+        from app.core.ignore_store import IgnoreStore
+        from app.core.settings_store import get_settings
+        self.settings_ignored_list.clear()
+        for mgr, pkg in IgnoreStore().all_entries():
+            item = QListWidgetItem(f"{pkg}  ({mgr})")
+            item.setData(Qt.ItemDataRole.UserRole, (mgr, pkg))
+            self.settings_ignored_list.addItem(item)
+        self.settings_vendor_list.clear()
+        self.settings_vendor_list.addItems(get_settings().get("dnf.allow_vendor_change", []))
+
+    def remove_selected_ignore(self) -> None:
+        from app.core.ignore_store import IgnoreStore
+        item = self.settings_ignored_list.currentItem()
+        if item is None:
+            return
+        IgnoreStore().remove(*item.data(Qt.ItemDataRole.UserRole))
+        self.populate_settings_page()
+        self.rebuild_updates_list()
+
+    def remove_selected_vendor_override(self) -> None:
+        from app.core.settings_store import get_settings
+        item = self.settings_vendor_list.currentItem()
+        if item is None:
+            return
+        settings = get_settings()
+        settings.set("dnf.allow_vendor_change",
+                     [p for p in settings.get("dnf.allow_vendor_change", []) if p != item.text()])
+        self.populate_settings_page()
+        self.scan_all()
 
     def populate_history_page(self):
         self.history_list.clear()
@@ -1968,7 +2051,7 @@ class MainWindow(QMainWindow):
         store = IgnoreStore()
         for pkg in updates:
             pkg_name = pkg.get("name", "")
-            if not store.is_ignored(manager_name, pkg_name):
+            if not store.is_ignored(manager_name, pkg_name) and not pkg.get("blocked"):
                 self.selected_updates[manager_name].add(pkg_name)
         self.update_updates_badge()
 
@@ -2008,7 +2091,49 @@ class MainWindow(QMainWindow):
         if self.active_operation is None:
             self.btn_scan.setEnabled(True)
 
+    def show_update_context_menu(self, pos) -> None:
+        """Right-click on an update row opens the same menu as its "⋯" button."""
+        item = self.updates_list.itemAt(pos)
+        row = self.updates_list.itemWidget(item) if item else None
+        if row is not None:
+            self.show_update_menu(row, self.updates_list.viewport().mapToGlobal(pos))
+
+    def show_update_menu(self, row: "UpdateItemWidget", global_pos=None) -> None:
+        """Per-package menu: toggle ignore, and (DNF) toggle vendor-change override."""
+        if global_pos is None:
+            global_pos = row.btn_menu.mapToGlobal(row.btn_menu.rect().bottomLeft())
+        from app.core.ignore_store import IgnoreStore
+        from app.core.settings_store import get_settings
+        store, settings = IgnoreStore(), get_settings()
+        mgr, pkg = row.manager_name, row.pkg_name
+        menu = QMenu(self)
+        ignored = store.is_ignored(mgr, pkg)
+        act_ignore = menu.addAction("Stop ignoring" if ignored else "Ignore this package")
+        act_vendor = None
+        if mgr == "DNF":
+            vendor_ok = settings.get("dnf.allow_vendor_change", [])
+            allowed = pkg in vendor_ok
+            act_vendor = menu.addAction("Disallow vendor change" if allowed else "Allow vendor change")
+        chosen = menu.exec(global_pos)
+        if chosen is None:
+            return
+        if chosen is act_ignore:
+            if ignored:
+                store.remove(mgr, pkg)
+            else:
+                store.add(mgr, pkg)
+                self.selected_updates.get(mgr, set()).discard(pkg)
+            self.rebuild_updates_list()
+        elif chosen is act_vendor:
+            settings.set("dnf.allow_vendor_change",
+                         [p for p in vendor_ok if p != pkg] if allowed else vendor_ok + [pkg])
+            self.scan_all()  # the blocked flag is computed during the DNF scan
+
     def rebuild_updates_list(self):
+        from app.core.ignore_store import IgnoreStore
+        from app.core.settings_store import get_settings
+        ignore_store = IgnoreStore()
+        vendor_ok = set(get_settings().get("dnf.allow_vendor_change", []))
         self.updates_list.clear()
         total_updates = 0
         search_filter = self.search_bar.text().lower()
@@ -2022,11 +2147,19 @@ class MainWindow(QMainWindow):
 
                 total_updates += 1
                 row_item = QListWidgetItem(self.updates_list)
-                row_item.setSizeHint(QSize(0, 60))
 
-                row_widget = UpdateItemWidget(pkg, manager_name)
+                notes = []
+                if ignore_store.is_ignored(manager_name, pkg_name):
+                    notes.append("🚫 Ignored — not auto-selected")
+                if pkg.get("blocked"):
+                    notes.append(f"⚠ dnf will skip this ({pkg['blocked']}) — use ⋯ to allow")
+                elif manager_name == "DNF" and pkg_name in vendor_ok:
+                    notes.append("Vendor change allowed")
+                row_widget = UpdateItemWidget(pkg, manager_name, "  ·  ".join(notes))
+                row_item.setSizeHint(QSize(0, 80 if notes else 60))
                 row_widget.checkbox.setChecked(pkg_name in self.selected_updates[manager_name])
                 row_widget.checked_changed.connect(self.on_item_selection_changed)
+                row_widget.menu_requested.connect(self.show_update_menu)
 
                 self.updates_list.setItemWidget(row_item, row_widget)
 
@@ -2045,12 +2178,6 @@ class MainWindow(QMainWindow):
                 f"{total_updates} update(s) available ({selected_count} selected){suffix}"
             )
             self.btn_update_selected.setEnabled(selected_count > 0)
-
-        nav_item = self.nav_list.item(0)
-        if total_updates > 0:
-            nav_item.setText(f"System Updates ({total_updates})")
-        else:
-            nav_item.setText("System Updates")
 
     def select_all_updates(self):
         for manager_name, updates in self.updates_cache.items():

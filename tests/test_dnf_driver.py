@@ -52,7 +52,7 @@ def test_dnf_check_updates_json():
         )
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_json_proc) as mock_exec:
-            updates = await manager.check_updates()
+            updates = await manager._query_updates()
             mock_exec.assert_called_once_with(
                 "dnf", "check-update", "--json",
                 stdout=asyncio.subprocess.PIPE,
@@ -131,7 +131,7 @@ def test_dnf_check_updates_kills_leaked_json_attempt_before_fallback():
 
         with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_exec_side_effect):
             with patch("asyncio.wait_for", side_effect=wait_for_side_effect):
-                updates = await manager.check_updates()
+                updates = await manager._query_updates()
 
         mock_json_proc.kill.assert_called_once()
         mock_json_proc.wait.assert_called_once()
@@ -166,10 +166,55 @@ def test_dnf_check_updates_fallback():
             raise ValueError(f"Unexpected subprocess call: {args}")
 
         with patch("asyncio.create_subprocess_exec", side_effect=create_subprocess_exec_side_effect) as mock_exec:
-            updates = await manager.check_updates()
+            updates = await manager._query_updates()
             assert mock_exec.call_count == 2
 
         assert len(updates) == 1
         assert updates[0] == {"name": "package1", "current": "Installed", "new": "1.1.0-1.fc40"}
 
     asyncio.run(run_test())
+
+
+def test_dnf_check_updates_flags_vendor_change_blocked():
+    """With allow_vendor_change off, `dnf upgrade` silently skips a vendor-changing upgrade and
+    exits 0, so the scan must flag it (not offer it as a normal upgrade) unless the user has
+    allowlisted that package, in which case the upgrade command passes --allow-vendor-change."""
+    from unittest.mock import MagicMock
+
+    def run_test():
+        manager = DnfManager()
+        outputs = {
+            "--dump-main-config": b"allow_vendor_change = 0\n",
+            "repoquery": b"vhs charmbracelet\nbash Fedora Project\n",
+            "-q": b"vhs Fedora Project\nbash Fedora Project\n",
+        }
+
+        def fake_exec(*args, **kwargs):
+            proc = AsyncMock()
+            proc.communicate.return_value = (next(v for k, v in outputs.items() if k in args), b"")
+            return proc
+
+        def scan(allowlist):
+            settings = MagicMock()
+            settings.get.return_value = allowlist
+            updates = [{"name": "vhs", "current": "Installed", "new": "0.12.1-1"},
+                       {"name": "bash", "current": "Installed", "new": "5.3-2"}]
+            with patch("app.core.drivers.dnf.get_settings", return_value=settings), \
+                 patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+                return asyncio.run(manager._mark_vendor_blocked(updates)), settings
+
+        updates, _ = scan([])
+        assert updates[0]["blocked"] == "vendor change: Fedora Project → charmbracelet"
+        assert "blocked" not in updates[1]
+
+        updates, settings = scan(["vhs"])
+        assert not any("blocked" in u for u in updates)
+        with patch("app.core.drivers.dnf.get_settings", return_value=settings):
+            assert "--allow-vendor-change" in manager.get_upgrade_command(["vhs", "bash"])
+            assert "--allow-vendor-change" not in manager.get_upgrade_command(["bash"])
+
+        outputs["--dump-main-config"] = b"allow_vendor_change = 1\n"
+        updates, _ = scan([])
+        assert not any("blocked" in u for u in updates)
+
+    run_test()

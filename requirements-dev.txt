@@ -1,0 +1,7 @@
+# Everything needed to run the test suite, on top of requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   QT_QPA_PLATFORM=offscreen pytest
+# pytest-asyncio is required: tests/test_version_scan.py (and others) are `async def` tests, and without the plugin
+# pytest reports "async def functions are not natively supported" for all of them.
+pytest>=8,<10
+pytest-asyncio>=0.23,<2

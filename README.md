@@ -141,9 +141,10 @@ python run.py history                   # what got upgraded, when, and whether i
 `upgrade`, `install`, and `sync` only print the exact commands they would run until you pass
 `--yes`. Exit codes: `0` ok, `1` a manager or command failed, `2` usage error.
 
-Running the test suite:
+Running the test suite (the test dependencies, including `pytest-asyncio`, are in `requirements-dev.txt`):
 
 ```bash
+pip install -r requirements-dev.txt
 QT_QPA_PLATFORM=offscreen pytest
 ```
 

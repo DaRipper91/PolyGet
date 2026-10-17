@@ -130,7 +130,7 @@ def test_pnpm_shebangless_shim_runs_via_sh(tmp_path, monkeypatch):
 
 def test_pnpm_native_binary_runs_directly(tmp_path, monkeypatch):
     """A proper pnpm binary (shebang present) must keep the direct argv."""
-    fake = _write_fake_pnpm(tmp_path, with_shebang=True)
+    _write_fake_pnpm(tmp_path, with_shebang=True)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
 
     async def run_test():

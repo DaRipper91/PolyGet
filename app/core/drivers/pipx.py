@@ -1,10 +1,20 @@
 import asyncio
 import json
 import os
+import re
 import shutil
 import tempfile
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
+
+# A pipx "package_or_url" that is just a project name or requirement ("ruff", "ruff==0.1", "pkg[extra]") is looked up on
+# the index. Anything with a path separator, a URL, a VCS prefix, or an archive suffix names a source of its own.
+_LOCAL_SOURCE_RE = re.compile(r"[/\\]|://|^git\+|^file:|\.(?:whl|tar\.gz|zip)$")
+
+
+def _is_local_source(package_or_url: str) -> bool:
+    """True if the app was installed from a path, URL or VCS checkout rather than from the package index."""
+    return bool(_LOCAL_SOURCE_RE.search(package_or_url))
 
 
 @register_manager
@@ -15,6 +25,25 @@ class PipxManager(PackageManager):
     category: str = "Language/Dev"
     changelog_url_template = "https://pypi.org/project/{name}/#history"
 
+    async def _local_source_apps(self) -> set[str]:
+        """Apps installed from a local or VCS source, which an index lookup would wrongly compare with an
+        unrelated same-named PyPI project (a local `six 0.0.1` would read as outdated against PyPI's `six`).
+
+        If the metadata cannot be read, nothing is excluded: the index check is kept rather than hiding an app.
+        """
+        try:
+            data = json.loads(await run_capture(["pipx", "list", "--json"], label=f"{self.name} source query", timeout=15.0))
+            venvs = data.get("venvs")
+        except (DriverError, ValueError, AttributeError):
+            return set()
+        if not isinstance(venvs, dict):
+            return set()
+        return {
+            name for name, venv in venvs.items()
+            if isinstance(venv, dict)
+            and _is_local_source(str(venv.get("metadata", {}).get("main_package", {}).get("package_or_url", "")))
+        }
+
     def is_available(self) -> bool:
         """Check if pipx is installed and available in the system PATH.
 
@@ -24,31 +53,40 @@ class PipxManager(PackageManager):
         return shutil.which("pipx") is not None
 
     async def _check_package(self, name: str) -> list[dict[str, Any]]:
-        """Check a single package for updates using its venv pip.
+        """Check a single package for updates by asking pipx to run pip inside its venv.
+
+        `pipx runpip` is used instead of a venv's own `bin/pip` because current pipx builds venvs
+        without one (it drives pip, or uv, from outside), so a path-based check found nothing
+        checkable for every package and reported a clean system while apps were outdated.
 
         Args:
             name (str): The name of the pipx package.
 
         Returns:
             list[dict[str, Any]]: A list containing update details if found, or empty list.
-        """
-        pipx_home = os.environ.get("PIPX_HOME", os.path.expanduser("~/.local/share/pipx"))
-        pip_path = os.path.join(pipx_home, "venvs", name, "bin", "pip")
-        if not os.path.exists(pip_path):
-            # No venv/pip for this package — nothing checkable, not a failure.
-            return []
 
+        Raises:
+            RuntimeError: The check itself failed (command error, non-zero exit, malformed output).
+        """
         try:
             pip_proc = await asyncio.create_subprocess_exec(
-                pip_path, "list", "--outdated", "--json",
+                "pipx", "runpip", name, "list", "--outdated", "--format=json",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            pip_stdout, _ = await asyncio.wait_for(pip_proc.communicate(), timeout=12.0)
+            pip_stdout, pip_stderr = await asyncio.wait_for(pip_proc.communicate(), timeout=30.0)
         except Exception as e:
             raise RuntimeError(f"Pipx per-package update check failed for '{name}': {describe_error(e)}") from e
 
-        if not pip_stdout:
+        if pip_proc.returncode not in (0, None):
+            detail = pip_stderr.decode(errors="ignore").strip().splitlines()
+            suffix = f": {detail[-1]}" if detail else ""
+            raise RuntimeError(
+                f"Pipx per-package update check failed for '{name}': "
+                f"`pipx runpip` exited with status {pip_proc.returncode}{suffix}"
+            )
+
+        if not pip_stdout.strip():
             return []
 
         try:
@@ -89,6 +127,11 @@ class PipxManager(PackageManager):
                 if len(parts) >= 2:
                     packages.append(parts[0])
 
+            if not packages:
+                return []
+
+            local = await self._local_source_apps()
+            packages = [pkg for pkg in packages if pkg not in local]
             if not packages:
                 return []
 

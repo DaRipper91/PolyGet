@@ -1902,6 +1902,29 @@ class MainWindow(QMainWindow):
                 border: none;
                 background: none;
             }
+            QMenu {
+                background-color: #181825;
+                border: 1px solid #313244;
+                border-radius: 6px;
+                padding: 4px 0px;
+            }
+            QMenu::item {
+                background-color: transparent;
+                color: #cdd6f4;
+                padding: 6px 24px;
+            }
+            QMenu::item:selected {
+                background-color: #313244;
+                color: #89b4fa;
+            }
+            QMenu::item:disabled {
+                color: #585b70;
+            }
+            QMenu::separator {
+                height: 1px;
+                background-color: #313244;
+                margin: 4px 8px;
+            }
         """))
 
     def _create_nav_row(self, icon_name: str, text: str) -> tuple[QWidget, QLabel, QLabel]:
@@ -2195,6 +2218,21 @@ class MainWindow(QMainWindow):
         scale_layout.addWidget(scale_spin)
         scale_layout.addStretch()
         layout.addWidget(scale_row)
+
+        font_row = QWidget()
+        font_layout = QHBoxLayout(font_row)
+        font_layout.setContentsMargins(0, 0, 0, 0)
+        font_layout.addWidget(QLabel("Font size"))
+        font_spin = QSpinBox()
+        font_spin.setRange(0, 32)
+        font_spin.setSpecialValueText("default")
+        font_spin.setSuffix(" px")
+        font_spin.setValue(int(settings.get("ui.font_size", 0)))
+        font_spin.valueChanged.connect(
+            lambda v: (settings.set("ui.font_size", v), self.apply_touch_mode()))
+        font_layout.addWidget(font_spin)
+        font_layout.addStretch()
+        layout.addWidget(font_row)
 
         heading("Debug",
                 "Write every package-manager command and result to a JSONL log file so "
@@ -3487,14 +3525,29 @@ class MainWindow(QMainWindow):
         from app.core.settings_store import get_settings
         return float(get_settings().get("ui.scale_percent", 100)) / 100.0
 
+    @property
+    def ui_font_size(self) -> int:
+        """Base font size in px. 0 = use theme default (13px)."""
+        from app.core.settings_store import get_settings
+        return int(get_settings().get("ui.font_size", 0))
+
     def _px(self, base: int) -> int:
         """Scale a pixel value by the current UI scale factor."""
         return max(1, round(base * self.ui_scale))
 
     def _scale_qss(self, qss: str) -> str:
-        """Scale all font-size values in a QSS string by the current UI scale factor."""
+        """Scale all font-size values in a QSS string by font size and UI scale.
+
+        The theme's base font is 13px. If ui.font_size is set (non-zero), it
+        replaces 13px as the base; ui.scale_percent then multiplies on top.
+        """
         import re
-        factor = self.ui_scale
+        font_size = self.ui_font_size
+        scale = self.ui_scale
+        if font_size > 0:
+            factor = (font_size / 13.0) * scale
+        else:
+            factor = scale
         if abs(factor - 1.0) < 0.001:
             return qss
         return re.sub(

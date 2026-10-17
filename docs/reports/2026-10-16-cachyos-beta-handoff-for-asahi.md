@@ -32,7 +32,25 @@ If you are an AI agent asked to review this branch, do these in order. Do not sk
    - Some managers have no install command here on purpose: Homebrew (its installer is a piped shell
      script), and `uv` / `deno` on Fedora (see section 6, item 2). Say so and let the user decide.
    - **AUR is Arch-only.** On Fedora, do not offer to install it; it is expected to be hidden.
-4. **Do not merge into `master`**, and do not pull this branch into a working branch, as part of a review.
+4. **Check the machine architecture, and make sure PolyGet scans, sees, and handles it.**
+   - The two machines differ: **CachyOS is x86_64; Asahi is aarch64** (Apple Silicon running Linux ARM64).
+     Tests passing on x86_64 prove nothing about aarch64, and the reverse.
+   - **Known gap (verified against the code at `5fb187b`, re-verify it):** PolyGet detects the *distro family*
+     (`app/core/distro.py`) but has **no CPU-architecture detection**. A search of `app/` finds no
+     `platform.machine()`, `uname`, or `aarch64`/`x86_64` handling. This predates this branch and is also true of `master`.
+   - Confirm for yourself with `uname -m` and `python3 -c "import platform; print(platform.machine())"`, then
+     confirm what PolyGet itself reports. If it does not detect and expose the architecture, that is a gap
+     to close, not to work around.
+   - "Handling" means: (a) **detect** it once, normalized (`aarch64`/`arm64` and `x86_64`/`amd64` are aliases),
+     next to `get_distro_family()`; (b) **see** it, i.e. surface it where the user can read it, such as `managers`,
+     `catalog`, or the GUI/TUI; (c) **use** it wherever behavior can depend on it: whether a manager or its package
+     exists for this CPU, catalog `self_install` commands that need a different package or repo per architecture,
+     and results that are architecture-specific (Nix `legacyPackages.<system>`, Conda subdirs, Flatpak/Snap builds).
+   - Do **not** guess which tools lack an ARM64 build. Check on the real machine. Examples to verify, not assume:
+     Homebrew/Linuxbrew on Linux ARM64, Bun, Deno, Conda, Snap, Nix.
+   - Do the work on **your own beta branch**, with tests that run under both architectures (fake the machine
+     value in unit tests, since CI on one box cannot be the other). Do not change `master` directly.
+5. **Do not merge into `master`**, and do not pull this branch into a working branch, as part of a review.
 
 ---
 
@@ -126,7 +144,7 @@ Files in your likely conflict zone: `app/core/manager.py`, `app/cli.py`, `app/ui
 | 3 | **DNF/Flatpak still behave.** | The scan/upgrade guards in section 5 sit on the path every driver uses, including DNF. Run `python run.py outdated` and a GUI scan on the laptop. |
 | 4 | **Real runs of Snap, Nix, Distrobox, Homebrew, Conda, Bun** if installed. | None of these exist on the CachyOS machine. Their parsers are tested against **fixtures built from documentation only**. Highest-risk guesses: `nix profile list --json` shape across versions, `brew search` non-TTY output, `conda search --json` error body, `bun update -g`. |
 | 5 | **Distrobox in particular.** | Asahi is the likelier machine to have it, and it manages *containers*, not packages (installed = containers, upgrade = each container's own manager, install = create from an image). Confirm that is the behavior you want. |
-| 6 | **aarch64 quirks.** | Some tools (Bun, Deno, Go binaries) have different packaging or availability on aarch64. |
+| 6 | **aarch64 behavior and architecture handling.** | CachyOS is x86_64, Asahi is aarch64, and PolyGet has **no CPU-architecture detection** (see the agent note, item 4). Verify what each new manager does on ARM64: Bun, Deno, Conda, Snap, Nix, Homebrew/Linuxbrew availability and package builds. |
 | 7 | **Hidden-by-design drivers.** | AUR must be invisible on Fedora; Bundler/Gradle must stay hidden until `projects add`. Confirm `python run.py managers` shows no stray entries. |
 
 Verified for real on CachyOS: AUR, uv, Go (live tools); Bundler and Gradle (real `bundle`/`gradle` against
@@ -144,6 +162,8 @@ throwaway projects); GUI launched offscreen with all 27 drivers; TUI scan driven
 
 ## 8. Known gaps (not fixed)
 
+- **No CPU-architecture detection anywhere in PolyGet** (distro family only). Not introduced by this branch, but this
+  work added managers whose availability and packages vary by architecture. See the agent note, item 4.
 - No GUI to manage tracked project directories (CLI only).
 - The TUI detail pane labels an unsupported manager "Up to date" (it only tells empty from non-empty).
 - `assets/polyget.desktop` still hard-codes `~/Projects/Polyget/` (wrong case); each machine's installed copy

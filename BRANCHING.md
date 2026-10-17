@@ -53,6 +53,15 @@ for **new managers**. List each one to the user and **ask** whether to (a) check
 (b) install it, or neither. Do not probe or install before they answer, and never invent an install
 command. Review the actual code and run the tests rather than trusting any report.
 
+## For agents: the two machines differ in CPU architecture
+
+CachyOS is **x86_64**, Asahi is **aarch64**. A green test run on one says nothing about the other.
+PolyGet currently detects the distro family (`app/core/distro.py`) but **not the CPU architecture**
+(verified by search at the time of writing; re-check it). Make sure PolyGet detects, exposes, and
+handles the machine architecture, check real tool availability on the machine instead of guessing which
+tools have ARM64 builds, and do the work on your own beta branch with tests that fake the architecture.
+Details: the agent note in `docs/reports/2026-10-16-cachyos-beta-handoff-for-asahi.md`.
+
 ## Guarding `master` on beta-only machines
 
 `scripts/git-hooks/pre-push` refuses any push to `master`. Hooks are not versioned, so install it per

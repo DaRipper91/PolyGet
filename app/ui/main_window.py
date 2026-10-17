@@ -927,6 +927,9 @@ class MainWindow(QMainWindow):
         self.selected_updates: dict[str, set[str]] = {}
         self.active_workers: list[QThread] = []
         self.upgrade_queue: list[tuple[PackageManager, list[str]]] = []
+        self._elevated_queue: list[tuple[PackageManager, list[str]]] = []
+        self._parallel_queue: list[tuple[PackageManager, list[str]]] = []
+        self._running_workers: int = 0
         self.sync_queue: list[tuple[PackageManager, list[str]]] = []
         self.blueprint_queue: list[tuple[PackageManager, str, list[str]]] = []
         self.upgrade_failures: list[str] = []
@@ -2630,6 +2633,17 @@ class MainWindow(QMainWindow):
             self.upgrade_queue.clear()
             return
 
+        # Split into elevated (pkexec/sudo) and non-elevated (can run in parallel).
+        # Elevated managers need sequential execution for interactive sudo auth.
+        self._elevated_queue = []
+        self._parallel_queue = []
+        for mgr, pkgs in self.upgrade_queue:
+            cmd = mgr.get_upgrade_command(pkgs)
+            if cmd and cmd[0] in ("pkexec", "sudo"):
+                self._elevated_queue.append((mgr, pkgs))
+            else:
+                self._parallel_queue.append((mgr, pkgs))
+
         self.active_operation = "batch upgrade"
         self.btn_update_selected.setEnabled(False)
         self.btn_scan.setEnabled(False)
@@ -2648,42 +2662,72 @@ class MainWindow(QMainWindow):
         self.upgrade_results[name] = (list(packages), False)
         self.upgrade_unbuildable.add(name)
 
-    def run_next_upgrade_queue(self):
-        if not self.upgrade_queue:
-            self.progress.setVisible(False)
-            self.btn_refresh_repos.setEnabled(True)
-            self.active_operation = None
-            # Several tools exit 0 having changed nothing (dnf skipping a vendor change, npm
-            # pinned by a range), so the rescan — not the exit code — decides what upgraded.
-            self.log("🔎 Re-scanning to confirm what actually upgraded...")
-            self.pending_verification = dict(self.upgrade_results)
-            self.nav_list.setCurrentRow(PAGE_UPDATES)
-            self.scan_all()
-            return
-
-        manager, packages = self.upgrade_queue.pop(0)
+    def _start_upgrade_worker(self, manager, packages):
+        """Start a single upgrade worker and track it."""
         try:
             cmd = manager.get_upgrade_command(packages)
         except (NotImplementedError, DriverError) as e:
             self._record_unbuildable(manager.name, packages, e)
-            self.run_next_upgrade_queue()
+            self._running_workers -= 1
+            if self._running_workers <= 0 and not self._elevated_queue:
+                self._finish_upgrade_queue()
             return
 
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(lambda success: self.handle_queue_worker_finished(success, manager.name, packages))
+        worker.finished_signal.connect(
+            lambda success, mn=manager.name, pkgs=packages: self._handle_upgrade_worker_finished(success, mn, pkgs)
+        )
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
-    def handle_queue_worker_finished(self, success: bool, manager_name: str, packages: list[str]):
+    def _handle_upgrade_worker_finished(self, success: bool, manager_name: str, packages: list[str]):
         self.upgrade_results[manager_name] = (packages, success)
         if success:
             self.log(f"✅ {manager_name} upgrade command finished")
         else:
             self.log(f"❌ Failed to upgrade {manager_name}")
             self.upgrade_failures.append(manager_name)
-        self.run_next_upgrade_queue()
+        self._running_workers -= 1
+        # Start next elevated manager if any remain
+        if self._elevated_queue:
+            mgr, pkgs = self._elevated_queue.pop(0)
+            self._running_workers += 1
+            self._start_upgrade_worker(mgr, pkgs)
+        # If all workers done, finish
+        if self._running_workers <= 0:
+            self._finish_upgrade_queue()
+
+    def _finish_upgrade_queue(self):
+        """All upgrade workers have completed — rescan and verify."""
+        if self.active_operation is None:
+            return  # already finished
+        self.progress.setVisible(False)
+        self.btn_refresh_repos.setEnabled(True)
+        self.active_operation = None
+        # Several tools exit 0 having changed nothing (dnf skipping a vendor change, npm
+        # pinned by a range), so the rescan — not the exit code — decides what upgraded.
+        self.log("🔎 Re-scanning to confirm what actually upgraded...")
+        self.pending_verification = dict(self.upgrade_results)
+        self.nav_list.setCurrentRow(PAGE_UPDATES)
+        self.scan_all()
+
+    def run_next_upgrade_queue(self):
+        # Start all non-elevated (parallel) workers at once
+        self._running_workers = len(self._parallel_queue) + (1 if self._elevated_queue else 0)
+        for mgr, pkgs in self._parallel_queue:
+            self._start_upgrade_worker(mgr, pkgs)
+        self._parallel_queue = []
+
+        # Start first elevated worker (rest queued in _elevated_queue)
+        if self._elevated_queue:
+            mgr, pkgs = self._elevated_queue.pop(0)
+            self._start_upgrade_worker(mgr, pkgs)
+
+        # If nothing was started, finish
+        if self._running_workers <= 0:
+            self._finish_upgrade_queue()
 
     def report_upgrade_results(self, results: dict[str, tuple[list[str], bool]]) -> None:
         """Compare an upgrade run against the rescan that followed it, log it to history, and

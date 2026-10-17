@@ -302,10 +302,10 @@ class StatusCard(QFrame):
         elif checked_at is None:
             self.checked.setText("Not checked yet")
         else:
-            self.checked.setText(f"Checked {_ago(checked_at)}")
+            self.checked.setText(f"Checked {time_ago(checked_at)}")
 
 
-def _ago(ts: float) -> str:
+def time_ago(ts: float) -> str:
     minutes = int((time.time() - ts) // 60)
     if minutes < 1:
         return "just now"

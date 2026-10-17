@@ -24,6 +24,7 @@ from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
 from app.core.sudo_secret import load as load_sudo_password
 from app.core.debug_log import debug_log
+from app.ui.updates_view import ManagerGroupHeader
 from app.ui.sidebar import (
     DEFAULT_HEADER_STYLE, DEFAULT_NAV_STYLE, HEADER_STYLES, NAV_STYLES, BannerHeader,
     BrandHeader, GroupedNav, NavEntry, RailNav, StatusCard,
@@ -1048,6 +1049,10 @@ class MainWindow(QMainWindow):
         self.managers: dict[str, PackageManager] = {}
         self.updates_cache: dict[str, list[dict[str, Any]]] = {}
         self.scan_errors: dict[str, str] = {}
+        # Per-manager scan state for the Updates page's group headers: "scanning" | "done" |
+        # "failed", plus when each last finished, so a single manager can be retried alone.
+        self.manager_scan_state: dict[str, str] = {}
+        self.manager_checked_at: dict[str, float] = {}
         self.selected_updates: dict[str, set[str]] = {}
         self.active_workers: list[QThread] = []
         self.upgrade_queue: list[UpgradeTask] = []
@@ -1807,6 +1812,52 @@ class MainWindow(QMainWindow):
                 font-size: 11px;
                 color: #7f849c;
             }
+            QWidget#group-header {
+                background-color: #11111b;
+                border: 1px solid #313244;
+                border-radius: 8px;
+            }
+            QWidget#group-header[failed="true"] {
+                background-color: #2a1c26;
+                border-color: #5c2d3e;
+            }
+            QWidget#group-header QLabel {
+                background: transparent;
+                border: none;
+            }
+            QLabel#group-name {
+                font-size: 14px;
+                font-weight: bold;
+                color: #cdd6f4;
+            }
+            QLabel#group-state, QLabel#group-when {
+                font-size: 12px;
+                color: #a6adc8;
+            }
+            QLabel#group-state-failed {
+                font-size: 12px;
+                font-weight: bold;
+                color: #f38ba8;
+            }
+            QLabel#group-admin {
+                font-size: 12px;
+                color: #f9e2af;
+            }
+            QLabel#group-footer {
+                font-size: 12px;
+                color: #7f849c;
+                padding: 8px 12px;
+            }
+            QPushButton#group-retry {
+                background-color: transparent;
+                color: #f38ba8;
+                border: 1px solid #f38ba8;
+                padding: 4px 12px;
+            }
+            QPushButton#group-retry:hover {
+                background-color: #f38ba8;
+                color: #11111b;
+            }
             QLabel#nav-section {
                 font-size: 11px;
                 font-weight: 700;
@@ -2021,6 +2072,10 @@ class MainWindow(QMainWindow):
             }
             QCheckBox::indicator:checked {
                 background-color: #89b4fa;
+            }
+            QCheckBox::indicator:indeterminate {
+                background-color: #45475a;
+                border-color: #89b4fa;
             }
             QSpinBox {
                 background-color: #11111b;
@@ -2987,10 +3042,12 @@ class MainWindow(QMainWindow):
             self.refresh_sidebar_status()
             return
 
+        self.manager_scan_state.clear()
         for mgr in available:
             name = mgr.name
             self.managers[name] = mgr
             self.selected_updates[name] = set()
+            self.manager_scan_state[name] = "scanning"
             
             item = QListWidgetItem(f"🔍 {name} - Connecting...")
             self.status_list.addItem(item)
@@ -3023,6 +3080,8 @@ class MainWindow(QMainWindow):
             updates = [u for u in updates if not settings.is_skipped(manager_name, u)]
 
         self.scan_errors.pop(manager_name, None)
+        self.manager_scan_state[manager_name] = "done"
+        self.manager_checked_at[manager_name] = time.time()
         self.updates_cache[manager_name] = updates
         self.selected_updates.setdefault(manager_name, set())
         from app.core.ignore_store import IgnoreStore
@@ -3052,6 +3111,7 @@ class MainWindow(QMainWindow):
             return
 
         self.scan_errors[manager_name] = error
+        self.manager_scan_state[manager_name] = "failed"
         self.updates_cache[manager_name] = []
         self.selected_updates.setdefault(manager_name, set()).clear()
         for i in range(self.status_list.count()):
@@ -3067,6 +3127,7 @@ class MainWindow(QMainWindow):
     def handle_scan_finished(self) -> None:
         self.scan_in_progress = False
         self.last_scan_at = time.time()
+        self._settle_scan_states()
         self.refresh_sidebar_status()
         if self.active_operation is None:
             self.btn_scan.setEnabled(True)
@@ -3079,7 +3140,7 @@ class MainWindow(QMainWindow):
         """Right-click on an update row opens the same menu as its "⋯" button."""
         item = self.updates_list.itemAt(pos)
         row = self.updates_list.itemWidget(item) if item else None
-        if row is not None:
+        if isinstance(row, UpdateItemWidget):  # not a group header or the footer
             self.show_update_menu(row, self.updates_list.viewport().mapToGlobal(pos))
 
     def show_update_menu(self, row: "UpdateItemWidget", global_pos=None) -> None:
@@ -3139,13 +3200,21 @@ class MainWindow(QMainWindow):
         total_updates = 0
         search_filter = self.search_bar.text().lower()
 
-        for manager_name, updates in self.updates_cache.items():
+        up_to_date = []
+        for manager_name in self._update_group_order():
+            updates = self.updates_cache.get(manager_name, [])
             self.selected_updates.setdefault(manager_name, set())
-            for pkg in updates:
+            state = self.manager_scan_state.get(
+                manager_name, "failed" if manager_name in self.scan_errors else "done")
+            matches = [p for p in updates
+                       if not search_filter or search_filter in p.get("name", "").lower()]
+            if not matches and state == "done":
+                if not updates:
+                    up_to_date.append(manager_name)
+                continue
+            self._add_group_header(manager_name, updates, state)
+            for pkg in matches:
                 pkg_name = pkg.get("name", "")
-                if search_filter and search_filter not in pkg_name.lower():
-                    continue
-
                 total_updates += 1
                 row_item = QListWidgetItem(self.updates_list)
 
@@ -3164,6 +3233,15 @@ class MainWindow(QMainWindow):
 
                 self.updates_list.setItemWidget(row_item, row_widget)
 
+        if up_to_date and total_updates:
+            footer = QListWidgetItem(self.updates_list)
+            footer.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            label = QLabel("Up to date: " + ", ".join(sorted(up_to_date, key=str.lower)))
+            label.setObjectName("group-footer")
+            label.setWordWrap(True)
+            footer.setSizeHint(QSize(0, 36))
+            self.updates_list.setItemWidget(footer, label)
+
         if total_updates == 0 and self.scan_errors:
             self.lbl_summary.setText(
                 f"Scan failed for {len(self.scan_errors)} manager(s); see the console for details."
@@ -3179,6 +3257,79 @@ class MainWindow(QMainWindow):
                 f"{total_updates} update(s) available ({selected_count} selected){suffix}"
             )
             self.btn_update_selected.setEnabled(selected_count > 0)
+
+    def _update_group_order(self) -> list[str]:
+        """Managers in scan order, then any with cached results that weren't in this scan."""
+        names = list(self.managers)
+        return names + [n for n in self.updates_cache if n not in self.managers] + [
+            n for n in self.scan_errors if n not in self.managers and n not in self.updates_cache]
+
+    def _needs_admin(self, manager_name: str) -> bool:
+        """True when this manager's upgrades go through pkexec/sudo (a password prompt)."""
+        mgr = self.managers.get(manager_name)
+        if mgr is None:
+            return False
+        try:
+            cmd = mgr.get_upgrade_command([manager_name.lower()])
+        except Exception:
+            return False
+        return bool(cmd) and cmd[0] in ("pkexec", "sudo")
+
+    def _add_group_header(self, manager_name: str, updates: list[dict[str, Any]], state: str) -> None:
+        names = {u.get("name", "") for u in updates}
+        header = ManagerGroupHeader(
+            manager_name, pending=len(updates),
+            selected=len(self.selected_updates.get(manager_name, set()) & names), state=state,
+            error=self.scan_errors.get(manager_name, ""), needs_admin=self._needs_admin(manager_name),
+            checked_at=self.manager_checked_at.get(manager_name))
+        header.toggle_requested.connect(self.toggle_manager_selection)
+        header.retry_requested.connect(self.rescan_manager)
+        item = QListWidgetItem(self.updates_list)
+        item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # a heading, not a selectable update
+        item.setSizeHint(QSize(0, 48 + (12 if self.touch_mode else 0)))
+        self.updates_list.setItemWidget(item, header)
+
+    def toggle_manager_selection(self, manager_name: str) -> None:
+        """Group checkbox: select every update of this manager, or none if all already are."""
+        names = {u.get("name", "") for u in self.updates_cache.get(manager_name, [])}
+        selected = self.selected_updates.setdefault(manager_name, set())
+        if names and names <= selected:
+            selected.clear()
+        else:
+            selected |= names
+        self.rebuild_updates_list()
+
+    def rescan_manager(self, manager_name: str) -> None:
+        """Scan one manager again (the group header's Retry), leaving the others' results alone."""
+        mgr = self.managers.get(manager_name)
+        if mgr is None or self.scan_in_progress or self.manager_scan_state.get(manager_name) == "scanning":
+            return
+        self.manager_scan_state[manager_name] = "scanning"
+        self.scan_errors.pop(manager_name, None)
+        self.log(f"🔁 Retrying {manager_name} scan...")
+        self.rebuild_updates_list()
+        generation = self.scan_generation  # a full rescan meanwhile makes this result stale
+        worker = ScanWorker([mgr])
+        worker.log_signal.connect(self.log)
+        worker.updates_signal.connect(
+            lambda name, updates, g=generation: self.handle_scan_results(name, updates, g))
+        worker.error_signal.connect(
+            lambda name, error, g=generation: self.handle_scan_error(name, error, g))
+        worker.finished_all.connect(self._finish_rescan)
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def _finish_rescan(self) -> None:
+        self._settle_scan_states()
+        self.refresh_sidebar_status()
+        self.rebuild_updates_list()
+
+    def _settle_scan_states(self) -> None:
+        # A manager that can't report updates emits neither results nor an error.
+        for name, state in self.manager_scan_state.items():
+            if state == "scanning":
+                self.manager_scan_state[name] = "done"
 
     def select_all_updates(self):
         for manager_name, updates in self.updates_cache.items():

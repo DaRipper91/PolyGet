@@ -23,6 +23,7 @@ def record_upgrade(
         "manager": manager_name,
         "packages": packages,
         "success": success and not not_upgraded,
+        "verified": True,  # True when the success bit reflects a post-upgrade re-check
     }
     if not_upgraded:
         entry["not_upgraded"] = not_upgraded
@@ -37,7 +38,13 @@ def load_history(path: Path = _HISTORY_PATH, limit: int = 200) -> list[dict[str,
     records = []
     for line in lines:
         try:
-            records.append(json.loads(line))
+            rec = json.loads(line)
+            # Old entries (before upgrade verification) lack the "verified" field;
+            # mark them as unverified so the UI can distinguish them from entries
+            # whose success bit reflects a post-upgrade re-check.
+            if "verified" not in rec:
+                rec["verified"] = False
+            records.append(rec)
         except json.JSONDecodeError:
             continue
     return list(reversed(records))

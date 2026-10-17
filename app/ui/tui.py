@@ -295,7 +295,9 @@ class PolyGetTuiApp(App[None]):
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the PolyGetTuiApp, discover available managers, and set up state."""
         super().__init__(**kwargs)
-        self.managers: list[PackageManager] = discover_managers()
+        from app.core.settings_store import get_settings
+        disabled = set(get_settings().disabled_managers())
+        self.managers: list[PackageManager] = [m for m in discover_managers() if m.name not in disabled]
         # Track selected managers for upgrading
         self.selected_managers: set[str] = set()
         # Track which managers are currently being checked/scanned
@@ -361,6 +363,14 @@ class PolyGetTuiApp(App[None]):
         except Exception as e:
             updates = []
             error = str(e)
+
+        # Filter out ignored packages (consistent with GUI behavior)
+        try:
+            from app.core.ignore_store import IgnoreStore
+            store = IgnoreStore()
+            updates = [u for u in updates if not store.is_ignored(mgr.name, u.get("name", ""))]
+        except Exception:
+            pass
 
         self.updates_cache[mgr.name] = updates
         self.unsupported_checks.pop(mgr.name, None)

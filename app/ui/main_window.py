@@ -2094,9 +2094,14 @@ class MainWindow(QMainWindow):
         heading("DNF: allow vendor change", "Upgraded even when dnf would skip them for coming "
                 "from a different vendor.")
         vendor_ok = settings.get("dnf.allow_vendor_change", [])
+        def _remove_vendor_allowance(k):
+            settings.set("dnf.allow_vendor_change",
+                         [p for p in settings.get("dnf.allow_vendor_change", []) if p != k])
+            # Re-scan so the blocked flag is re-evaluated for the removed package
+            if not self.scan_in_progress:
+                self.scan_all()
         entries([(pkg, pkg) for pkg in vendor_ok], "No packages allowed.",
-                lambda k: settings.set("dnf.allow_vendor_change",
-                                       [p for p in settings.get("dnf.allow_vendor_change", []) if p != k]))
+                _remove_vendor_allowance)
         layout.addStretch()
 
     def populate_history_page(self):
@@ -2110,9 +2115,12 @@ class MainWindow(QMainWindow):
             return
         for rec in records:
             ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.get("timestamp", 0)))
-            status = "✅ SUCCESS" if rec.get("success") else "❌ FAILED"
-            if rec.get("not_upgraded"):
-                status = "⚠ NOT UPGRADED (" + ", ".join(rec["not_upgraded"]) + ")"
+            if not rec.get("verified", True):
+                status = "❔ UNVERIFIED (pre-verification era)"
+            else:
+                status = "✅ SUCCESS" if rec.get("success") else "❌ FAILED"
+                if rec.get("not_upgraded"):
+                    status = "⚠ NOT UPGRADED (" + ", ".join(rec["not_upgraded"]) + ")"
             mgr = rec.get("manager", "Unknown")
             pkgs = ", ".join(rec.get("packages", []))
             item = QListWidgetItem(f"[{ts}] {status} - {mgr}: {pkgs}")

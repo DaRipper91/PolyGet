@@ -27,13 +27,14 @@ uninstall() {
         rm -fv "$ICON_THEME_DIR/${size}x${size}/apps/polyget.png"
     done
     rm -fv "$ICON_THEME_DIR/scalable/apps/polyget.svg"
+    rm -fv "$ICON_THEME_DIR/symbolic/apps/polyget-symbolic.svg"
     command -v update-desktop-database >/dev/null && update-desktop-database "$APPLICATIONS_DIR" || true
     command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$ICON_THEME_DIR" || true
     echo "PolyGet desktop entry removed."
 }
 
 install() {
-    mkdir -p "$APPLICATIONS_DIR" "$ICON_THEME_DIR/scalable/apps"
+    mkdir -p "$APPLICATIONS_DIR" "$ICON_THEME_DIR/scalable/apps" "$ICON_THEME_DIR/symbolic/apps"
 
     # The desktop file hardcodes the repo path, so bake this checkout's paths in
     # rather than relying on the copy in assets/.
@@ -44,6 +45,8 @@ install() {
     chmod 644 "$APPLICATIONS_DIR/polyget.desktop"
 
     cp "$ICON_SRC_DIR/polyget.svg" "$ICON_THEME_DIR/scalable/apps/polyget.svg"
+    # One-colour tray icon; the panel recolours it to match light/dark themes.
+    cp "$ICON_SRC_DIR/polyget-symbolic.svg" "$ICON_THEME_DIR/symbolic/apps/polyget-symbolic.svg"
     for size in 16 32 48 64 128 256 512; do
         mkdir -p "$ICON_THEME_DIR/${size}x${size}/apps"
         cp "$ICON_SRC_DIR/polyget-$size.png" "$ICON_THEME_DIR/${size}x${size}/apps/polyget.png"
@@ -55,6 +58,7 @@ install() {
     echo "Installed:"
     echo "  entry  $APPLICATIONS_DIR/polyget.desktop"
     echo "  icons  $ICON_THEME_DIR/{scalable,16x16..512x512}/apps/polyget.*"
+    echo "  tray   $ICON_THEME_DIR/symbolic/apps/polyget-symbolic.svg"
     echo
     echo "Pointed at: $REPO_ROOT/run.py"
     echo "Re-run this script after moving the repo to refresh the paths."

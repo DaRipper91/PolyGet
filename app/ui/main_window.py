@@ -961,6 +961,19 @@ class RepoItemWidget(QWidget):
 _AUTOSTART_PATH = Path.home() / ".config" / "autostart" / "polyget.desktop"
 
 
+def tray_icon() -> QIcon:
+    """The one-colour panel icon, by theme name so the panel recolours it for light/dark.
+
+    Loaded by name (installed by scripts/install-desktop.sh) rather than from the file: Qt sends
+    a named icon to the tray as a name, which Plasma/GNOME recolour, but a file as pixels. Falls
+    back to the full-colour app icon when the symbolic one isn't installed.
+    """
+    app_icon = QApplication.windowIcon()
+    if app_icon.isNull():
+        app_icon = QIcon.fromTheme("polyget")
+    return QIcon.fromTheme("polyget-symbolic", app_icon)
+
+
 def set_autostart(enabled: bool) -> None:
     """Add or remove a login autostart entry that launches PolyGet hidden in the tray."""
     if not enabled:
@@ -4460,8 +4473,7 @@ class MainWindow(QMainWindow):
             self.bg_timer.stop()
             return
         if self.tray is None:
-            icon = QApplication.windowIcon()
-            self.tray = QSystemTrayIcon(icon if not icon.isNull() else QIcon.fromTheme("polyget"), self)
+            self.tray = QSystemTrayIcon(tray_icon(), self)
             menu = QMenu(self)
             menu.addAction("Open PolyGet", self.show_from_tray)
             menu.addAction("Check for Updates", self.background_scan)

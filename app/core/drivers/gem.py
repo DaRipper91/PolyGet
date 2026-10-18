@@ -46,9 +46,13 @@ class GemManager(PackageManager):
             raise DriverError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
+        # --no-document skips rdoc/ri generation (often duplicated across two
+        # installed rdoc versions), which otherwise makes every gem's docs parse
+        # and install multiple times and turns a 20-second update into a 110-second
+        # one with native C extension builds still running.
         if packages:
-            return ["gem", "update"] + packages
-        return ["gem", "update"]
+            return ["gem", "update", "--no-document"] + packages
+        return ["gem", "update", "--no-document"]
 
     async def list_installed(self) -> list[str]:
         try:

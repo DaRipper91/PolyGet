@@ -68,12 +68,12 @@ def _theme(key: str, name: str, light: bool, surfaces: str, accents: str, **extr
     # Accents double as text colours (version numbers, "scan failed", "Needs admin password").
     # Where a canonical palette's accent is too faint on its own background, pull it toward
     # the text colour until it reads at 4.5:1. Most themes are untouched.
-    for name in _ACCENTS:
+    for accent in _ACCENTS:
         for _ in range(10):
-            if contrast(r[name], r["base"]) >= 4.5:
+            if contrast(r[accent], r["base"]) >= 4.5:
                 break
             # Darken toward black on light themes (keeps the hue); lighten toward text on dark.
-            r[name] = mix(r[name], "#000000" if light else r["text"], 0.12)
+            r[accent] = mix(r[accent], "#000000" if light else r["text"], 0.12)
     roles.setdefault("lavender", mix(r["blue"], r["text"], 0.35))
     roles.setdefault("maroon", mix(r["red"], r["peach"], 0.4))
     roles.setdefault("sapphire", mix(r["blue"], r["sky"], 0.5))

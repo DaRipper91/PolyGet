@@ -29,6 +29,8 @@ def settings(tmp_path, monkeypatch):
 
 def test_there_are_plenty_of_themes_light_and_dark():
     assert len(THEMES) >= 15
+    names = [t.name for t in THEMES.values()]
+    assert len(set(names)) == len(names) and "Catppuccin Mocha" in names and "Nord" in names
     assert sum(t.light for t in THEMES.values()) >= 4
 
 

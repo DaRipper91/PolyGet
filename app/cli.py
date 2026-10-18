@@ -142,11 +142,13 @@ def _plan_or_execute(
     steps: list[dict[str, Any]],
     record: bool = False,
     verify: dict[str, PackageManager] | None = None,
+    action: str = "upgrade",
 ) -> int:
     """Print the planned commands, and run them only when --yes was given.
 
     With `verify` (manager name -> driver), a step that exits 0 is re-checked, and any of its
-    packages still outdated fail the step — several tools exit 0 having changed nothing.
+    packages still outdated (action "upgrade") or still installed (action "remove") fail the
+    step — several tools exit 0 having changed nothing.
     """
     if not steps:
         _emit(args, {"executed": False, "steps": []}, "Nothing to do.")
@@ -165,14 +167,22 @@ def _plan_or_execute(
         step["returncode"] = code
         step["success"] = code == 0
         mgr = (verify or {}).get(step["manager"])
+        leftover_key = "not_removed" if action == "remove" else "not_upgraded"
         if code == 0 and mgr is not None and step.get("packages"):
+            check = mgr.still_installed if action == "remove" else mgr.still_outdated
             try:
-                step["not_upgraded"] = asyncio.run(mgr.still_outdated(step["packages"]))
+                step[leftover_key] = asyncio.run(check(step["packages"]))
             except Exception as e:
-                _log(f"! {step['manager']}: could not verify the upgrade: {describe_error(e)}")
-            step["success"] = not step.get("not_upgraded")
+                _log(f"! {step['manager']}: could not verify the {action}: {describe_error(e)}")
+            step["success"] = not step.get(leftover_key)
         failed |= not step["success"]
-        if record:
+        if record and action == "remove":
+            from app.core.history_store import record_removal
+            record_removal(
+                step["manager"], step.get("packages", []), code == 0,
+                not_removed=step.get("not_removed"),
+            )
+        elif record:
             from app.core.history_store import record_upgrade
             record_upgrade(
                 step["manager"], step.get("packages", []), code == 0,
@@ -182,6 +192,7 @@ def _plan_or_execute(
     human = "\n".join(
         f"{'ok  ' if s['success'] else 'FAIL'} [{s['manager']}] exit {s['returncode']}"
         + (f", still outdated: {', '.join(s['not_upgraded'])}" if s.get("not_upgraded") else "")
+        + (f", still installed: {', '.join(s['not_removed'])}" if s.get("not_removed") else "")
         for s in steps
     )
     _emit(args, {"executed": True, "steps": steps}, human)
@@ -448,7 +459,7 @@ def cmd_remove(args: argparse.Namespace) -> int:
         steps[0]["would_remove"] = would_remove
         if extra:
             _log(f"{mgr.name} would also remove {len(extra)} dependent package(s): {', '.join(extra)}")
-    return _plan_or_execute(args, steps)
+    return _plan_or_execute(args, steps, record=True, verify={mgr.name: mgr}, action="remove")
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -468,13 +479,14 @@ def cmd_history(args: argparse.Namespace) -> int:
     rows = [
         {
             "time": datetime.fromtimestamp(r.get("timestamp", 0)).strftime("%Y-%m-%d %H:%M"),
+            "action": r.get("action", "upgrade"),
             "manager": r.get("manager", ""),
             "success": r.get("success"),
             "packages": ", ".join(r.get("packages") or []) or "(all)",
         }
         for r in records
     ]
-    _emit(args, records, _table(rows, ["time", "manager", "success", "packages"]))
+    _emit(args, records, _table(rows, ["time", "action", "manager", "success", "packages"]))
     return EXIT_OK
 
 
@@ -696,7 +708,7 @@ def build_parser() -> argparse.ArgumentParser:
     manager_filter(p)
     confirm(p)
 
-    p = add("history", cmd_history, "show the upgrade history log")
+    p = add("history", cmd_history, "show the upgrade and removal history log")
     p.add_argument("--limit", type=int, default=50)
 
     p = add("ignore", cmd_ignore, "manage packages excluded from upgrades")

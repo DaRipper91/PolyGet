@@ -1,4 +1,4 @@
-"""Append-only JSON Lines log of upgrade attempts."""
+"""Append-only JSON Lines log of upgrade and removal attempts."""
 
 import json
 import time
@@ -31,6 +31,29 @@ def record_upgrade(
         f.write(json.dumps(entry) + "\n")
 
 
+def record_removal(
+    manager_name: str,
+    packages: list[str],
+    success: bool,
+    path: Path = _HISTORY_PATH,
+    not_removed: list[str] | None = None,
+) -> None:
+    """Log one removal run. `not_removed` lists packages still installed after a run that exited 0."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "timestamp": time.time(),
+        "action": "remove",
+        "manager": manager_name,
+        "packages": packages,
+        "success": success and not not_removed,
+        "verified": True,
+    }
+    if not_removed:
+        entry["not_removed"] = not_removed
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def load_history(path: Path = _HISTORY_PATH, limit: int = 200) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -44,6 +67,8 @@ def load_history(path: Path = _HISTORY_PATH, limit: int = 200) -> list[dict[str,
             # whose success bit reflects a post-upgrade re-check.
             if "verified" not in rec:
                 rec["verified"] = False
+            # Entries from before removals were logged are all upgrades.
+            rec.setdefault("action", "upgrade")
             records.append(rec)
         except json.JSONDecodeError:
             continue

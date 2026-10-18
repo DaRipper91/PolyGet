@@ -96,6 +96,11 @@ class PackageManager:
         wanted = set(packages)
         return sorted({u.get("name") for u in await self.check_updates()} & wanted)
 
+    async def still_installed(self, packages: list[str]) -> list[str]:
+        """Which of `packages` this manager still lists as installed (raises DriverError if the check
+        fails). Used after a removal, for the same reason as `still_outdated`."""
+        return sorted(set(packages) & set(await self.list_installed()))
+
     def is_available(self) -> bool:
         """Check if the package manager's binary is available in the system PATH.
 

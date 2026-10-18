@@ -6,6 +6,7 @@ import json
 import pytest
 
 import app.cli as cli
+import app.core.history_store as history_store
 import app.core.settings_store as settings_store
 from app.core.drivers.apt import AptManager
 from app.core.drivers.dnf import DnfManager
@@ -133,9 +134,13 @@ class FakeSystem(PackageManager):
     def __init__(self, preview=None, preview_error=None):
         self._preview = preview
         self._preview_error = preview_error
+        self.installed = ["ripgrep", "pcre2", "a", "b"]
 
     def is_available(self):
         return True
+
+    async def list_installed(self):
+        return list(self.installed)
 
     def get_remove_command(self, packages):
         return ["fakesys", "remove"] + packages
@@ -176,6 +181,13 @@ def pool(monkeypatch, tmp_path):
     monkeypatch.setattr(
         settings_store, "_settings_instance", settings_store.SettingsStore(tmp_path / "settings.json")
     )
+    history_path = tmp_path / "history.jsonl"
+    orig_record = history_store.record_removal
+    monkeypatch.setattr(
+        history_store, "record_removal",
+        lambda m, p, s, path=history_path, not_removed=None: orig_record(m, p, s, path, not_removed),
+    )
+    managers["history"] = history_path
     return managers
 
 
@@ -216,11 +228,30 @@ def test_remove_with_yes_executes(pool, capsys, monkeypatch):
         returncode = 0
 
     calls = []
-    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **k: calls.append(cmd) or Done())
+    def fake_run(cmd, **k):
+        calls.append(cmd)
+        pool["sys"].installed.remove("ripgrep")
+        return Done()
+
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
     code, data, _ = run_json(capsys, "remove", "-m", "fakesys", "ripgrep", "--yes")
     assert code == cli.EXIT_OK
     assert calls == [["fakesys", "remove", "ripgrep"]]
     assert data["steps"][0]["success"] is True
+    entry = json.loads(pool["history"].read_text().splitlines()[0])
+    assert entry["action"] == "remove" and entry["packages"] == ["ripgrep"] and entry["success"]
+
+
+def test_remove_that_exits_0_but_leaves_package_is_a_failure(pool, capsys, monkeypatch):
+    class Done:
+        returncode = 0
+
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **k: Done())
+    code, data, _ = run_json(capsys, "remove", "-m", "fakesys", "ripgrep", "--yes")
+    assert code == cli.EXIT_FAILED
+    assert data["steps"][0]["not_removed"] == ["ripgrep"]
+    entry = json.loads(pool["history"].read_text().splitlines()[0])
+    assert entry["success"] is False and entry["not_removed"] == ["ripgrep"]
 
 
 def test_remove_unsupported_manager_is_usage_error(pool, capsys):

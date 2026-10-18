@@ -191,3 +191,13 @@ def test_scan_worker_reports_unsupported_managers(qapp):
     worker.unsupported_signal.connect(lambda name, why: got.append((name, why)))
     worker.run()
     assert got == [("Fisher", "no outdated query")]
+
+
+def test_tray_state_follows_scan_and_failures(window):
+    assert window.tray_state() == "idle"
+    _scan(window)  # Cargo failed
+    assert window.tray_state() == "error"
+    window.scan_errors.clear()
+    assert window.tray_state() == "updates"
+    window.scan_in_progress = True
+    assert window.tray_state() == "updating"

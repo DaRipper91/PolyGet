@@ -27,7 +27,9 @@ uninstall() {
         rm -fv "$ICON_THEME_DIR/${size}x${size}/apps/polyget.png"
     done
     rm -fv "$ICON_THEME_DIR/scalable/apps/polyget.svg"
-    rm -fv "$ICON_THEME_DIR/symbolic/apps/polyget-symbolic.svg"
+    for state in "" -updates -updating -error; do
+        rm -fv "$ICON_THEME_DIR/symbolic/apps/polyget${state}-symbolic.svg"
+    done
     command -v update-desktop-database >/dev/null && update-desktop-database "$APPLICATIONS_DIR" || true
     command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$ICON_THEME_DIR" || true
     echo "PolyGet desktop entry removed."
@@ -46,7 +48,10 @@ install() {
 
     cp "$ICON_SRC_DIR/polyget.svg" "$ICON_THEME_DIR/scalable/apps/polyget.svg"
     # One-colour tray icon; the panel recolours it to match light/dark themes.
-    cp "$ICON_SRC_DIR/polyget-symbolic.svg" "$ICON_THEME_DIR/symbolic/apps/polyget-symbolic.svg"
+    # The tray switches between these by state (idle, updates waiting, updating, failed).
+    for state in "" -updates -updating -error; do
+        cp "$ICON_SRC_DIR/polyget${state}-symbolic.svg" "$ICON_THEME_DIR/symbolic/apps/polyget${state}-symbolic.svg"
+    done
     for size in 16 32 48 64 128 256 512; do
         mkdir -p "$ICON_THEME_DIR/${size}x${size}/apps"
         cp "$ICON_SRC_DIR/polyget-$size.png" "$ICON_THEME_DIR/${size}x${size}/apps/polyget.png"
@@ -58,7 +63,7 @@ install() {
     echo "Installed:"
     echo "  entry  $APPLICATIONS_DIR/polyget.desktop"
     echo "  icons  $ICON_THEME_DIR/{scalable,16x16..512x512}/apps/polyget.*"
-    echo "  tray   $ICON_THEME_DIR/symbolic/apps/polyget-symbolic.svg"
+    echo "  tray   $ICON_THEME_DIR/symbolic/apps/polyget{,-updates,-updating,-error}-symbolic.svg"
     echo
     echo "Pointed at: $REPO_ROOT/run.py"
     echo "Re-run this script after moving the repo to refresh the paths."

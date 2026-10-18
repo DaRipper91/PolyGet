@@ -39,9 +39,38 @@ def test_rendered_pngs_exist_at_their_size(qapp, size):
     assert (image.width(), image.height()) == (size, size)
 
 
-def test_tray_prefers_the_themed_symbolic_icon(qapp):
-    from app.ui.main_window import tray_icon
-    themed = QIcon(str(ICONS / "polyget-symbolic.svg"))
-    with patch("app.ui.main_window.QIcon.fromTheme", side_effect=lambda name, fallback=None:
-               themed if name == "polyget-symbolic" else QIcon()):
-        assert tray_icon().cacheKey() == themed.cacheKey()
+def test_tray_prefers_the_installed_symbolic_icon(qapp):
+    from app.ui.icons import tray_icon
+    themed = QIcon(str(ICONS / "polyget-updates-symbolic.svg"))
+    with patch("app.ui.icons.QIcon.hasThemeIcon", side_effect=lambda name: name == "polyget-updates-symbolic"), \
+            patch("app.ui.icons.QIcon.fromTheme", return_value=themed) as from_theme:
+        assert tray_icon("updates").cacheKey() == themed.cacheKey()
+    from_theme.assert_called_once_with("polyget-updates-symbolic")
+
+
+@pytest.mark.parametrize("state", ["idle", "updates", "updating", "error"])
+def test_tray_states_render_from_the_repo_when_not_installed(qapp, state):
+    from app.ui.icons import tray_icon
+    with patch("app.ui.icons.QIcon.hasThemeIcon", return_value=False):
+        icon = tray_icon(state, dark_panel=True)
+    assert not icon.isNull() and not icon.pixmap(22, 22).isNull()
+
+
+@pytest.mark.parametrize("name", ["polyget-updates-symbolic.svg", "polyget-updating-symbolic.svg",
+                                  "polyget-error-symbolic.svg"])
+def test_state_icons_parse_and_recolour(qapp, name):
+    text = (ICONS / name).read_text()
+    assert QSvgRenderer(str(ICONS / name)).isValid()
+    assert 'class="ColorScheme-Text"' in text and "stroke" not in text.split("-->", 1)[1]
+
+
+def test_app_icon_takes_the_themes_brand_colour(qapp):
+    from app.ui import themes
+    from app.ui.icons import app_icon
+    try:
+        themes.set_active("gruvbox-dark")
+        img = app_icon().pixmap(128, 128).toImage()
+        sun = img.pixelColor(30, 64).name()  # left edge of the sun, clear of the arrow
+        assert sun == themes.THEMES["gruvbox-dark"].roles["brand"] == "#fabd2f"
+    finally:
+        themes.set_active("mocha")

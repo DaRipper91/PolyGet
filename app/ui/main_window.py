@@ -27,6 +27,7 @@ from app.core.debug_log import debug_log
 from app.ui.updates_view import ManagerGroupHeader, SelectionBar
 from app.ui.review_dialog import BuildScriptDialog, BuildScriptWorker, has_build_scripts
 from app.ui import theme_qt, themes
+from app.ui.icons import app_icon, tray_icon
 from app.ui.sidebar import (
     DEFAULT_HEADER_STYLE, DEFAULT_NAV_STYLE, HEADER_STYLES, NAV_STYLES, BannerHeader,
     BrandHeader, GroupedNav, NavEntry, RailNav, StatusCard,
@@ -969,19 +970,6 @@ class RepoItemWidget(QWidget):
 _AUTOSTART_PATH = Path.home() / ".config" / "autostart" / "polyget.desktop"
 
 
-def tray_icon() -> QIcon:
-    """The one-colour panel icon, by theme name so the panel recolours it for light/dark.
-
-    Loaded by name (installed by scripts/install-desktop.sh) rather than from the file: Qt sends
-    a named icon to the tray as a name, which Plasma/GNOME recolour, but a file as pixels. Falls
-    back to the full-colour app icon when the symbolic one isn't installed.
-    """
-    app_icon = QApplication.windowIcon()
-    if app_icon.isNull():
-        app_icon = QIcon.fromTheme("polyget")
-    return QIcon.fromTheme("polyget-symbolic", app_icon)
-
-
 def set_autostart(enabled: bool) -> None:
     """Add or remove a login autostart entry that launches PolyGet hidden in the tray."""
     if not enabled:
@@ -1112,6 +1100,7 @@ class MainWindow(QMainWindow):
         self.theme_filter = theme_qt.install()
         self._select_theme()
         self.setup_ui()
+        self.apply_window_icon()
         self.apply_touch_mode()
         self.apply_sidebar_style()
         hints = QApplication.styleHints()
@@ -2450,7 +2439,31 @@ class MainWindow(QMainWindow):
         self.apply_window_icon()
 
     def apply_window_icon(self) -> None:
-        """Hook for the theme-tinted window icon (filled in by the icon work)."""
+        """Recolour the app icon for the active theme: window, taskbar, and sidebar headers."""
+        icon = app_icon()
+        QApplication.setWindowIcon(icon)
+        self.setWindowIcon(icon)
+        self.header_brand.icon.setPixmap(icon.pixmap(36, 36))
+        self.header_status.icon.setPixmap(icon.pixmap(26, 26))
+        self.rail_mark.setPixmap(icon.pixmap(40, 40))
+
+    def tray_state(self) -> str:
+        if self.scan_in_progress or self.active_operation is not None:
+            return "updating"
+        if self.scan_errors or self.upgrade_failures:
+            return "error"
+        if any(self.updates_cache.values()):
+            return "updates"
+        return "idle"
+
+    def refresh_tray_icon(self) -> None:
+        """Show the tray state (idle / updates waiting / updating / failed) in the tray icon."""
+        if self.tray is None:
+            return
+        state = self.tray_state()
+        if state != getattr(self, "_tray_icon_state", None):
+            self._tray_icon_state = state
+            self.tray.setIcon(tray_icon(state, theme_qt.system_is_dark()))
 
     def _on_system_scheme_changed(self, *_args) -> None:
         from app.core.settings_store import get_settings
@@ -2472,6 +2485,7 @@ class MainWindow(QMainWindow):
         self.header_brand.set_subtitle(" · ".join(p for p in parts if p))
         counts = {name: len(pkgs) for name, pkgs in self.updates_cache.items()}
         self.header_status.update_status(counts, self.scan_in_progress, self.last_scan_at)
+        self.refresh_tray_icon()
 
     def apply_sidebar_style(self) -> None:
         """Lay the sidebar out for the header and navigation styles saved in Settings.
@@ -3782,6 +3796,7 @@ class MainWindow(QMainWindow):
                 self._parallel_queue.append(UpgradeTask(mgr, pkgs))
 
         self.active_operation = "batch upgrade"
+        self.refresh_tray_icon()
         self._show_terminal("⚡ Upgrade in progress")
         self.btn_update_selected.setEnabled(False)
         self.selection_bar.hide()
@@ -4688,7 +4703,8 @@ class MainWindow(QMainWindow):
             self.bg_timer.stop()
             return
         if self.tray is None:
-            self.tray = QSystemTrayIcon(tray_icon(), self)
+            self._tray_icon_state = None
+            self.tray = QSystemTrayIcon(tray_icon("idle", theme_qt.system_is_dark()), self)
             menu = QMenu(self)
             menu.addAction("Open PolyGet", self.show_from_tray)
             menu.addAction("Check for Updates", self.background_scan)

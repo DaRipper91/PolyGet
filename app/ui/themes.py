@@ -81,6 +81,7 @@ def _theme(key: str, name: str, light: bool, surfaces: str, accents: str, **extr
     roles.setdefault("rosewater", mix(r["pink"], r["text"], 0.5))
     roles.setdefault("indigo", mix(r["blue"], r["mauve"], 0.5))
     roles.setdefault("bright", r["text"])
+    roles.setdefault("brand", r["mauve"])  # the app icon's sun; the theme's signature colour
     # Text drawn on a filled accent (buttons, badges): dark on dark themes' pastel accents,
     # white on light themes' saturated ones.
     roles.setdefault("on_accent", "#ffffff" if light else r["crust"])
@@ -107,40 +108,51 @@ THEMES: dict[str, Theme] = {t.key: t for t in (
            lavender="7287fd", maroon="e64553", sapphire="209fb5", flamingo="dd7878", rosewater="dc8a78"),
     _theme("nord", "Nord", False,
            "242933 292e39 2e3440 3b4252 434c5e 4c566a 616e88 7b88a1 d8dee9 eceff4",
-           "81a1c1 b48ead a3be8c ebcb8b d08770 bf616a 8fbcbb 88c0d0 d6a3c9"),
+           "81a1c1 b48ead a3be8c ebcb8b d08770 bf616a 8fbcbb 88c0d0 d6a3c9",
+           brand="88c0d0"),
     _theme("gruvbox-dark", "Gruvbox Dark", False,
            "1d2021 242424 282828 3c3836 504945 665c54 7c6f64 928374 bdae93 ebdbb2",
-           "83a598 d3869b b8bb26 fabd2f fe8019 fb4934 8ec07c 7daea3 d3869b"),
+           "83a598 d3869b b8bb26 fabd2f fe8019 fb4934 8ec07c 7daea3 d3869b",
+           brand="fabd2f"),
     _theme("gruvbox-light", "Gruvbox Light", True,
            "ebdbb2 f2e5bc fbf1c7 d5c4a1 bdae93 a89984 928374 7c6f64 504945 3c3836",
-           "076678 8f3f71 79740e b57614 af3a03 9d0006 427b58 458588 b16286"),
+           "076678 8f3f71 79740e b57614 af3a03 9d0006 427b58 458588 b16286",
+           brand="d79921"),
     _theme("tokyo-night", "Tokyo Night", False,
            "13141c 16161e 1a1b26 292e42 3b4261 414868 565f89 737aa2 a9b1d6 c0caf5",
            "7aa2f7 bb9af7 9ece6a e0af68 ff9e64 f7768e 73daca 7dcfff e5a1d6"),
     _theme("dracula", "Dracula", False,
            "191a21 21222c 282a36 343746 44475a 525568 6272a4 7b86b8 d6d6e0 f8f8f2",
-           "bd93f9 ff79c6 50fa7b f1fa8c ffb86c ff5555 8be9fd 8be9fd ff79c6"),
+           "bd93f9 ff79c6 50fa7b f1fa8c ffb86c ff5555 8be9fd 8be9fd ff79c6",
+           brand="bd93f9"),
     _theme("one-dark", "One Dark", False,
            "1b1f27 21252b 282c34 2c313c 3e4451 4b5263 5c6370 7f848e abb2bf d7dae0",
-           "61afef c678dd 98c379 e5c07b d19a66 e06c75 56b6c2 56b6c2 e599c8"),
+           "61afef c678dd 98c379 e5c07b d19a66 e06c75 56b6c2 56b6c2 e599c8",
+           brand="61afef"),
     _theme("rose-pine", "Rosé Pine", False,
            "12101a 16141f 191724 26233a 393552 44415a 6e6a86 908caa c4c1db e0def4",
-           "9ccfd8 c4a7e7 8fb8a8 f6c177 ebbcba eb6f92 56949f 9ccfd8 ebbcba"),
+           "9ccfd8 c4a7e7 8fb8a8 f6c177 ebbcba eb6f92 56949f 9ccfd8 ebbcba",
+           brand="ebbcba"),
     _theme("rose-pine-dawn", "Rosé Pine Dawn", True,
            "f2e9e1 f6eee6 faf4ed dfdad9 cecacd b9b4bd 9893a5 797593 6e6a86 575279",
-           "286983 907aa9 4b8c6f ea9d34 d7827e b4637a 56949f 56949f d7827e"),
+           "286983 907aa9 4b8c6f ea9d34 d7827e b4637a 56949f 56949f d7827e",
+           brand="d7827e"),
     _theme("solarized-dark", "Solarized Dark", False,
            "00212b 00262f 002b36 073642 0b4552 18505d 586e75 657b83 93a1a1 eee8d5",
-           "268bd2 6c71c4 859900 b58900 cb4b16 dc322f 2aa198 3fa8d6 d33682"),
+           "268bd2 6c71c4 859900 b58900 cb4b16 dc322f 2aa198 3fa8d6 d33682",
+           brand="b58900"),
     _theme("solarized-light", "Solarized Light", True,
            "eee8d5 f5efdc fdf6e3 e4ddc8 d6cfb9 c5bea8 93a1a1 839496 586e75 073642",
-           "268bd2 6c71c4 859900 b58900 cb4b16 dc322f 2aa198 3fa8d6 d33682"),
+           "268bd2 6c71c4 859900 b58900 cb4b16 dc322f 2aa198 3fa8d6 d33682",
+           brand="b58900"),
     _theme("everforest", "Everforest Dark", False,
            "232a2e 293136 2d353b 343f44 475258 4f585e 7a8478 859289 9da9a0 d3c6aa",
-           "7fbbb3 d699b6 a7c080 dbbc7f e69875 e67e80 83c092 7fbbb3 d699b6"),
+           "7fbbb3 d699b6 a7c080 dbbc7f e69875 e67e80 83c092 7fbbb3 d699b6",
+           brand="a7c080"),
     _theme("kanagawa", "Kanagawa", False,
            "16161d 1a1a22 1f1f28 2a2a37 363646 54546d 727169 8a8980 c8c093 dcd7ba",
-           "7e9cd8 957fb8 98bb6c e6c384 ffa066 e46876 7aa89f 7fb4ca d27e99"),
+           "7e9cd8 957fb8 98bb6c e6c384 ffa066 e46876 7aa89f 7fb4ca d27e99",
+           brand="e6c384"),
     _theme("synthwave", "Synthwave", False,
            "0d0019 12002b 1a0a33 2b1650 3d1f6b 4e2a85 6f5a96 8a6fb3 c9b8e8 f2e9ff",
            "22d3ee f0369a 72f1b8 fde047 ff8b39 fe4450 36f9f6 22d3ee ff7edb"),
@@ -153,7 +165,7 @@ THEMES: dict[str, Theme] = {t.key: t for t in (
 _MOCHA = THEMES["mocha"].roles
 _SOURCE_ROLE: dict[str, str] = {}
 for _role, _hex in _MOCHA.items():
-    if _role != "on_accent":
+    if _role not in ("on_accent", "brand"):
         _SOURCE_ROLE.setdefault(_hex, _role)
 
 # Older Tailwind colours still in the code: (role, blended toward base by t). The tints are

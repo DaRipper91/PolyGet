@@ -1,6 +1,8 @@
 import asyncio
 import shutil
+from pathlib import Path
 from typing import Any
+from app.core.janitor import dir_size, target
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 from app.core.settings_store import get_settings
 
@@ -287,6 +289,26 @@ class DnfManager(PackageManager):
         if not names:
             raise DriverError(f"{self.name} removal preview found nothing to remove — are these packages installed?")
         return names
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = []
+        out = await run_capture(
+            ["dnf", "autoremove", "--assumeno"], label=f"{self.name} autoremove query", timeout=60.0, ok_codes=(0, 1),
+        )
+        unused = self._parse_removal_transaction(out)
+        if unused:
+            targets.append(target(
+                self.name, "orphans", "Unused dependencies", ["pkexec", "dnf", "autoremove", "-y"],
+                items=unused, detail="installed as dependencies, no longer required by anything",
+            ))
+        # dnf5 keeps its cache in libdnf5, dnf4 in dnf; only one exists on a given system.
+        cached = sum([await dir_size(Path(p)) for p in ("/var/cache/libdnf5", "/var/cache/dnf")])
+        if cached:
+            targets.append(target(
+                self.name, "cache", "Package and metadata cache", ["pkexec", "dnf", "clean", "all"], cached,
+                detail="downloaded packages and repo metadata; metadata is fetched again on the next check",
+            ))
+        return targets
 
     supports_repos: bool = True
 

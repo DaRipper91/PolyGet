@@ -4,7 +4,16 @@ import asyncio
 import re
 import shutil
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.janitor import target
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
+
+_UNITS = {"B": 1, "KiB": 1024, "MiB": 1024 ** 2, "GiB": 1024 ** 3, "TiB": 1024 ** 4}
+_SIZE_RE = re.compile(r"([\d.]+)\s*(B|KiB|MiB|GiB|TiB)")
+
+
+def _to_bytes(text: str) -> int | None:
+    m = _SIZE_RE.search(text)
+    return int(float(m.group(1)) * _UNITS[m.group(2)]) if m else None
 
 # pacman's "removing X breaks dependency 'X' required by Y" — Y blocks the removal.
 _BREAKS = re.compile(r"breaks dependency '[^']*' required by (\S+)")
@@ -127,6 +136,36 @@ class PacmanManager(PackageManager):
         detail = err.strip().splitlines()
         raise DriverError(f"{label} failed: `pacman` exited with status {proc.returncode}"
                           f"{': ' + detail[-1] if detail else ''}")
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = []
+        # -Qdtq: installed as a dependency, required by nothing. Exits 1 when there are none.
+        out = await run_capture(["pacman", "-Qdtq"], label=f"{self.name} orphan query", ok_codes=(0, 1))
+        orphans = [line.strip() for line in out.splitlines() if line.strip()]
+        if orphans:
+            info = await run_capture(["pacman", "-Qi"] + orphans, label=f"{self.name} orphan size query")
+            sizes = [_to_bytes(line) for line in info.splitlines() if line.startswith("Installed Size")]
+            targets.append(target(
+                self.name, "orphans", "Orphaned dependencies",
+                ["pkexec", "pacman", "-Rns", "--noconfirm"] + orphans,
+                sum(s for s in sizes if s) if sizes else None, orphans,
+                "installed as dependencies, no longer required by anything",
+            ))
+        if shutil.which("paccache"):
+            # Dry run: "==> finished dry run: 25 candidates (disk space saved: 456.78 MiB)".
+            out = await run_capture(["paccache", "-dk2"], label=f"{self.name} cache query", timeout=60.0)
+            saved = _to_bytes(out.split("disk space saved:", 1)[1]) if "disk space saved:" in out else None
+            if saved:
+                targets.append(target(
+                    self.name, "cache", "Package cache", ["pkexec", "paccache", "-rk2"], saved,
+                    detail="old package versions, keeping the 2 newest of each",
+                ))
+        else:
+            targets.append(target(
+                self.name, "cache", "Package cache", ["pkexec", "pacman", "-Sc", "--noconfirm"],
+                detail="cached versions of packages no longer installed (install pacman-contrib for sizes)",
+            ))
+        return targets
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         try:

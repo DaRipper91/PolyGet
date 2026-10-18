@@ -240,6 +240,21 @@ class PackageManager:
         """
         raise NotImplementedError(f"{self.name} packages have no build script to review")
 
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        """Reclaimable space this manager can free: orphans, caches, leftover data.
+
+        Returns:
+            list[dict]: Targets built with `app.core.janitor.target()`, each carrying the command
+                that cleans it and `bytes` (None when the size can't be known before running).
+                Only targets with something to clean are returned.
+
+        Raises:
+            NotImplementedError: This manager has nothing PolyGet knows how to clean.
+            DriverError: A query failed. Never guess: a target built from a failed query
+                (e.g. "leftover data" when the installed list didn't load) could delete real data.
+        """
+        raise NotImplementedError(f"{self.name} has no cleanup targets")
+
     # True for tools whose remove command takes exactly one package (e.g. `pipx uninstall`);
     # callers then build one command per package instead of passing a list.
     removes_one_at_a_time: bool = False

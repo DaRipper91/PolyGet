@@ -1,7 +1,9 @@
 import asyncio
 import shutil
+from pathlib import Path
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.janitor import dir_size, target
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
 @register_manager
@@ -224,6 +226,14 @@ class NpmManager(PackageManager):
 
     def get_remove_command(self, packages: list[str]) -> list[str]:
         return ["npm", "uninstall", "-g"] + packages
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        cache = (await run_capture(["npm", "config", "get", "cache"], label=f"{self.name} cache query")).strip()
+        size = await dir_size(Path(cache)) if cache else 0
+        if not size:
+            return []
+        return [target(self.name, "cache", "Download cache", ["npm", "cache", "clean", "--force"], size,
+                       detail="tarballs npm downloads again on demand")]
 
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         """Search for NPM packages globally."""

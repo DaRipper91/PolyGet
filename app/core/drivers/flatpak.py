@@ -1,7 +1,9 @@
 import asyncio
 import shutil
+from pathlib import Path
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.janitor import dir_size, target
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
 @register_manager
@@ -249,6 +251,30 @@ class FlatpakManager(PackageManager):
 
     def get_remove_command(self, packages: list[str]) -> list[str]:
         return ["flatpak", "uninstall", "-y"] + packages
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = [target(
+            self.name, "unused", "Unused runtimes", ["flatpak", "uninstall", "--unused", "-y"],
+            detail="runtimes and extensions no installed app uses, if any (flatpak counts them when run)",
+        )]
+        # Leftover app data (Warehouse's cleanup): ~/.var/app/<id> for apps that are gone. The
+        # installed list must load completely, or a missing entry would read as "uninstalled" and
+        # its user data would be offered for deletion.
+        data_root = Path.home() / ".var" / "app"
+        if data_root.is_dir():
+            out = await run_capture(
+                ["flatpak", "list", "--columns=application"], label=f"{self.name} installed-ID query", timeout=15.0,
+            )
+            installed = {line.strip() for line in out.splitlines() if line.strip()}
+            leftovers = sorted(d for d in data_root.iterdir() if d.is_dir() and d.name not in installed)
+            if leftovers:
+                size = sum([await dir_size(d) for d in leftovers])
+                targets.append(target(
+                    self.name, "leftover-data", "Data of uninstalled apps",
+                    ["rm", "-rf", "--"] + [str(d) for d in leftovers], size, [d.name for d in leftovers],
+                    "settings and saved data in ~/.var/app; deleting it cannot be undone",
+                ))
+        return targets
 
     supports_repos: bool = True
 

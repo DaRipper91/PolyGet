@@ -2,7 +2,7 @@
 
 Every subcommand prints a human-readable table by default, or a single JSON document on stdout
 with `--json`. Progress and child-process output always go to stderr, so `--json` stdout stays
-machine-parseable. Commands that change the system (upgrade, install, remove, sync) only print the exact
+machine-parseable. Commands that change the system (upgrade, install, remove, clean, sync) only print the exact
 command they would run unless `--yes` is passed.
 
 Exit codes: 0 success, 1 a manager or command failed, 2 usage error (unknown manager, bad args).
@@ -11,6 +11,7 @@ Exit codes: 0 success, 1 a manager or command failed, 2 usage error (unknown man
 import argparse
 import asyncio
 import json
+import shlex
 import subprocess
 import sys
 from typing import Any
@@ -26,7 +27,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "remove", "review", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
+    "upgrade", "install", "remove", "review", "clean", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
     "self-version", "debug",
 )
 
@@ -462,6 +463,34 @@ def cmd_remove(args: argparse.Namespace) -> int:
     return _plan_or_execute(args, steps, record=True, verify={mgr.name: mgr}, action="remove")
 
 
+def cmd_clean(args: argparse.Namespace) -> int:
+    from app.core.janitor import human_size
+
+    managers = _select_managers(args.manager)
+    results = asyncio.run(_gather_per_manager(managers, "get_cleanup_targets"))
+    targets = [t for r in results.values() if r["ok"] for t in r["result"]]
+    if args.only:
+        wanted = {o.lower() for o in args.only}
+        targets = [t for t in targets if t["id"] in wanted or f"{t['manager']}:{t['id']}".lower() in wanted]
+    errors = {n: r["error"] for n, r in results.items() if not r["ok"] and not r.get("unsupported")}
+    for name, err in errors.items():
+        _log(f"! {name}: {err}")
+
+    if not args.yes:
+        known = [t["bytes"] for t in targets if t["bytes"]]
+        rows = [{"manager": t["manager"], "target": f"{t['id']}", "size": human_size(t["bytes"]),
+                 "what": t["label"] + (f" ({len(t['items'])})" if t["items"] else "")} for t in targets]
+        human = _table(rows, ["manager", "target", "size", "what"])
+        if targets:
+            human += f"\n\nAt least {human_size(sum(known))} reclaimable. Would run (pass --yes to execute):\n"
+            human += "\n".join(f"  [{t['manager']}] {shlex.join(t['command'])}" for t in targets)
+        _emit(args, {"executed": False, "targets": targets, "errors": errors}, human)
+        return EXIT_FAILED if errors else EXIT_OK
+
+    code = _plan_or_execute(args, [dict(t) for t in targets])
+    return EXIT_FAILED if errors else code
+
+
 def cmd_sync(args: argparse.Namespace) -> int:
     steps = []
     for mgr in _select_managers(args.manager):
@@ -703,6 +732,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("review", cmd_review, "print the build script (e.g. AUR PKGBUILD) a package would run")
     p.add_argument("-m", "--manager", required=True)
     p.add_argument("packages", nargs="+")
+
+    p = add("clean", cmd_clean, "reclaim space: orphaned dependencies, caches, leftover app data")
+    manager_filter(p)
+    p.add_argument("--only", action="append", metavar="TARGET",
+                   help="limit to a target id (e.g. cache) or manager:id (e.g. pacman:orphans); repeatable")
+    confirm(p)
 
     p = add("sync", cmd_sync, "refresh repository metadata")
     manager_filter(p)

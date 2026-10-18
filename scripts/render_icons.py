@@ -2,7 +2,7 @@
 
     python scripts/render_icons.py
 
-16 and 32 px come from polyget-small.svg (no stripes, thicker arrow); the rest from polyget.svg.
+16 to 32 px come from polyget-small.svg (three thicker lanes, bigger head); the rest from polyget.svg.
 Uses Qt's SVG renderer, which is already a dependency, so no Inkscape/rsvg is needed.
 """
 
@@ -17,8 +17,8 @@ from PySide6.QtGui import QGuiApplication, QImage, QPainter
 from PySide6.QtSvg import QSvgRenderer
 
 ICONS = Path(__file__).resolve().parent.parent / "assets" / "icons"
-SIZES = (16, 32, 48, 64, 128, 256, 512)
-SMALL = {16, 32}
+SIZES = (16, 22, 24, 32, 48, 64, 128, 256, 512)
+SMALL = {16, 22, 24, 32}
 
 
 def render(svg: Path, size: int, out: Path) -> None:

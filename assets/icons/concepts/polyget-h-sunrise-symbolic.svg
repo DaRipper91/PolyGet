@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- C: single-colour tray/panel icon: icon A's sun, cut flat at the horizon, with the arrow
+     carved out (even-odd), over a horizon bar. Plasma recolours the ColorScheme-Text class and
+     GTK recolours symbolic fills, so it follows light and dark panels. Fills only, no strokes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <style id="current-color-scheme">.ColorScheme-Text { color: #232629; }</style>
+  <g class="ColorScheme-Text" fill="currentColor">
+    <path fill-rule="evenodd" d="M2.88 12.5 A6.5 6.5 0 1 1 13.12 12.5 Z
+                                 M8 3.2 L11.2 6.8 L9.2 6.8 L9.2 12.5 L6.8 12.5 L6.8 6.8 L4.8 6.8 Z"/>
+    <rect x="1" y="14" width="14" height="1.5" rx="0.75"/>
+  </g>
+</svg>

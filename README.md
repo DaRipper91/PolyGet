@@ -1,8 +1,11 @@
 <div align="center">
 
-<img src="assets/icons/polyget.svg" width="112" alt="PolyGet icon: a mauve sun on a dark tile with an upward arrow carved through it">
-
-# PolyGet
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/polyget-wordmark-dark.svg">
+    <img src="assets/brand/polyget-wordmark-light.svg" height="88" alt="PolyGet">
+  </picture>
+</h1>
 
 ### One store for every package manager on your machine.
 

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- A at 16-32px: same sun and arrow, no stripes (they blur into the sun), bigger sun and a
-     thicker arrow so the cut-out still reads. Rendered to polyget-16.png and polyget-32.png. -->
+<!-- Confluence at 16-32px: three thicker lanes and a bigger head so the convergence still reads. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="#1e1e2e" stroke="#585b70" stroke-width="7"/>
-  <circle cx="64" cy="70" r="46" fill="#cba6f7"/>
-  <polygon points="64,20 96,56 78,56 78,112 50,112 50,56 32,56" fill="#1e1e2e"/>
+  <defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#313244"/><stop offset="1" stop-color="#1e1e2e"/></linearGradient></defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#t)" stroke="#7f849c" stroke-width="7"/>
+  <g fill="none" stroke-width="16" stroke-linecap="round"><path d="M34,106 L58.6,66" stroke="#89b4fa"/><path d="M64,106 L64.0,66" stroke="#a6e3a1"/><path d="M94,106 L69.4,66" stroke="#fab387"/></g>
+  <path d="M64,16 L102,64 L26,64 Z" fill="#cba6f7" stroke="#cba6f7" stroke-width="6" stroke-linejoin="round"/>
 </svg>

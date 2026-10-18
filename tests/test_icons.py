@@ -33,7 +33,7 @@ def test_symbolic_icon_is_recolourable():
     assert "#" not in body  # no hard-coded colours outside the scheme stylesheet
 
 
-@pytest.mark.parametrize("size", [16, 32, 48, 64, 128, 256, 512])
+@pytest.mark.parametrize("size", [16, 22, 24, 32, 48, 64, 128, 256, 512])
 def test_rendered_pngs_exist_at_their_size(qapp, size):
     image = QImage(str(ICONS / f"polyget-{size}.png"))
     assert (image.width(), image.height()) == (size, size)

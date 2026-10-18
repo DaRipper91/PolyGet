@@ -46,6 +46,20 @@ def test_rustup_check_reports_toolchains_not_rustup_itself():
     ]
 
 
+RUSTUP_129_CHECK = """\
+stable-aarch64-unknown-linux-gnu - update available: 1.99.0 (b940084d7 2026-09-28) -> 1.99.1 (58cf8f9c3 2026-10-13)
+rustup - up to date : 1.29.1
+"""
+
+
+def test_rustup_129_lowercase_output_and_exit_100_are_updates_not_failures(monkeypatch):
+    calls = scripted(monkeypatch, "rustup", {("rustup", "check"): RUSTUP_129_CHECK})
+    assert asyncio.run(RustupManager().check_updates()) == [
+        {"name": "stable-aarch64-unknown-linux-gnu", "current": "1.99.0", "new": "1.99.1"},
+    ]
+    assert 100 in calls[0][1]["ok_codes"]
+
+
 def test_rustup_lists_toolchains_and_never_self_updates(monkeypatch):
     scripted(monkeypatch, "rustup", {("rustup", "toolchain"): "stable-x86_64-unknown-linux-gnu (active, default)\nnightly-x86_64-unknown-linux-gnu\n"})
     assert asyncio.run(RustupManager().list_installed()) == ["stable-x86_64-unknown-linux-gnu", "nightly-x86_64-unknown-linux-gnu"]

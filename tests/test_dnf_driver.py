@@ -29,8 +29,8 @@ def test_dnf_driver_availability_false():
 def test_dnf_get_upgrade_command():
     """Test upgrade command generation uses pkexec."""
     manager = DnfManager()
-    assert manager.get_upgrade_command() == ["pkexec", "dnf", "upgrade", "-y"]
-    assert manager.get_upgrade_command(["pkg1"]) == ["pkexec", "dnf", "upgrade", "-y", "pkg1"]
+    assert manager.get_upgrade_command() == ["pkexec", "dnf", "upgrade", "-y", "--refresh"]
+    assert manager.get_upgrade_command(["pkg1"]) == ["pkexec", "dnf", "upgrade", "-y", "--refresh", "pkg1"]
 
 
 def test_dnf_get_sync_command():

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
-    QApplication, QSizePolicy, QStyle, QToolButton
+    QApplication, QSizePolicy, QStyle, QToolButton, QDialog
 )
 from app.core.arch import describe_system
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
@@ -25,6 +25,7 @@ from app.core.version_scan import cross_manager_newest
 from app.core.sudo_secret import load as load_sudo_password
 from app.core.debug_log import debug_log
 from app.ui.updates_view import ManagerGroupHeader, SelectionBar
+from app.ui.review_dialog import BuildScriptDialog, BuildScriptWorker, has_build_scripts
 from app.ui.sidebar import (
     DEFAULT_HEADER_STYLE, DEFAULT_NAV_STYLE, HEADER_STYLES, NAV_STYLES, BannerHeader,
     BrandHeader, GroupedNav, NavEntry, RailNav, StatusCard,
@@ -1096,6 +1097,7 @@ class MainWindow(QMainWindow):
         self.installing_managers: set[str] = set()
         self.installing_packages: set[str] = set()
         self.removing_packages: set[str] = set()
+        self._reviewing_scripts = False  # an AUR build-script fetch for an upgrade is in flight
         self.repo_actions_in_flight: set[str] = set()
 
         self.tray: QSystemTrayIcon | None = None
@@ -1800,6 +1802,46 @@ class MainWindow(QMainWindow):
                 color: #cdd6f4;
                 font-family: 'Outfit', 'Inter', 'Segoe UI', sans-serif;
                 font-size: 13px;
+            }
+            QDialog, QMessageBox {
+                background-color: #1e1e2e;
+            }
+            QMessageBox QLabel {
+                color: #cdd6f4;
+            }
+            QPlainTextEdit {
+                background-color: #11111b;
+                border: 1px solid #313244;
+                border-radius: 6px;
+                color: #cdd6f4;
+            }
+            QTabWidget::pane {
+                border: 1px solid #313244;
+                border-radius: 6px;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background-color: #181825;
+                color: #a6adc8;
+                border: 1px solid #313244;
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+                padding: 6px 14px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #313244;
+                color: #cdd6f4;
+                font-weight: bold;
+            }
+            QLabel#review-error {
+                color: #f38ba8;
+                font-weight: bold;
+            }
+            QLabel#review-url {
+                color: #7f849c;
+                font-size: 11px;
             }
             QWidget#sidebar-panel {
                 background-color: #11111b;
@@ -3509,6 +3551,19 @@ class MainWindow(QMainWindow):
         self.start_batch_upgrade(targets={
             m: sorted(picks) for m, picks in selected.items() if picks and not self._needs_admin(m)})
 
+    def _upgrade_after_review(self, manager: str, plan: dict[str, list[str]],
+                              reviewed: frozenset[str], scripts: dict) -> None:
+        self._reviewing_scripts = False
+        others = any(pkgs for name, pkgs in plan.items() if name != manager)
+        n = len(plan.get(manager, []))
+        dialog = BuildScriptDialog(manager, scripts, f"Upgrade {n}", allow_skip=others, parent=self)
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
+            self.start_batch_upgrade(targets=plan, reviewed=reviewed | {manager})
+        elif result == BuildScriptDialog.SKIP:
+            self.start_batch_upgrade(targets={k: v for k, v in plan.items() if k != manager},
+                                     reviewed=reviewed)
+
     def toggle_all_selection(self) -> None:
         """Header checkbox: select everything, or nothing when everything already is."""
         pending, n_selected = self._selection_counts()[:2]
@@ -3568,8 +3623,12 @@ class MainWindow(QMainWindow):
         return box.exec() == QMessageBox.StandardButton.Ok
 
     def start_batch_upgrade(self, *args, retry: dict[str, list[str]] | None = None,
-                            targets: dict[str, list[str]] | None = None):
-        """Upgrade the selected packages, or exactly `retry`/`targets` ({manager: packages})."""
+                            targets: dict[str, list[str]] | None = None,
+                            reviewed: frozenset[str] = frozenset()):
+        """Upgrade the selected packages, or exactly `retry`/`targets` ({manager: packages}).
+
+        `reviewed` names managers whose build scripts the user has already read for this run.
+        """
         if retry is None:
             retry = targets
         if self.active_operation is not None:
@@ -3608,6 +3667,23 @@ class MainWindow(QMainWindow):
                 "PolyGet could not build an upgrade command for: " + ", ".join(unbuildable)
                 + ".\n\nCheck the Process Console for the reason.",
             )
+            return
+        needs_review = next((t for t in self.upgrade_queue
+                             if has_build_scripts(t.manager) and t.manager.name not in reviewed), None)
+        if needs_review is not None:
+            plan = {t.manager.name: list(t.packages) for t in self.upgrade_queue}
+            self.upgrade_queue.clear()
+            if self._reviewing_scripts:
+                return
+            self._reviewing_scripts = True
+            self.log(f"📜 Fetching {needs_review.manager.name} build scripts to review...")
+            worker = BuildScriptWorker(needs_review.manager, list(needs_review.packages))
+            worker.result_signal.connect(
+                lambda scripts, m=needs_review.manager.name, pl=plan, rv=reviewed:
+                self._upgrade_after_review(m, pl, rv, scripts))
+            worker.finished.connect(self._on_worker_finished)
+            self.active_workers.append(worker)
+            worker.start()
             return
         if not self._confirm_commands("Confirm Upgrade", commands):
             self.upgrade_queue.clear()
@@ -4013,7 +4089,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Removed", f"{package} was removed.")
 
     @Slot(dict)
-    def install_package(self, item: dict):
+    def install_package(self, item: dict, reviewed: bool = False):
         pkg_id = item["id"]
         source = item["source"]
         install_key = f"{source}:{pkg_id}"
@@ -4037,14 +4113,27 @@ class MainWindow(QMainWindow):
                                  f"{describe_error(e)}")
             return
 
-        confirm = QMessageBox.question(
-            self, "Install Confirmation",
-            f"Are you sure you want to install {item['name']} via {source}?\n\n"
-            f"PolyGet will run:\n{shlex.join(cmd)}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if confirm != QMessageBox.StandardButton.Yes:
+        if has_build_scripts(driver) and not reviewed:
+            # Show the build script first; the review dialog is the confirmation.
+            self.installing_packages.add(install_key)  # a second click waits for this review
+            self.log(f"📜 Fetching the {source} build script for {pkg_id}...")
+            worker = BuildScriptWorker(driver, [pkg_id])
+            worker.result_signal.connect(
+                lambda scripts: self._install_after_review(item, driver, cmd, scripts))
+            worker.finished.connect(self._on_worker_finished)
+            self.active_workers.append(worker)
+            worker.start()
             return
+
+        if not reviewed:
+            confirm = QMessageBox.question(
+                self, "Install Confirmation",
+                f"Are you sure you want to install {item['name']} via {source}?\n\n"
+                f"PolyGet will run:\n{shlex.join(cmd)}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
 
         self.installing_packages.add(install_key)
         self._show_terminal(f"📦 Installing {item['name']} via {source}")
@@ -4060,6 +4149,14 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
+
+    def _install_after_review(self, item: dict, driver: PackageManager, cmd: list[str],
+                              scripts: dict) -> None:
+        self.installing_packages.discard(f"{item['source']}:{item['id']}")
+        dialog = BuildScriptDialog(driver.name, scripts, "Install", parent=self)
+        dialog.setToolTip(shlex.join(cmd))
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.install_package(item, reviewed=True)
 
     def handle_install_finished(self, success: bool, app_name: str, install_key: str | None = None):
         if install_key is not None:

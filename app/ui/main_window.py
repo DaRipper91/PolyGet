@@ -561,6 +561,25 @@ class RemovePreviewWorker(QThread):
             loop.close()
 
 
+class AsyncCallWorker(QThread):
+    """Run one driver coroutine off the UI thread: result_signal(value, error message or "")."""
+    result_signal = Signal(object, str)
+
+    def __init__(self, make_coro, parent: Any = None):
+        super().__init__(parent)
+        self.make_coro = make_coro
+
+    def run(self):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            self.result_signal.emit(loop.run_until_complete(self.make_coro()), "")
+        except Exception as e:
+            self.result_signal.emit(None, describe_error(e))
+        finally:
+            loop.close()
+
+
 class FetchManagerVersionsWorker(QThread):
     """Worker thread to fetch each package manager's own version string."""
     result_signal = Signal(dict)  # manager_name -> version string
@@ -1089,6 +1108,8 @@ class MainWindow(QMainWindow):
         self._upgrade_total = 0
         self._password_for: str | None = None
         self._report_box: QMessageBox | None = None
+        self._post_hooks: list[dict[str, Any]] = []   # post-upgrade hooks still to run
+        self._hook_failures: list[str] = []           # post-hooks that failed this run
         self.notifier = Notifier(lambda: self.tray, self)
         self.notifier.action_invoked.connect(self.on_notification_action)
         self.really_quit = False
@@ -2985,6 +3006,62 @@ class MainWindow(QMainWindow):
         row_layout.addStretch()
         layout.addWidget(row)
 
+        from app.core import hooks as hook_store
+        heading("Hooks", "Your own commands to run before or after upgrades and removals, e.g. a "
+                "snapshot before a system upgrade. A failed pre-hook stops the run. Commands run "
+                "directly, not through a shell (no pipes or ~ expansion). Shared with the CLI.")
+        entries([(f"{h['when']}-{'/'.join(h.get('on', hook_store.OPERATIONS))}"
+                  + (f" [{', '.join(h['managers'])}]" if h.get("managers") else "")
+                  + f":  {shlex.join(h['command'])}", i)
+                 for i, h in enumerate(hook_store.load_hooks())],
+                "No hooks.", hook_store.remove_hook)
+        hook_row = QWidget()
+        hook_layout = QHBoxLayout(hook_row)
+        hook_layout.setContentsMargins(0, 0, 0, 0)
+        hook_when = QComboBox()
+        hook_when.setAccessibleName("Hook runs")
+        for label, value in (("Before", "pre"), ("After", "post")):
+            hook_when.addItem(label, value)
+        hook_on = QComboBox()
+        hook_on.setAccessibleName("Hook operation")
+        for label, value in (("upgrades and removals", None), ("upgrades", ["upgrade"]), ("removals", ["remove"])):
+            hook_on.addItem(label, value)
+        hook_cmd = QLineEdit()
+        hook_cmd.setPlaceholderText("Command, e.g. pkexec snapper create -d polyget")
+        hook_cmd.setAccessibleName("Hook command")
+        hook_mgrs = QLineEdit()
+        hook_mgrs.setPlaceholderText("Only for managers (optional, e.g. DNF, Pacman)")
+        hook_mgrs.setAccessibleName("Hook managers")
+        hook_add = QPushButton("Add hook")
+
+        def add_hook() -> None:
+            try:
+                command = shlex.split(hook_cmd.text())  # split into argv once; never run via a shell
+            except ValueError as e:
+                QMessageBox.warning(self, "Hook Not Added", f"Couldn't read that command: {e}")
+                return
+            if not command:
+                return
+            managers = [m.strip() for m in hook_mgrs.text().split(",") if m.strip()]
+            try:
+                hook_store.add_hook(hook_when.currentData(), command, managers, hook_on.currentData())
+            except ValueError as e:
+                QMessageBox.warning(self, "Hook Not Added", str(e))
+                return
+            self.populate_settings_page()
+
+        hook_add.clicked.connect(add_hook)
+        for w in (hook_when, hook_on):
+            hook_layout.addWidget(w)
+        hook_layout.addWidget(hook_cmd, 1)
+        layout.addWidget(hook_row)
+        mgr_row = QWidget()
+        mgr_layout = QHBoxLayout(mgr_row)
+        mgr_layout.setContentsMargins(0, 0, 0, 0)
+        mgr_layout.addWidget(hook_mgrs, 1)
+        mgr_layout.addWidget(hook_add)
+        layout.addWidget(mgr_row)
+
         heading("Package managers", "Unchecked managers aren't scanned, synced, or upgraded "
                 "(the CLI still uses them when you name them with -m).")
         disabled = set(settings.disabled_managers())
@@ -3025,20 +3102,25 @@ class MainWindow(QMainWindow):
         import time
         records = load_history()
         if not records:
-            item = QListWidgetItem("No upgrade history recorded yet.")
+            item = QListWidgetItem("No upgrade or removal history recorded yet.")
             self.history_list.addItem(item)
             return
-        for rec in records:
+        for rec in records:  # load_history() returns newest first
             ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(rec.get("timestamp", 0)))
+            removal = rec.get("action", "upgrade") == "remove"  # entries before removals existed are upgrades
+            action = "Removed" if removal else "Upgraded"
             if not rec.get("verified", True):
                 status = "❔ UNVERIFIED (pre-verification era)"
             else:
                 status = "✅ SUCCESS" if rec.get("success") else "❌ FAILED"
                 if rec.get("not_upgraded"):
                     status = "⚠ NOT UPGRADED (" + ", ".join(rec["not_upgraded"]) + ")"
+                if rec.get("not_removed"):
+                    status = "⚠ STILL INSTALLED (" + ", ".join(rec["not_removed"]) + ")"
             mgr = rec.get("manager", "Unknown")
             pkgs = ", ".join(rec.get("packages", []))
-            item = QListWidgetItem(f"[{ts}] {status} - {mgr}: {pkgs}")
+            item = QListWidgetItem(f"[{ts}] {action:<8} {status} - {mgr}: {pkgs}")
+            item.setData(Qt.ItemDataRole.UserRole, rec.get("action", "upgrade"))
             self.history_list.addItem(item)
 
     def populate_repos_managers(self):
@@ -3828,6 +3910,10 @@ class MainWindow(QMainWindow):
             self.active_workers.append(worker)
             worker.start()
             return
+        from app.core.hooks import hooks_for
+        names = sorted({t.manager.name for t in self.upgrade_queue})
+        pre_hooks, post_hooks = hooks_for("pre", "upgrade", names), hooks_for("post", "upgrade", names)
+        commands = [h["command"] for h in pre_hooks] + commands + [h["command"] for h in post_hooks]
         if not self._confirm_commands("Confirm Upgrade", commands):
             self.upgrade_queue.clear()
             return
@@ -3858,7 +3944,10 @@ class MainWindow(QMainWindow):
         self.progress.setRange(0, 0)
 
         self.nav_list.setCurrentRow(PAGE_CONSOLE)
-        self.run_next_upgrade_queue()
+        self._post_hooks, self._hook_failures = post_hooks, []
+        # A failed pre-hook (e.g. the snapshot didn't happen) means nothing else runs.
+        self._run_hooks(pre_hooks, lambda failed: self._abort_upgrade_for_hook(failed[0]) if failed
+                        else self.run_next_upgrade_queue())
 
     def _record_unbuildable(self, name: str, packages: list[str], error: Exception) -> None:
         """A manager whose upgrade command cannot be built still failed: log it and record it as a failed
@@ -3912,10 +4001,58 @@ class MainWindow(QMainWindow):
         if self._running_workers <= 0:
             self._finish_upgrade_queue()
 
+    def _run_hooks(self, hooks: list[dict[str, Any]], on_done, stop_on_failure: bool = True) -> None:
+        """Run hook commands one after another (argv lists, no shell); on_done(failed commands).
+
+        Pre-hooks stop at the first failure; post-hooks all run and report every failure.
+        """
+        queue = [list(h["command"]) for h in hooks]
+        failed: list[str] = []
+
+        def run_next(_ok: bool | None = None, last: list[str] | None = None) -> None:
+            if last is not None and not _ok:
+                failed.append(shlex.join(last))
+                self.log(f"❌ Hook failed: {shlex.join(last)}")
+                if stop_on_failure:
+                    queue.clear()
+            if not queue:
+                on_done(failed)
+                return
+            cmd = queue.pop(0)
+            self.log(f"🪝 Running hook: {shlex.join(cmd)}")
+            worker = ExecutionWorker(cmd)
+            worker.log_signal.connect(self.log)
+            worker.finished_signal.connect(lambda ok, c=cmd: run_next(ok, c))
+            worker.finished.connect(self._on_worker_finished)
+            self.active_workers.append(worker)
+            worker.start()
+
+        run_next()
+
+    def _abort_upgrade_for_hook(self, command: str) -> None:
+        self.log(f"⛔ Pre-upgrade hook failed; nothing was upgraded: {command}")
+        self.progress.setVisible(False)
+        self.terminal_overlay.hide()
+        self.btn_scan.setEnabled(True)
+        self.btn_refresh_repos.setEnabled(True)
+        self.active_operation = None
+        self._post_hooks = []
+        self.refresh_update_controls()
+        self.refresh_tray_icon()
+        self._notify_upgrade_report(0, [], [f"Pre-upgrade hook failed: {command}"], False)
+        QMessageBox.warning(self, "Upgrade Not Started",
+                            f"The pre-upgrade hook failed, so nothing was upgraded:\n\n{command}\n\n"
+                            "Check the Process Console for its output.")
+
     def _finish_upgrade_queue(self):
-        """All upgrade workers have completed — rescan and verify."""
+        """All upgrade workers have completed — run post-hooks, then rescan and verify."""
         if self.active_operation is None:
             return  # already finished
+        if self._post_hooks:
+            hooks, self._post_hooks = self._post_hooks, []
+            self._run_hooks(hooks, lambda failed: (self._hook_failures.extend(failed),
+                                                   self._finish_upgrade_queue()), stop_on_failure=False)
+            return
         self.progress.setVisible(False)
         self.terminal_overlay.hide()
         self.btn_refresh_repos.setEnabled(True)
@@ -3980,12 +4117,16 @@ class MainWindow(QMainWindow):
             ) + "\nThe ⋯ button on those rows shows why (e.g. a dnf vendor change) and can skip them.")
         if unverified:
             lines.append("❔ Couldn't re-check (scan failed): " + ", ".join(unverified))
-        problems = ([f"Failed: {', '.join(failed)}"] if failed else []) + (
+        hook_failures, self._hook_failures = list(self._hook_failures), []
+        if hook_failures:
+            lines.append("🪝 Post-upgrade hook failed: " + "; ".join(hook_failures))
+        problems = [f"Post-upgrade hook failed: {c}" for c in hook_failures] + (
+            [f"Failed: {', '.join(failed)}"] if failed else []) + (
             [f"No command: {', '.join(unbuildable)}"] if unbuildable else []) + (
             [f"Still outdated: {', '.join(not_upgraded)}"] if not_upgraded else [])
         self._notify_upgrade_report(sum(len(results[n][0]) for n in ok), ok, problems,
                                     bool(failed or not_upgraded))
-        if not failed and not unbuildable and not not_upgraded:
+        if not failed and not unbuildable and not not_upgraded and not hook_failures:
             QMessageBox.information(self, "Upgrade Complete", "\n\n".join(lines))
             return
 
@@ -4215,7 +4356,11 @@ class MainWindow(QMainWindow):
                 lines += [""]
             else:
                 lines += ["Nothing else is removed with it.", ""]
-        lines += ["PolyGet will run:", shlex.join(cmd)]
+        from app.core.hooks import hooks_for
+        pre_hooks = hooks_for("pre", "remove", [driver.name])
+        post_hooks = hooks_for("post", "remove", [driver.name])
+        lines += ["PolyGet will run:"] + [shlex.join(h["command"]) for h in pre_hooks] + [shlex.join(cmd)] + [
+            shlex.join(h["command"]) for h in post_hooks]
         confirm = QMessageBox.question(self, "Confirm Removal", "\n".join(lines),
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                        QMessageBox.StandardButton.No)
@@ -4224,21 +4369,63 @@ class MainWindow(QMainWindow):
             return
 
         self._show_terminal(f"🗑 Removing {package} via {driver.name}")
-        self.log(f"🗑 Removing {package} via {driver.name}...")
-        worker = ExecutionWorker(cmd)
-        worker.log_signal.connect(self.log)
-        worker.finished_signal.connect(
-            lambda success: self.handle_remove_finished(success, driver.name, package))
+
+        def remove() -> None:
+            self.log(f"🗑 Removing {package} via {driver.name}...")
+            worker = ExecutionWorker(cmd)
+            worker.log_signal.connect(self.log)
+            worker.finished_signal.connect(lambda success: self._verify_removal(driver, package, success, post_hooks))
+            worker.finished.connect(self._on_worker_finished)
+            self.active_workers.append(worker)
+            worker.start()
+
+        def after_pre(failed: list[str]) -> None:
+            if not failed:
+                remove()
+                return
+            self.removing_packages.discard(key)
+            self.terminal_overlay.hide()
+            QMessageBox.warning(self, "Removal Not Started",
+                                f"The pre-removal hook failed, so {package} was not removed:\n\n{failed[0]}")
+
+        self._run_hooks(pre_hooks, after_pre)
+
+    def _verify_removal(self, driver: PackageManager, package: str, success: bool,
+                        post_hooks: list[dict[str, Any]]) -> None:
+        """Re-check that the package is really gone (tools can exit 0 and keep it), log the
+        result to history, run post-hooks, then report."""
+        def finish(still: list[str] | None, error: str) -> None:
+            not_removed = list(still or []) if success else None
+            if error:
+                self.log(f"⚠ Couldn't re-check {driver.name} after removing {package}: {error}")
+            from app.core.history_store import record_removal
+            record_removal(driver.name, [package], success, not_removed=not_removed or None)
+            self._run_hooks(post_hooks, lambda failed: self.handle_remove_finished(
+                success, driver.name, package, not_removed=not_removed, hook_failures=failed,
+                verified=not error), stop_on_failure=False)
+
+        if not success:
+            finish(None, "")
+            return
+        worker = AsyncCallWorker(lambda: driver.still_installed([package]))
+        worker.result_signal.connect(finish)
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 
-    def handle_remove_finished(self, success: bool, manager_name: str, package: str) -> None:
+    def handle_remove_finished(self, success: bool, manager_name: str, package: str,
+                               not_removed: list[str] | None = None, hook_failures: list[str] = (),
+                               verified: bool = True) -> None:
         self.removing_packages.discard(f"{manager_name}:{package}")
         self.terminal_overlay.hide()
         if not success:
             QMessageBox.critical(self, "Removal Failed",
                                  f"Failed to remove {package}. Refer to the console logs.")
+            return
+        if not_removed:
+            QMessageBox.warning(self, "Not Removed",
+                                f"{manager_name} finished without an error, but {package} is still "
+                                "installed. Check the Process Console for what it did.")
             return
         # It can't be outdated any more; drop it without waiting for a rescan.
         if manager_name in self.updates_cache:
@@ -4249,7 +4436,13 @@ class MainWindow(QMainWindow):
             self.rebuild_updates_list()
         if self.chk_store_installed.isChecked():
             self.show_installed_in_store()
-        QMessageBox.information(self, "Removed", f"{package} was removed.")
+        if hook_failures:
+            QMessageBox.warning(self, "Removed, but a Hook Failed",
+                                f"{package} was removed, but the post-removal hook failed:\n\n"
+                                + "\n".join(hook_failures))
+        else:
+            QMessageBox.information(self, "Removed", f"{package} was removed." + (
+                "" if verified else f" (PolyGet couldn't re-check {manager_name} to confirm.)"))
 
     @Slot(dict)
     def install_package(self, item: dict, reviewed: bool = False):

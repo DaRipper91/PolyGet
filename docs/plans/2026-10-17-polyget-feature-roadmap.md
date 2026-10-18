@@ -18,22 +18,32 @@ tested in the Ubuntu cloud environment with fake managers.
 - `polyget remove -m MANAGER PKG... [--yes]`, plan-only by default like install/upgrade.
 - **Still to verify on hardware:** the DNF transaction parser is written against dnf4 and dnf5
   output samples, not a live Asahi run; `pacman -Rs --print` on CachyOS.
-- **Still to do:** GUI entry point (see "UI hooks" below); log removals in the history store
-  (needs an `action` field so History/TUI don't render them as upgrades).
+- **Done 2026-10-18:** removals are logged in history with `"action": "remove"` and verified
+  against `list_installed()` (a package still installed after exit 0 fails the step). The GUI
+  History page should show the action (UI session).
 
-### 2. Janitor — orphans and caches (either; Pacman/DNF parts on hardware)
+### 2. Janitor — orphans and caches — **done 2026-10-18 (core + CLI)**
+`polyget clean [-m MGR] [--only ID] [--yes]`, `PackageManager.get_cleanup_targets()`. Shipped:
+Pacman orphans + paccache, DNF/APT autoremove + cache, Flatpak unused runtimes + leftover
+`~/.var/app` data, npm/uv/Go caches. Cargo and pip caches not yet. Verify the Pacman and DNF
+parts on hardware. Original plan:
 One page listing reclaimable space and a clean button per source: `pacman -Qdtq`,
 `dnf autoremove`, `flatpak uninstall --unused`, `paccache -rk2`, `dnf clean packages`,
 `cargo cache`, `npm cache`, pip/pipx caches. Each driver gets an optional
 `get_cleanup_targets()` returning `{label, bytes, command}`; distro-specific commands go through
 `app/core/distro.py`.
 
-### 3. Restart-needed detection (both machines)
+### 3. Restart-needed detection — **done 2026-10-18 (core + CLI)**
+`polyget needs-restart`; `upgrade --yes` prints a reboot notice. Fedora: `dnf needs-restarting
+-r`; Arch family: running kernel's modules replaced; Debian: `/run/reboot-required`. Verify on
+both machines. Original plan:
 After an upgrade, report whether a reboot or service restart is needed:
 `dnf needs-restarting -r` on Fedora; on Arch compare `uname -r` with the installed kernel
 package (and `/usr/lib/modules`). Banner in the GUI, field in `polyget upgrade --json`.
 
-### 4. Pre-upgrade snapshots (CachyOS first)
+### 4. Pre-upgrade snapshots (CachyOS first) — **hooks done 2026-10-18**
+Generic pre/post hooks (`polyget hooks add pre -m pacman -- pkexec snapper create -d polyget`); a
+failed pre-hook stops the upgrade. A built-in snapper/timeshift detector is still open. Original plan:
 If snapper or timeshift is present, take a pre-upgrade snapshot before system-manager upgrades
 and removals. CachyOS defaults to btrfs + snapper. Gives the Operation Journal & Rollback idea in
 `2026-07-20-polyget-expansion.md` a real restore point.
@@ -88,7 +98,6 @@ Pamac, Bauh, Octopi, Warehouse, GNOME Software/Discover, Homebrew Bundle and mis
   entries so they show in the Manager Store when not installed.
 
 **Next candidates:**
-- Pre/post upgrade hooks (Topgrade, pacman hooks) — also the plug-in point for snapshots and pacnew.
 - Unattended updates for user-level managers only (UniGetUI, dnf-automatic).
 - Package details panel: homepage, license, size, files, deps, Flatpak permissions (Pamac, Octopi, Flatseal).
 - Install a specific version / downgrade / pin (UniGetUI, Bauh, `downgrade`).

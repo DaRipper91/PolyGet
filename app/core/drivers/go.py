@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+from app.core.janitor import dir_size, target
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 # `go version -m` prints build info as tab-separated lines: "\tpath\t<pkg>" and "\tmod\t<module>\t<version>\t<sum>".
@@ -106,6 +107,14 @@ class GoManager(PackageManager):
         if not targets:
             raise DriverError(f"{self.name} has no installed binaries to upgrade")
         return ["go", "install"] + [f"{pkg}@latest" for pkg in targets]
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        modcache = (await run_capture(["go", "env", "GOMODCACHE"], label=f"{self.name} cache query")).strip()
+        size = await dir_size(Path(modcache)) if modcache else 0
+        if not size:
+            return []
+        return [target(self.name, "cache", "Module cache", ["go", "clean", "-modcache"], size,
+                       detail="downloaded module sources; builds fetch them again")]
 
     def get_install_command(self, package: str) -> list[str]:
         return ["go", "install", package if "@" in package else f"{package}@latest"]

@@ -96,6 +96,11 @@ class PackageManager:
         wanted = set(packages)
         return sorted({u.get("name") for u in await self.check_updates()} & wanted)
 
+    async def still_installed(self, packages: list[str]) -> list[str]:
+        """Which of `packages` this manager still lists as installed (raises DriverError if the check
+        fails). Used after a removal, for the same reason as `still_outdated`."""
+        return sorted(set(packages) & set(await self.list_installed()))
+
     def is_available(self) -> bool:
         """Check if the package manager's binary is available in the system PATH.
 
@@ -234,6 +239,21 @@ class PackageManager:
             DriverError: The package doesn't exist or the script couldn't be fetched.
         """
         raise NotImplementedError(f"{self.name} packages have no build script to review")
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        """Reclaimable space this manager can free: orphans, caches, leftover data.
+
+        Returns:
+            list[dict]: Targets built with `app.core.janitor.target()`, each carrying the command
+                that cleans it and `bytes` (None when the size can't be known before running).
+                Only targets with something to clean are returned.
+
+        Raises:
+            NotImplementedError: This manager has nothing PolyGet knows how to clean.
+            DriverError: A query failed. Never guess: a target built from a failed query
+                (e.g. "leftover data" when the installed list didn't load) could delete real data.
+        """
+        raise NotImplementedError(f"{self.name} has no cleanup targets")
 
     # True for tools whose remove command takes exactly one package (e.g. `pipx uninstall`);
     # callers then build one command per package instead of passing a list.

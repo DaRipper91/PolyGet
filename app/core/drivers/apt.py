@@ -3,7 +3,9 @@
 import asyncio
 import glob
 import shutil
+from pathlib import Path
 from typing import Any
+from app.core.janitor import dir_size, target
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
@@ -188,6 +190,20 @@ class AptManager(PackageManager):
             ["apt-get", "-s", "remove"] + packages, label=f"{self.name} removal preview", timeout=30.0,
         )
         return self._parse_simulated_removal(out)
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = []
+        out = await run_capture(["apt-get", "-s", "autoremove"], label=f"{self.name} autoremove query", timeout=30.0)
+        unused = self._parse_simulated_removal(out)
+        if unused:
+            targets.append(target(
+                self.name, "orphans", "Unused dependencies", ["pkexec", "apt-get", "autoremove", "-y"],
+                items=unused, detail="installed as dependencies, no longer required by anything",
+            ))
+        cached = await dir_size(Path("/var/cache/apt/archives"))
+        if cached:
+            targets.append(target(self.name, "cache", "Downloaded packages", ["pkexec", "apt-get", "clean"], cached))
+        return targets
 
     supports_repos: bool = True
 

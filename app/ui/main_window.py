@@ -24,7 +24,8 @@ from app.core.blueprint import BlueprintManager
 from app.core.version_scan import cross_manager_newest
 from app.core.sudo_secret import load as load_sudo_password
 from app.core.debug_log import debug_log
-from app.ui.updates_view import ManagerGroupHeader, SelectionBar
+from app.ui.updates_view import ManagerGroupHeader, SelectionBar, bump_kind
+from app.ui.notifier import CRITICAL, LOW, Notifier
 from app.ui.review_dialog import BuildScriptDialog, BuildScriptWorker, has_build_scripts
 from app.ui import theme_qt, themes
 from app.ui.icons import app_icon, tray_icon
@@ -637,22 +638,9 @@ class UpdateItemWidget(QWidget):
         version_info = f"{cur_ver}  ➔  {new_ver}"
         lbl_version = QLabel(version_info)
         
-        # Calculate Semver color (Major = Red/Pink #f38ba8, Minor = Yellow #f9e2af, Patch = Green #a6e3a1)
-        semver_color = "#9ca3af"
-        try:
-            c_clean = cur_ver.lstrip("v").split("(")[0].strip()
-            n_clean = new_ver.lstrip("v").split("(")[0].strip()
-            c_parts = [int(p) for p in c_clean.split(".") if p.isdigit()]
-            n_parts = [int(p) for p in n_clean.split(".") if p.isdigit()]
-            if c_parts and n_parts:
-                if n_parts[0] > c_parts[0]:
-                    semver_color = "#f38ba8"  # Major bump
-                elif len(n_parts) > 1 and len(c_parts) > 1 and n_parts[1] > c_parts[1]:
-                    semver_color = "#f9e2af"  # Minor bump
-                else:
-                    semver_color = "#a6e3a1"  # Patch / build bump
-        except Exception:
-            pass
+        # Semver colour: major = red, minor = yellow, patch/build = green, unknown = grey.
+        semver_color = {"major": "#f38ba8", "minor": "#f9e2af", "patch": "#a6e3a1"}.get(
+            bump_kind(cur_ver, new_ver), "#9ca3af")
 
         lbl_version.setStyleSheet(f"color: {semver_color}; font-size: 12px;")
         details_layout.addWidget(lbl_version)
@@ -1094,6 +1082,15 @@ class MainWindow(QMainWindow):
         self.bg_timer.timeout.connect(self.background_scan)
         self.notify_after_scan = False
         self.notified_updates: set[tuple[str, str, str]] = set()
+        self.notified_failures: set[str] = set()
+        self._held_updates: set[tuple[str, str, str]] = set()   # quiet hours / digest
+        self._held_failures: set[str] = set()
+        self._digest_sent_on = None
+        self._upgrade_total = 0
+        self._password_for: str | None = None
+        self._report_box: QMessageBox | None = None
+        self.notifier = Notifier(lambda: self.tray, self)
+        self.notifier.action_invoked.connect(self.on_notification_action)
         self.really_quit = False
 
         # Theme before any widget exists, so each is styled in the right colours from the start.
@@ -1110,6 +1107,7 @@ class MainWindow(QMainWindow):
         # Keeps the status card's "Checked N min ago" current between scans.
         self.sidebar_clock = QTimer(self)
         self.sidebar_clock.timeout.connect(self.refresh_sidebar_status)
+        self.sidebar_clock.timeout.connect(self._notification_tick)
         self.sidebar_clock.start(60_000)
         self.setup_tray()
         self._setup_keyboard_shortcuts()
@@ -2930,11 +2928,62 @@ class MainWindow(QMainWindow):
         interval_layout.addWidget(spin)
         interval_layout.addStretch()
         layout.addWidget(interval_row)
-        toggle("Notify me when new updates are found", "tray.notify", True)
         autostart = QCheckBox("Start PolyGet in the tray when I log in")
         autostart.setChecked(_AUTOSTART_PATH.exists())
         autostart.stateChanged.connect(lambda state: set_autostart(state == Qt.CheckState.Checked.value))
         layout.addWidget(autostart)
+
+        service = self.notifier.service_available()
+        heading("Notifications",
+                "Shown through your desktop's notifications, with buttons to act on them."
+                if service else
+                "No desktop notification service (or gdbus) found: falling back to the tray "
+                "icon's plain messages, without buttons.")
+
+        mode_combo = QComboBox()
+        mode_combo.setAccessibleName("New updates")
+        for label, value in (("Every scan", "every"), ("Daily digest", "digest"), ("Off", "off")):
+            mode_combo.addItem(label, value)
+        mode_combo.setCurrentIndex(max(mode_combo.findData(self._new_updates_mode()), 0))
+        digest_spin = QSpinBox()
+        digest_spin.setRange(0, 23)
+        digest_spin.setSuffix(":00")
+        digest_spin.setPrefix("at ")
+        digest_spin.setValue(int(settings.get("notify.digest_hour", 8)))
+        digest_spin.setVisible(mode_combo.currentData() == "digest")
+        mode_combo.currentIndexChanged.connect(
+            lambda _i: (settings.set("notify.new_updates", mode_combo.currentData()),
+                        digest_spin.setVisible(mode_combo.currentData() == "digest")))
+        digest_spin.valueChanged.connect(lambda v: settings.set("notify.digest_hour", v))
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(QLabel("New updates"))
+        row_layout.addWidget(mode_combo)
+        row_layout.addWidget(digest_spin)
+        row_layout.addStretch()
+        layout.addWidget(row)
+        toggle("Only major updates (patch and minor bumps wait for the next digest or scan)",
+               "notify.only_major", False)
+        toggle("When an upgrade finishes (only if PolyGet isn't the window in front)", "notify.finished", True)
+        toggle("When an upgrade may be waiting for your password", "notify.password", True)
+        toggle("When a scan or upgrade fails (stays until dismissed)", "notify.failures", True)
+        quiet_start, quiet_end = QSpinBox(), QSpinBox()
+        for spin, key, default in ((quiet_start, "notify.quiet_start", 22), (quiet_end, "notify.quiet_end", 8)):
+            spin.setRange(0, 23)
+            spin.setSuffix(":00")
+            spin.setValue(int(settings.get(key, default)))
+            spin.valueChanged.connect(lambda v, k=key: settings.set(k, v))
+        quiet = QCheckBox("Quiet hours: hold background notifications from")
+        quiet.setChecked(bool(settings.get("notify.quiet_hours", False)))
+        quiet.stateChanged.connect(lambda st: settings.set("notify.quiet_hours", st == Qt.CheckState.Checked.value))
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        for w in (quiet, quiet_start, QLabel("to"), quiet_end):
+            row_layout.addWidget(w)
+        row_layout.addStretch()
+        layout.addWidget(row)
 
         heading("Package managers", "Unchecked managers aren't scanned, synced, or upgraded "
                 "(the CLI still uses them when you name them with -m).")
@@ -3796,7 +3845,10 @@ class MainWindow(QMainWindow):
                 self._parallel_queue.append(UpgradeTask(mgr, pkgs))
 
         self.active_operation = "batch upgrade"
+        self._upgrade_total = len(self.upgrade_queue) + len(self.upgrade_unbuildable)
+        self._password_for = None
         self.refresh_tray_icon()
+        self._notify_upgrade_progress()
         self._show_terminal("⚡ Upgrade in progress")
         self.btn_update_selected.setEnabled(False)
         self.selection_bar.hide()
@@ -3827,6 +3879,8 @@ class MainWindow(QMainWindow):
                 self._finish_upgrade_queue()
             return
 
+        if cmd and (cmd[0] in ("pkexec", "sudo") or getattr(manager, "asks_for_password", False) is True):
+            self._notify_password_wait(manager.name, len(packages))
         worker = ExecutionWorker(cmd)
         worker.log_signal.connect(self.log)
         worker.finished_signal.connect(
@@ -3843,6 +3897,10 @@ class MainWindow(QMainWindow):
         else:
             self.log(f"❌ Failed to upgrade {manager_name}")
             self.upgrade_failures.append(manager_name)
+        if self._password_for == manager_name:
+            self._password_for = None
+            self.notifier.close("password")
+        self._notify_upgrade_progress()
         self._running_workers -= 1
         # Start next elevated manager if any remain
         if self._elevated_queue:
@@ -3922,6 +3980,11 @@ class MainWindow(QMainWindow):
             ) + "\nThe ⋯ button on those rows shows why (e.g. a dnf vendor change) and can skip them.")
         if unverified:
             lines.append("❔ Couldn't re-check (scan failed): " + ", ".join(unverified))
+        problems = ([f"Failed: {', '.join(failed)}"] if failed else []) + (
+            [f"No command: {', '.join(unbuildable)}"] if unbuildable else []) + (
+            [f"Still outdated: {', '.join(not_upgraded)}"] if not_upgraded else [])
+        self._notify_upgrade_report(sum(len(results[n][0]) for n in ok), ok, problems,
+                                    bool(failed or not_upgraded))
         if not failed and not unbuildable and not not_upgraded:
             QMessageBox.information(self, "Upgrade Complete", "\n\n".join(lines))
             return
@@ -3936,7 +3999,12 @@ class MainWindow(QMainWindow):
             "\n\n".join(lines) + "\n\nCheck the Process Console for details.",
             buttons, self,
         )
-        if box.exec() == QMessageBox.StandardButton.Retry and retry:
+        self._report_box = box  # a notification's Retry button answers this dialog
+        try:
+            answer = box.exec()
+        finally:
+            self._report_box = None
+        if answer == QMessageBox.StandardButton.Retry and retry:
             self.start_batch_upgrade(retry=retry)
 
     # --- Store Browsing / Searching Functionality ---
@@ -4764,24 +4832,175 @@ class MainWindow(QMainWindow):
         self.scan_all()
 
     def update_tray_status(self) -> None:
-        """Refresh the tray tooltip, and notify about updates not announced before."""
-        if self.tray is None:
-            return
+        """Refresh the tray tooltip, and announce updates and failed scans not announced before."""
         current = {
             (mgr, u.get("name", ""), u.get("new", ""))
             for mgr, updates in self.updates_cache.items() for u in updates
         }
-        self.tray.setToolTip(f"PolyGet — {len(current)} update(s)" if current else "PolyGet — up to date")
-        from app.core.settings_store import get_settings
-        fresh = current - self.notified_updates
+        if self.tray is not None:
+            self.tray.setToolTip(f"PolyGet — {len(current)} update(s)" if current else "PolyGet — up to date")
+        # Only when the user isn't already looking: a background scan, or a hidden window.
         should_notify = self.notify_after_scan or not self.isVisible()
-        if fresh and should_notify and get_settings().get("tray.notify", True):
-            names = ", ".join(sorted(name for _, name, _ in fresh)[:5])
-            more = f" and {len(fresh) - 5} more" if len(fresh) > 5 else ""
-            self.tray.showMessage(f"{len(fresh)} new update(s)", names + more,
-                                  QSystemTrayIcon.MessageIcon.Information)
+        fresh = current - self.notified_updates
+        if fresh and should_notify:
+            self._announce_updates(fresh)
+        self._announce_scan_failures(should_notify)
         self.notified_updates |= current
         self.notify_after_scan = False
+
+    # --- Notifications ---------------------------------------------------------------------
+
+    def _new_updates_mode(self) -> str:
+        """"every" | "digest" | "off"; older settings only had the tray.notify switch."""
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        mode = settings.get("notify.new_updates")
+        if mode is None:
+            mode = "every" if settings.get("tray.notify", True) else "off"
+        return mode
+
+    def _in_quiet_hours(self, now=None) -> bool:
+        from datetime import datetime
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        if not settings.get("notify.quiet_hours", False):
+            return False
+        hour = (now or datetime.now()).hour
+        start, end = int(settings.get("notify.quiet_start", 22)), int(settings.get("notify.quiet_end", 8))
+        return start <= hour < end if start < end else (hour >= start or hour < end)
+
+    def _user_is_here(self) -> bool:
+        return self.isVisible() and self.isActiveWindow()
+
+    def _major_only(self, items: set[tuple[str, str, str]]) -> set[tuple[str, str, str]]:
+        from app.core.settings_store import get_settings
+        if not get_settings().get("notify.only_major", False):
+            return items
+        current = {(m, u.get("name", "")): u.get("current", "")
+                   for m, ups in self.updates_cache.items() for u in ups}
+        return {i for i in items if bump_kind(current.get((i[0], i[1]), ""), i[2]) == "major"}
+
+    def _announce_updates(self, fresh: set[tuple[str, str, str]]) -> None:
+        mode = self._new_updates_mode()
+        items = self._major_only(fresh)
+        if mode == "off" or not items:
+            return
+        if mode == "digest" or self._in_quiet_hours():
+            self._held_updates |= items
+            return
+        self._send_updates(items, f"{len(items)} update{'s' if len(items) != 1 else ''} ready")
+
+    def _send_updates(self, items: set[tuple[str, str, str]], title: str,
+                      actions: list[tuple[str, str]] | None = None) -> None:
+        from collections import Counter
+        per_manager = Counter(m for m, _, _ in items)
+        body = " · ".join(f"{m} {n}" for m, n in per_manager.most_common())
+        current = {(m, u.get("name", "")): u.get("current", "")
+                   for m, ups in self.updates_cache.items() for u in ups}
+        majors = sorted(f"{name} {new}" for m, name, new in items
+                        if bump_kind(current.get((m, name), ""), new) == "major")
+        if len(majors) == 1:
+            body += f"\n{majors[0]} is a major update"
+        elif majors:
+            body += f"\n{len(majors)} major updates: {', '.join(majors[:3])}" + ("…" if len(majors) > 3 else "")
+        self.notifier.notify("updates", title, body,
+                             actions or [("update-all", "Update all"), ("open", "Open")])
+
+    def _announce_scan_failures(self, should_notify: bool) -> None:
+        from app.core.settings_store import get_settings
+        new = set(self.scan_errors) - self.notified_failures
+        self.notified_failures = set(self.scan_errors)  # a fixed manager can fail again later
+        if not new or not should_notify or not get_settings().get("notify.failures", True):
+            return
+        if self._in_quiet_hours():
+            self._held_failures |= new
+            return
+        self._send_scan_failures(new)
+
+    def _send_scan_failures(self, names: set[str]) -> None:
+        names = sorted(names)
+        title = f"{names[0]} scan failed" if len(names) == 1 else f"{len(names)} scans failed"
+        first_error = (self.scan_errors.get(names[0]) or "").splitlines()
+        body = (first_error[0] if first_error else "") if len(names) == 1 else ", ".join(names)
+        self.notifier.notify("scan-failed", title, body,
+                             [("retry-scan", "Retry"), ("show-log", "Show log")], CRITICAL)
+
+    def _notification_tick(self, now=None) -> None:
+        """Every minute: release what quiet hours held back, and send the daily digest."""
+        from datetime import datetime
+        from app.core.settings_store import get_settings
+        now = now or datetime.now()
+        mode = self._new_updates_mode()
+        if not self._in_quiet_hours(now):
+            if self._held_failures:
+                self._send_scan_failures(self._held_failures & set(self.scan_errors) or self._held_failures)
+                self._held_failures.clear()
+            if self._held_updates and mode == "every":
+                n = len(self._held_updates)
+                self._send_updates(self._held_updates, f"While you were away: {n} update{'s' if n != 1 else ''}")
+                self._held_updates.clear()
+        if (mode == "digest" and now.hour == int(get_settings().get("notify.digest_hour", 8))
+                and self._digest_sent_on != now.date() and not self._in_quiet_hours(now)):
+            items = self._major_only({(m, u.get("name", ""), u.get("new", ""))
+                                      for m, ups in self.updates_cache.items() for u in ups})
+            self._digest_sent_on = now.date()
+            self._held_updates.clear()
+            if items:
+                label = "This morning" if now.hour < 12 else "Today"
+                self._send_updates(items, f"{label}: {len(items)} update{'s' if len(items) != 1 else ''}",
+                                   [("review", "Review"), ("later", "Later")])
+
+    def _notify_upgrade_progress(self) -> None:
+        from app.core.settings_store import get_settings
+        if self._user_is_here() or not get_settings().get("notify.finished", True) or not self._upgrade_total:
+            return
+        done = len(self.upgrade_results)
+        running = [m for m in (self._password_for,) if m]
+        body = f"{done} of {self._upgrade_total} done" + (f" · {running[0]} running" if running else "")
+        self.notifier.notify("upgrade", f"Updating… {done} of {self._upgrade_total} managers", body,
+                             [("show-log", "Show log")], LOW,
+                             progress=round(100 * done / self._upgrade_total))
+
+    def _notify_password_wait(self, manager: str, count: int) -> None:
+        from app.core.settings_store import get_settings
+        self._password_for = manager
+        if self._user_is_here() or not get_settings().get("notify.password", True):
+            return
+        self.notifier.notify("password", f"{manager} may be waiting for your password",
+                             f"{count} update{'s' if count != 1 else ''} won't start until you answer the "
+                             "password prompt.", [("open", "Show PolyGet")])
+
+    def _notify_upgrade_report(self, ok_packages: int, ok: list[str], problems: list[str],
+                               can_retry: bool) -> None:
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        if self._user_is_here():
+            self.notifier.close("upgrade")
+            return
+        if problems and settings.get("notify.failures", True):
+            actions = ([("retry-upgrade", "Retry")] if can_retry else []) + [("details", "Show details")]
+            self.notifier.notify("upgrade", "Upgrade finished with problems", "\n".join(problems),
+                                 actions, CRITICAL)
+        elif settings.get("notify.finished", True):
+            self.notifier.notify("upgrade", f"Updated {ok_packages} package{'s' if ok_packages != 1 else ''}",
+                                 " · ".join(ok), [("details", "Show details")])
+
+    def on_notification_action(self, key: str, action: str) -> None:
+        """A button (or the body) of one of our notifications was clicked."""
+        if action == "later":
+            return
+        self.show_from_tray()
+        if action == "update-all":
+            self.update_all()
+        elif action == "show-log":
+            self.nav_list.setCurrentRow(PAGE_CONSOLE)
+        elif action == "review":
+            self.nav_list.setCurrentRow(PAGE_UPDATES)
+        elif action == "retry-scan":
+            for name in sorted(self.scan_errors):
+                self.rescan_manager(name)
+        elif action == "retry-upgrade" and self._report_box is not None:
+            self._report_box.done(QMessageBox.StandardButton.Retry)
 
     def closeEvent(self, event):
         """Prompt user on exit if active background child processes exist, then terminate them."""

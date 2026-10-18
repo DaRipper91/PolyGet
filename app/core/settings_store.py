@@ -79,6 +79,18 @@ class SettingsStore:
                 "scan_interval_hours": 6,  # 0 = no background scans
                 "notify": True,
             },
+            "notify": {
+                # "every" | "digest" | "off". Unset means: follow the older tray.notify switch.
+                "new_updates": None,
+                "digest_hour": 8,
+                "only_major": False,
+                "finished": True,   # upgrade done/progress, only when the window isn't in front
+                "password": True,   # an upgrade may be waiting on a password prompt
+                "failures": True,
+                "quiet_hours": False,  # hold background notifications between these hours
+                "quiet_start": 22,
+                "quiet_end": 8,
+            },
         }
 
     def _migrate(self, data: dict[str, Any]) -> dict[str, Any]:

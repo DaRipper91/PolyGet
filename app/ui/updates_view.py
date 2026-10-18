@@ -6,6 +6,22 @@ from PySide6.QtWidgets import QCheckBox, QFrame, QHBoxLayout, QLabel, QPushButto
 from app.ui.sidebar import time_ago, manager_tone
 
 
+def bump_kind(current: str, new: str) -> str | None:
+    """"major" | "minor" | "patch" for a version change, or None when it isn't numeric."""
+    try:
+        c_parts = [int(p) for p in current.lstrip("v").split("(")[0].strip().split(".") if p.isdigit()]
+        n_parts = [int(p) for p in new.lstrip("v").split("(")[0].strip().split(".") if p.isdigit()]
+    except (AttributeError, ValueError):
+        return None
+    if not (c_parts and n_parts):
+        return None
+    if n_parts[0] > c_parts[0]:
+        return "major"
+    if len(n_parts) > 1 and len(c_parts) > 1 and n_parts[1] > c_parts[1]:
+        return "minor"
+    return "patch"
+
+
 class ManagerGroupHeader(QWidget):
     """Header row above one manager's updates: state, admin warning, select-all and Retry."""
 

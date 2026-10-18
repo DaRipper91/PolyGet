@@ -1129,6 +1129,7 @@ class MainWindow(QMainWindow):
         self.sidebar_clock = QTimer(self)
         self.sidebar_clock.timeout.connect(self.refresh_sidebar_status)
         self.sidebar_clock.timeout.connect(self._notification_tick)
+        QTimer.singleShot(3000, self.check_restart)  # e.g. a kernel updated outside PolyGet
         self.sidebar_clock.start(60_000)
         self.setup_tray()
         self._setup_keyboard_shortcuts()
@@ -1339,6 +1340,23 @@ class MainWindow(QMainWindow):
         self.btn_update_selected.setMenu(update_menu)
         updates_header.addWidget(self.btn_update_selected)
         updates_layout.addLayout(updates_header)
+
+        # Shown when the system says a reboot is needed (kernel, glibc, systemd... updated).
+        self.restart_banner = QFrame()
+        self.restart_banner.setObjectName("restart-banner")
+        banner_layout = QHBoxLayout(self.restart_banner)
+        banner_layout.setContentsMargins(14, 8, 8, 8)
+        self.restart_label = QLabel("")
+        self.restart_label.setObjectName("restart-label")
+        self.restart_label.setWordWrap(True)
+        banner_layout.addWidget(self.restart_label, 1)
+        btn_dismiss_restart = QPushButton("Dismiss")
+        btn_dismiss_restart.setObjectName("selection-clear")
+        btn_dismiss_restart.clicked.connect(self.dismiss_restart_notice)
+        banner_layout.addWidget(btn_dismiss_restart)
+        self.restart_banner.hide()
+        self._restart_dismissed: tuple | None = None
+        updates_layout.addWidget(self.restart_banner)
 
         self.updates_list = QListWidget()
         self.updates_list.setObjectName("updates-list")
@@ -1953,6 +1971,16 @@ class MainWindow(QMainWindow):
             QPushButton#selection-clear:hover {
                 background-color: #45475a;
                 color: #cdd6f4;
+            }
+            QFrame#restart-banner {
+                background-color: #38331f;
+                border: 1px solid #f9e2af;
+                border-radius: 10px;
+            }
+            QFrame#restart-banner QLabel {
+                background: transparent;
+                color: #f9e2af;
+                font-weight: bold;
             }
             QWidget#group-header {
                 background-color: #11111b;
@@ -2989,6 +3017,7 @@ class MainWindow(QMainWindow):
         toggle("When an upgrade finishes (only if PolyGet isn't the window in front)", "notify.finished", True)
         toggle("When an upgrade may be waiting for your password", "notify.password", True)
         toggle("When a scan or upgrade fails (stays until dismissed)", "notify.failures", True)
+        toggle("When an upgrade needs a restart to finish", "notify.restart", True)
         quiet_start, quiet_end = QSpinBox(), QSpinBox()
         for spin, key, default in ((quiet_start, "notify.quiet_start", 22), (quiet_end, "notify.quiet_end", 8)):
             spin.setRange(0, 23)
@@ -4104,6 +4133,8 @@ class MainWindow(QMainWindow):
             else:
                 ok.append(name)
 
+        if ok:
+            self.check_restart(after_upgrade=True)
         lines = []
         if ok:
             lines.append("✅ Upgraded: " + ", ".join(ok))
@@ -5142,6 +5173,39 @@ class MainWindow(QMainWindow):
                 label = "This morning" if now.hour < 12 else "Today"
                 self._send_updates(items, f"{label}: {len(items)} update{'s' if len(items) != 1 else ''}",
                                    [("review", "Review"), ("later", "Later")])
+
+    def check_restart(self, after_upgrade: bool = False) -> None:
+        """Ask the system whether a reboot is needed; show the banner (and, after an upgrade, a
+        notification) only for a definite yes. "Can't tell" shows nothing."""
+        from app.core.restart import check_restart_needed
+        worker = AsyncCallWorker(check_restart_needed)
+        worker.result_signal.connect(lambda result, error: self._show_restart(result, error, after_upgrade))
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def _show_restart(self, result: dict | None, error: str, after_upgrade: bool) -> None:
+        if error or not result or result.get("needed") is not True:
+            self.restart_banner.hide()
+            return
+        reasons = [r for r in result.get("reasons", []) if r]
+        signature = tuple(reasons)
+        if signature == self._restart_dismissed and not after_upgrade:
+            return
+        self.restart_label.setText("Restart needed to finish updating" + (f": {reasons[0]}" if reasons else "")
+                                   + (f" (+{len(reasons) - 1} more)" if len(reasons) > 1 else ""))
+        self.restart_label.setToolTip("\n".join(reasons + [f"Checked with: {result.get('method', '')}"]))
+        self._restart_signature = signature
+        self.restart_banner.show()
+        from app.core.settings_store import get_settings
+        if after_upgrade and get_settings().get("notify.restart", True):
+            self.notifier.notify("restart", "Restart to finish updating",
+                                 reasons[0] if reasons else "The system reports a reboot is needed.",
+                                 [("later", "Later")])
+
+    def dismiss_restart_notice(self) -> None:
+        self._restart_dismissed = getattr(self, "_restart_signature", None)
+        self.restart_banner.hide()
 
     def _notify_upgrade_progress(self) -> None:
         from app.core.settings_store import get_settings

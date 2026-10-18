@@ -177,6 +177,7 @@ _SOURCE_DERIVED: dict[str, tuple[str, float]] = {
     "#d8b4fe": ("mauve", 0.0), "#581c87": ("mauve", 0.72),
     "#9ca3af": ("subtext0", 0.0), "#374151": ("surface0", 0.0),
     "#2a1c26": ("red", 0.88), "#5c2d3e": ("red", 0.62),
+    "#38331f": ("yellow", 0.82),
     # The TUI's own purple palette (app/ui/tui.tcss).
     "#0d0714": ("crust", 0.0), "#08030c": ("crust", 0.0), "#1a0b2e": ("mantle", 0.0),
     "#0f0717": ("base", 0.0), "#2e1a47": ("surface0", 0.0), "#f1eef6": ("text", 0.0),

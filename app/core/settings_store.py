@@ -87,6 +87,7 @@ class SettingsStore:
                 "finished": True,   # upgrade done/progress, only when the window isn't in front
                 "password": True,   # an upgrade may be waiting on a password prompt
                 "failures": True,
+                "restart": True,  # an upgrade needs a reboot to finish
                 "quiet_hours": False,  # hold background notifications between these hours
                 "quiet_start": 22,
                 "quiet_end": 8,

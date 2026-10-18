@@ -87,6 +87,7 @@ class ScanWorker(QThread):
     log_signal = Signal(str)
     updates_signal = Signal(str, list)  # manager_name, list of updates
     error_signal = Signal(str, str)  # manager_name, error message
+    unsupported_signal = Signal(str, str)  # manager_name, why it can't report outdated packages
     finished_all = Signal()
 
     def __init__(self, managers: list[PackageManager], parent: Any = None):
@@ -107,6 +108,7 @@ class ScanWorker(QThread):
                 debug_log.emit(f"[ScanWorker] {mgr.name}: {len(updates)} update(s)")
             except NotImplementedError as e:
                 self.log_signal.emit(f"ℹ️ {mgr.name} cannot report outdated packages ({describe_error(e)}); skipped.")
+                self.unsupported_signal.emit(mgr.name, describe_error(e))
             except Exception as e:
                 self.log_signal.emit(f"❌ Error scanning {mgr.name}: {str(e)}")
                 self.error_signal.emit(mgr.name, str(e))
@@ -1070,6 +1072,7 @@ class MainWindow(QMainWindow):
         # "failed", plus when each last finished, so a single manager can be retried alone.
         self.manager_scan_state: dict[str, str] = {}
         self.manager_checked_at: dict[str, float] = {}
+        self.unsupported_reasons: dict[str, str] = {}
         self.selected_updates: dict[str, set[str]] = {}
         self.active_workers: list[QThread] = []
         self.upgrade_queue: list[UpgradeTask] = []
@@ -3125,6 +3128,7 @@ class MainWindow(QMainWindow):
             return
 
         self.manager_scan_state.clear()
+        self.unsupported_reasons.clear()
         for mgr in available:
             name = mgr.name
             self.managers[name] = mgr
@@ -3141,6 +3145,9 @@ class MainWindow(QMainWindow):
         )
         worker.error_signal.connect(
             lambda manager_name, error, g=generation: self.handle_scan_error(manager_name, error, g)
+        )
+        worker.unsupported_signal.connect(
+            lambda manager_name, why, g=generation: self.handle_scan_unsupported(manager_name, why, g)
         )
         worker.finished_all.connect(self.handle_scan_finished)
         worker.finished.connect(self._on_worker_finished)
@@ -3204,6 +3211,21 @@ class MainWindow(QMainWindow):
                 item.setText(f"⚠️ {manager_name} ({category}) - Scan failed")
                 break
         self.update_updates_badge()
+        self.rebuild_updates_list()
+
+    def handle_scan_unsupported(self, manager_name: str, why: str, generation: int | None = None) -> None:
+        """A manager with no "what's outdated" query: say so, never count it as up to date."""
+        if generation is not None and generation != self.scan_generation:
+            return
+        self.manager_scan_state[manager_name] = "unsupported"
+        self.unsupported_reasons[manager_name] = why
+        self.updates_cache.pop(manager_name, None)
+        for i in range(self.status_list.count()):
+            item = self.status_list.item(i)
+            if manager_name in item.text():
+                item.setText(f"⚪ {manager_name} - can't check for updates")
+                item.setToolTip(why)
+                break
         self.rebuild_updates_list()
 
     def handle_scan_finished(self) -> None:
@@ -3282,12 +3304,15 @@ class MainWindow(QMainWindow):
         total_updates = 0
         search_filter = self.search_bar.text().lower()
 
-        up_to_date = []
+        up_to_date, unsupported = [], []
         for manager_name in self._update_group_order():
             updates = self.updates_cache.get(manager_name, [])
             self.selected_updates.setdefault(manager_name, set())
             state = self.manager_scan_state.get(
                 manager_name, "failed" if manager_name in self.scan_errors else "done")
+            if state == "unsupported":
+                unsupported.append(manager_name)
+                continue
             matches = [p for p in updates
                        if not search_filter or search_filter in p.get("name", "").lower()]
             if not matches and state == "done":
@@ -3315,12 +3340,20 @@ class MainWindow(QMainWindow):
 
                 self.updates_list.setItemWidget(row_item, row_widget)
 
+        footers = []
         if up_to_date and total_updates:
+            footers.append(("Up to date: " + ", ".join(sorted(up_to_date, key=str.lower)), ""))
+        if unsupported:
+            names = sorted(unsupported, key=str.lower)
+            footers.append(("Can't check for updates: " + ", ".join(names),
+                            "\n".join(f"{n}: {self.unsupported_reasons.get(n, '')}" for n in names)))
+        for text, tip in footers:
             footer = QListWidgetItem(self.updates_list)
             footer.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            label = QLabel("Up to date: " + ", ".join(sorted(up_to_date, key=str.lower)))
+            label = QLabel(text)
             label.setObjectName("group-footer")
             label.setWordWrap(True)
+            label.setToolTip(tip)
             footer.setSizeHint(QSize(0, 36))
             self.updates_list.setItemWidget(footer, label)
 
@@ -3394,6 +3427,8 @@ class MainWindow(QMainWindow):
             lambda name, updates, g=generation: self.handle_scan_results(name, updates, g))
         worker.error_signal.connect(
             lambda name, error, g=generation: self.handle_scan_error(name, error, g))
+        worker.unsupported_signal.connect(
+            lambda name, why, g=generation: self.handle_scan_unsupported(name, why, g))
         worker.finished_all.connect(self._finish_rescan)
         worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)

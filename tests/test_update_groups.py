@@ -166,3 +166,28 @@ def test_aur_counts_as_needing_the_admin_password(window):
     window.managers["AUR"] = aur
     assert window._needs_admin("AUR")
     assert not window._needs_admin("NPM")
+
+
+def test_manager_without_an_outdated_query_is_not_called_up_to_date(window):
+    _scan(window)
+    window.managers["Fisher"] = _mgr("Fisher", ["fish", "-c", "fisher update"])
+    window.handle_scan_unsupported("Fisher", "Fisher has no outdated query")
+    footers = [r.text() for r in _rows(window) if hasattr(r, "text") and r.objectName() == "group-footer"]
+    assert any(f.startswith("Can't check for updates: Fisher") for f in footers)
+    assert not any("Fisher" in f for f in footers if f.startswith("Up to date"))
+    assert window.manager_scan_state["Fisher"] == "unsupported"
+    window._settle_scan_states()
+    assert window.manager_scan_state["Fisher"] == "unsupported"  # not flipped to "done"
+
+
+def test_scan_worker_reports_unsupported_managers(qapp):
+    from app.ui.main_window import ScanWorker
+    m = _mgr("Fisher", [])
+    async def no_query():
+        raise NotImplementedError("no outdated query")
+    m.check_updates = no_query
+    got = []
+    worker = ScanWorker([m])
+    worker.unsupported_signal.connect(lambda name, why: got.append((name, why)))
+    worker.run()
+    assert got == [("Fisher", "no outdated query")]

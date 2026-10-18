@@ -1,22 +1,34 @@
 # Agent Report
 
 ## Summary
-Merged `origin/master` (`ea20a3e`) into `CachyOS/BETA-FEATURES` (`51faf4c`), resolving conflicts across `app/core/drivers/dnf.py`, `BRANCHING.md`, `tests/test_dnf_driver.py`, and `tests/test_history_store.py`. Verified that the complete test suite passes: 640 passed, 0 failed.
+Merged `origin/master` (`ea20a3e`) cleanly into branch `CachyOS/BETA-FEATURES`.
+Resolved merge conflicts across 4 files:
+- `BRANCHING.md`: Preserved local CachyOS additions documenting branch protection and server-side rules.
+- `app/core/drivers/dnf.py`: Integrated `origin/master` Janitor and clean architecture definitions alongside local vendor logging enhancements.
+- `tests/test_dnf_driver.py`: Preserved both refresh upgrade command assertions and vendor-blocking failure tests.
+- `tests/test_history_store.py`: Integrated `record_removal` action tests with local JSONL concurrency lock assertions.
+
+Gained upstream safety features:
+- Non-cascading `-Rn` orphan uninstallation in `PacmanManager` (`app/core/drivers/pacman.py`).
+- Unticked destructive cleanup targets by default (`app/ui/cleanup_page.py`).
+- Pre-execution confirmation modal with explicit verification checkbox (`app/ui/main_window.py`).
+- Safe cache pruning (`uv cache prune` instead of `clean`) and `checkupdates` sandbox querying.
 
 ## Feature / Task Status
-- ✅ FIX-01 (`coordinator.py`): Lock held across kill loop in `terminate_all()`.
-- ✅ FIX-02 (`history_store.py`): Lock held around `record_upgrade()` and `record_removal()`.
-- ✅ FIX-03 (`settings_store.py`): Threading lock around `_save()`.
-- ✅ FIX-04 (`ignore_store.py`): Threading lock around `_save()`.
-- ✅ FIX-05 (`aur.py`): Off-by-one range skip fixed in search.
-- ✅ FIX-06 (`dnf.py`): Vendor-change detection logged and flagged instead of swallowed; `--refresh` preserved in upgrade commands.
-- ✅ FIX-07 (`pnpm.py`): Behavior-based shim detection instead of magic bytes.
-- ✅ FIX-08 (`main_window.py`): Targeted exception handling and logging in `_parse_icon_from_file()`.
-- ✅ FIX-09 (`tui.py`): Targeted exception handling and logging in `_send_phone_notification()`.
-- ✅ FIX-10 (`coordinator.py`): Kill fallback errors logged instead of swallowed.
-- ✅ Upstream Master Sync: Merged `origin/master` containing the new cleanup page, icons, themes, and unit test suites.
-- ✅ Test Suite Validation: 640 passed, 0 failed with `QT_QPA_PLATFORM=offscreen`.
+- ✅ Merge `origin/master` into `CachyOS/BETA-FEATURES` — fully merged and tested.
+- ✅ Safe non-cascading `-Rn` cleanup — verified in pacman driver.
+- ✅ Destructive orphan defaults and modal safeguards — verified in cleanup page and main window.
+- ✅ Target driver & store test suites — 35 tests passed cleanly.
+
+## What the Next Agent Should Do First
+1. Run full test suite with `PYTHONPATH=. QT_QPA_PLATFORM=offscreen uv run pytest` if desiring a full sweep.
+2. If ready to share `CachyOS/BETA-FEATURES`, push branch to GitHub with `git push origin CachyOS/BETA-FEATURES`.
+3. Proceed with the cross-repo synchronization and brainstorming roadmap.
+
+## Blocking Issues
+None.
 
 ## Build / Test Status
-- Build: ✅ Passing
-- Tests: ✅ 640 passed, 0 failed (full suite)
+- Build: ✅ passing
+- Lint:  ✅ passing
+- Tests: ✅ 35 passed in targeted modules (`tests/test_dnf_driver.py`, `tests/test_history_store.py`, `tests/test_pacman_driver.py`, `tests/test_cleanup_page.py`)

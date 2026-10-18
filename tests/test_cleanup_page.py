@@ -21,7 +21,6 @@ def qapp():
 
 ORPHANS = target("DNF", "orphans", "Orphaned packages", ["pkexec", "dnf", "autoremove", "-y"], 1024 * 1024, ["libfoo"])
 LEFTOVER = target("Flatpak", "leftover-data", "Data of uninstalled apps",
-                  ["rm", "-rf", "--", "/home/u/.var/app/org.gone.App"], 10, ["org.gone.App"])
 CACHE = target("NPM", "cache", "Package cache", ["npm", "cache", "clean", "--force"], 1024, [])
 
 
@@ -31,14 +30,17 @@ def test_page_lists_targets_unticks_data_deletion_and_shows_failures(qapp):
         "DNF": {"ok": True, "result": [ORPHANS]},
         "Flatpak": {"ok": True, "result": [LEFTOVER]},
         "NPM": {"ok": True, "result": [CACHE]},
+        "Pacman": {"ok": False, "error": "pacman failed"},
         "Cargo": {"ok": False, "unsupported": True},
     })
     rows = {page.tree.topLevelItem(i).text(1): page.tree.topLevelItem(i) for i in range(page.tree.topLevelItemCount())}
-    assert set(rows) == {"DNF", "Flatpak", "NPM"}                 # unsupported managers aren't listed
-    assert rows["DNF"].checkState(0) == Qt.CheckState.Unchecked  # orphans never ticked for you
-    assert rows["Flatpak"].checkState(0) == Qt.CheckState.Unchecked  # leftover data never ticked for you
-    assert rows["NPM"].checkState(0) == Qt.CheckState.Checked    # caches safe to tick
+    assert set(rows) == {"DNF", "Flatpak", "NPM", "Pacman"}                 # unsupported managers aren't listed
+    assert rows["DNF"].checkState(0) == Qt.CheckState.Unchecked       # orphans are never ticked for you
+    assert rows["Flatpak"].checkState(0) == Qt.CheckState.Unchecked  # leftover data is never ticked for you
+    assert rows["NPM"].checkState(0) == Qt.CheckState.Checked        # caches are ticked by default
     assert rows["Flatpak"].child(0).text(0) == "org.gone.App"
+    assert rows["Pacman"].text(0).startswith("Couldn't check")       # a failure, not "nothing to clean"
+    assert "couldn't be checked" in page.summary.text()
     assert page.selected_targets() == [CACHE] and page.btn_clean.text() == "Clean 1 selected"
 
 
@@ -66,7 +68,8 @@ def test_scan_worker_separates_failures_from_unsupported(qapp):
 
 
 def test_data_deletion_and_orphans_count_as_destructive():
-    assert is_destructive(LEFTOVER) and is_destructive(ORPHANS) and not is_destructive(CACHE)
+    assert is_destructive(LEFTOVER) and is_destructive(ORPHANS)
+    assert not is_destructive(CACHE)
 
 
 @pytest.fixture
@@ -133,7 +136,21 @@ def test_destructive_dialog_needs_the_checkbox(window):
     assert shown == {"enabled_before": False, "enabled_after": True,
                      "details": "/home/u/.var/app/org.gone.App"}
 
+def test_orphan_destructive_dialog_needs_the_checkbox(window):
+    shown = {}
+
+    def fake_exec(box):
+        yes = box.button(QMessageBox.StandardButton.Yes)
+        shown["title"] = box.windowTitle()
+        shown["btn_text"] = yes.text()
+        shown["enabled_before"] = yes.isEnabled()
+        box.checkBox().setChecked(True)
+        shown["enabled_after"] = yes.isEnabled()
+        shown["details"] = box.detailedText()
+        return QMessageBox.StandardButton.Yes
+
     with patch.object(QMessageBox, "exec", fake_exec):
         assert window._confirm_destructive(ORPHANS)
-    assert shown == {"enabled_before": False, "enabled_after": True,
+    assert shown == {"title": "Remove Orphaned Packages?", "btn_text": "Remove",
+                     "enabled_before": False, "enabled_after": True,
                      "details": "libfoo"}

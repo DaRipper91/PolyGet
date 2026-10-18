@@ -345,26 +345,21 @@ class DnfManager(PackageManager):
             # Skip header line if present
             start_idx = 1 if "repo id" in lines[0].lower() else 0
             for line in lines[start_idx:]:
-                import re
-                parts = re.split(r'\s{2,}', line.strip())
-                if len(parts) >= 2:
-                    # Check status column (parts[2]) or prefix
-                    enabled = True
-                    if len(parts) >= 3:
-                        status_str = parts[2].lower()
-                        if status_str == "disabled":
-                            enabled = False
-                    elif parts[0].startswith("!"):
-                        enabled = False
-                    
-                    repo_id = parts[0].lstrip("!*")
-                    repo_name = parts[1]
-                    repos.append({
-                        "id": repo_id,
-                        "name": repo_name,
-                        "url": "",
-                        "enabled": enabled
-                    })
+                # Columns are space-padded, but a long repo id leaves a single space before the
+                # name, so split on words: ids never contain spaces, and the status is last.
+                words = line.split()
+                if len(words) < 2:
+                    continue
+                enabled = not words[0].startswith("!")
+                if words[-1].lower() in ("enabled", "disabled"):
+                    enabled = words.pop().lower() == "enabled"
+                repo_id = words[0].lstrip("!*")
+                repos.append({
+                    "id": repo_id,
+                    "name": " ".join(words[1:]) or repo_id,
+                    "url": "",
+                    "enabled": enabled
+                })
             return repos
         except DriverError:
             raise

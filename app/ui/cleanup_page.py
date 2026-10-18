@@ -22,6 +22,7 @@ def is_destructive(target: dict[str, Any]) -> bool:
     return target.get("id") in ("leftover-data", "orphans") or target.get("command", [])[:1] == ["rm"]
 
 
+
 class CleanupScanWorker(QThread):
     """get_cleanup_targets() across managers. {name: {"ok", "result"} | {"error"} | {"unsupported"}}."""
 

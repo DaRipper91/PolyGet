@@ -5264,13 +5264,13 @@ class MainWindow(QMainWindow):
         """Deleting user data or removing orphan packages gets its own dialog: explicit warning and confirmation."""
         is_orphan = target.get("id") == "orphans"
         if is_orphan:
-            title = "Remove Orphan Packages?"
+            title = "Remove Orphaned Packages?"
             text = (f"{target['manager']}: {target['label']}. This will remove {len(target.get('items', []))} "
                     f"package(s) installed as dependencies but no longer required by any installed package. "
                     f"This may remove development tools or packages you use directly.")
             checkbox_text = "I understand these packages will be uninstalled"
-            button_text = "Uninstall"
-            detail = "\n".join(target.get("items", []))
+            button_text = "Remove"
+            detail = "\n".join(target.get("items", []) or target.get("command", []))
         else:
             title = "Delete App Data?"
             text = (f"{target['manager']}: {target['label']}. This permanently deletes the saved "
@@ -5278,7 +5278,7 @@ class MainWindow(QMainWindow):
             checkbox_text = "I understand these folders will be permanently deleted"
             button_text = "Delete"
             detail = "\n".join(target["command"][3:] if target.get("command", [])[:3] == ["rm", "-rf", "--"]
-                               else target.get("items", []))
+                               else (target.get("items", []) or target.get("command", [])))
         box = QMessageBox(QMessageBox.Icon.Warning, title, text,
                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
         box.setDetailedText(detail)

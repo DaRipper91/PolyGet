@@ -60,29 +60,6 @@ def _is_comparable_version(version: str) -> bool:
     return True
 
 
-def _is_trusted_pair(a: str, b: str) -> bool:
-    """True when `a` and `b` are known to number the same upstream release the same way.
-
-    Two managers can share a package name and still count versions independently, in
-    which case "higher" is an artifact of two unrelated counters rather than a real
-    difference. The live case is RubyGems: the gem `google-protobuf` is 4.36.1 while
-    Arch's `ruby-google-protobuf` is 36.1-1.1 — the same library, but RubyGems applies
-    its own major-bump scheme while the distro tracks upstream, so 36 > 4 is meaningless.
-
-    Trust is decided per *pair of managers*, not per manager, because a distro package
-    and a runtime install of the same project (pipx's uvicorn vs the distro's
-    python-uvicorn) are genuinely comparable even though one is a distro package.
-
-    This is deliberately conservative: an unlisted pair is trusted, because a
-    false negative (a missed lead) is recoverable while a false positive (a confident
-    wrong "newer version is available") erodes trust in the whole feature. Users who
-    hit a specific bad pair can add it to `untrusted_pairs` in settings rather than
-    needing a code change.
-    """
-    if a == b:
-        return True
-    return frozenset((a, b)) not in _UNTRUSTED_PAIRS
-
 
 # Manager pairs whose version numbers are NOT reliably comparable even though both
 # sides are legitimately reporting the same package name. Each entry is here because
@@ -167,10 +144,21 @@ def _normalize_name(name: str) -> str:
     Conservative: lowercase + strip common distro prefixes. No aliases in v1.
     """
     n = name.lower().strip()
-    for prefix in ("python-", "node-", "perl-", "ruby-", "lib"):
+    for prefix in ("python-", "node-", "perl-", "ruby-"):
         if n.startswith(prefix):
             n = n[len(prefix):]
             break
+    else:
+        # Only strip a bare "lib" prefix when it is followed by a separator
+        # or a digit, so that compound names like "libreoffice" are not
+        # mangled into "reoffice".  Library packages in Debian/Ubuntu are
+        # typically "libfoo", "libfoo-dev", "libfoo1" etc.
+        if n.startswith("lib") and len(n) > 3 and (n[3] in "-_0123456789"):
+            # Strip "lib" plus a following separator (but keep digits as part of name)
+            if n[3] in "-_":
+                n = n[4:]
+            else:
+                n = n[3:]
     return n
 
 
@@ -205,8 +193,11 @@ def _parse_system_version(version: str) -> tuple[int, ...] | None:
         return None
     if ":" in version:
         version = version.split(":", 1)[1]
+    # Strip pkgrel (e.g. -2) but preserve pre-release markers (e.g. -rc1).
     if "-" in version:
-        version = version.rsplit("-", 1)[0]
+        suffix = version.rsplit("-", 1)[1]
+        if suffix.isdigit():
+            version = version.rsplit("-", 1)[0]
     parts = re.split(r"[.\-]", version)
     nums = []
     for p in parts:
@@ -218,24 +209,52 @@ def _parse_system_version(version: str) -> tuple[int, ...] | None:
     return tuple(nums) if nums else None
 
 
-def _version_greater(manager_name: str, v1: str, v2: str) -> bool | None:
-    """Return True if v1 > v2 for the given manager's ecosystem.
+def _parse_version_for(manager_name: str, version: str, is_system: bool = False):
+    """Parse *version* using the parser appropriate for *manager_name*'s ecosystem.
 
-    Returns None when the versions are not comparable — an unparseable version, a
-    stdlib-bundled `default:` gem, or a manager with no ordering defined — in which
-    case the caller must treat the versions as incomparable rather than guess.
+    When a system-manager version is being parsed with a runtime grammar (cross-
+    ecosystem comparison), strip the pkgrel first so "0.53.0-1" is treated as
+    "0.53.0" rather than as a pre-release.
     """
+    if is_system and manager_name not in _SYSTEM_MANAGERS and "-" in version:
+        # Cross-ecosystem: system version parsed with runtime grammar — strip pkgrel
+        version = version.rsplit("-", 1)[0]
     if manager_name in _SYSTEM_MANAGERS:
-        p1 = _parse_system_version(v1)
-        p2 = _parse_system_version(v2)
-    else:
-        # Every runtime ecosystem (js, python, rust, ruby, dart, elixir, julia,
-        # perl) publishes semver, and packaging handles the Python-specific
-        # spellings. This is the generic fallback that replaced the old
-        # hardcoded JS-only whitelist.
-        p1 = _parse_semver(v1)
-        p2 = _parse_semver(v2)
-    if p1 is not None and p2 is not None:
+        return _parse_system_version(version)
+    return _parse_semver(version)
+
+
+def _comparator_for_pair(mgr1: str, mgr2: str) -> str | None:
+    """Return the manager whose parser should be used for BOTH versions in this pair.
+
+    For same-ecosystem pairs, uses that ecosystem's parser. For distro-vs-runtime
+    pairs, uses the runtime's parser (the distro version is parsed with the
+    runtime's grammar, which may fail — in which case the pair is incomparable).
+    Returns None if the pair is not comparable.
+    """
+    result = _comparators(mgr1, mgr2)
+    if result is None:
+        return None
+    # result is (a, b) — both should use the same parser; pick the first.
+    return result[0]
+
+
+def _version_greater(mgr1: str, v1: str, mgr2: str, v2: str) -> bool | None:
+    """Return True if v1 (from mgr1) > v2 (from mgr2).
+
+    Both versions are parsed with the comparator determined by the pair (via
+    _comparators), so cross-ecosystem pairs use the runtime's grammar for both
+    sides. System-manager versions have their pkgrel stripped before parsing
+    with a runtime grammar. Returns None when either version is unparseable or
+    types differ.
+    """
+    comp = _comparator_for_pair(mgr1, mgr2)
+    if comp is None:
+        return None
+    # Determine if each version came from a system manager (for pkgrel stripping)
+    p1 = _parse_version_for(comp, v1, is_system=(mgr1 in _SYSTEM_MANAGERS))
+    p2 = _parse_version_for(comp, v2, is_system=(mgr2 in _SYSTEM_MANAGERS))
+    if p1 is not None and p2 is not None and type(p1) is type(p2):
         return p1 > p2
     return None
 
@@ -254,7 +273,7 @@ def _best_version(versions: dict[str, str]) -> tuple[str | None, str | None]:
         if best_ver is None:
             best_mgr, best_ver = mgr, ver
             continue
-        cmp = _version_greater(mgr, ver, best_ver)
+        cmp = _version_greater(mgr, ver, best_mgr, best_ver)
         if cmp is True:
             best_mgr, best_ver = mgr, ver
             has_comparable = True
@@ -374,7 +393,7 @@ async def cross_manager_newest(
         higher_elsewhere = any(
             m != best_mgr
             and _pair_comparable(best_mgr, m, untrusted)
-            and _version_greater(best_mgr, best_ver, comparable[m]) is True
+            and _version_greater(best_mgr, best_ver, m, comparable[m]) is True
             for m in comparable
         )
         if not higher_elsewhere:

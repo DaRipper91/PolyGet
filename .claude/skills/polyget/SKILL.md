@@ -5,11 +5,12 @@ description: Check, search, and plan package updates across every package manage
 
 # PolyGet CLI
 
-PolyGet wraps every installed package manager behind one CLI. Always call it by absolute path
-(the `polyget` fish function isn't visible to non-fish shells):
+PolyGet wraps every installed package manager behind one CLI. Resolve the repo root from the
+location of this skill file (repo root is two levels up from `.claude/skills/polyget/`):
 
 ```bash
-PG="/home/daripper/Projects/PolyGet/.venv/bin/python /home/daripper/Projects/PolyGet/run.py"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PG="$REPO_ROOT/.venv/bin/python $REPO_ROOT/run.py"
 $PG <command> --json
 ```
 

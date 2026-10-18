@@ -63,6 +63,9 @@ class DenoManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["deno", "install", "-g", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["deno", "uninstall", "-g"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         data = await fetch_json(
             f"https://api.jsr.io/packages?query={query}&limit=20".replace(" ", "%20"),

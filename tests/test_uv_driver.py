@@ -126,3 +126,15 @@ def test_failure_to_locate_the_tool_dir_does_not_break_the_update_check(scripted
     scripted_exec.add("uv tool dir", rc=2, stderr="boom")
     scripted_exec.add("pypi.org/pypi/hcom/json", stdout='{"info": {"version": "0.7.30"}}')
     assert [u["name"] for u in asyncio.run(UvManager().check_updates())] == ["hcom"]
+
+
+def test_uv_cleanup_targets(scripted_exec, tmp_path):
+    cache_dir = tmp_path / "uv_cache"
+    cache_dir.mkdir()
+    (cache_dir / "foo").write_bytes(b"x" * 1024)
+    scripted_exec.add("uv cache dir", stdout=f"{cache_dir}\n")
+    targets = asyncio.run(UvManager().get_cleanup_targets())
+    assert len(targets) == 1
+    assert targets[0]["command"] == ["uv", "cache", "prune"]
+    assert targets[0]["id"] == "cache"
+    assert targets[0]["bytes"] == 1024

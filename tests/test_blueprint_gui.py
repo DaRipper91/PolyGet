@@ -372,9 +372,11 @@ def test_install_package_blocks_duplicate_launch(mock_info, mock_question, mock_
     window = MainWindow()
     item = {"id": "org.gimp.GIMP", "name": "GIMP", "source": "Flatpak", "remote": "flathub"}
 
-    with patch.object(QThread, "start"):
+    from app.core.drivers.flatpak import FlatpakManager
+    with patch.object(QThread, "start"), patch.object(FlatpakManager, "is_available", return_value=True):
         window.install_package(item)
         window.install_package(item)
+    assert window.active_workers[0].cmd == ["flatpak", "install", "-y", "flathub", "org.gimp.GIMP"]
 
     assert len(window.active_workers) == 1
     assert "Flatpak:org.gimp.GIMP" in window.installing_packages
@@ -479,6 +481,8 @@ def test_sync_system_to_blueprint_with_drift(mock_info, mock_question, mock_disc
                 mock_proc.returncode = 0
                 mock_proc.stdout = AsyncMock()
                 mock_proc.stdout.readline = AsyncMock(side_effect=[b"Successfully installed org.mozilla.firefox", b""])
+                mock_proc.stderr = AsyncMock()
+                mock_proc.stderr.readline = AsyncMock(side_effect=[b""])
                 mock_proc.wait = AsyncMock(return_value=0)
                 mock_exec.return_value = mock_proc
                 self_thread.run()

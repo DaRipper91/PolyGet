@@ -133,9 +133,15 @@ def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
     version — it deliberately requires a stderr marker rather than treating any
     nonzero pkexec exit as "needs a password," so real command failures (e.g. an
     unreachable mirror, a genuinely missing package) aren't masked as an auth issue.
+
+    Checks each stderr line individually so a marker that merely appears inside a
+    longer, unrelated error message does not trigger a false-positive sudo retry.
     """
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
+    for line in stderr_text.splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS):
+            return True
+    return False
 
 
 class VersionCheckModal(ModalScreen[None]):
@@ -240,45 +246,25 @@ class DetailModal(ModalScreen[None]):
         if event.button.id == "close-btn":
             self.dismiss()
 
-    _PKEXEC_NO_AGENT_MARKERS = (
-        "authentication agent",
-        "no session for cookie",
-        "not authorized",
-        "cannot determine the session",
-    )
 
-    _SUDO_AUTH_FAILURE_MARKERS = (
-    "incorrect password",
-    "sorry, try again",
-    "no password was provided",
-    "a password is required",
-)
-
-
-def _looks_like_sudo_auth_failure(stderr_text: str) -> bool:
-    """sudo rejected (or never got) the password, as opposed to the command failing."""
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in _SUDO_AUTH_FAILURE_MARKERS)
-
-
-def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
-    """Heuristic: pkexec failed because no polkit authentication agent is bound to
-    this session (e.g. a bare terminal/SSH session with no desktop running), rather
-    than because the privileged command itself failed for an unrelated reason. This
-    is reasoned from documented polkit behavior, not verified against every polkit
-    version — it deliberately requires a stderr marker rather than treating any
-    nonzero pkexec exit as "needs a password," so real command failures (e.g. an
-    unreachable mirror, a genuinely missing package) aren't masked as an auth issue.
-    """
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
+def themed_tui_css() -> str:
+    """tui.tcss in the theme chosen in Settings (the GUI's theme; "Follow system" picks the
+    dark one, since a terminal has no colour-scheme signal)."""
+    from pathlib import Path
+    from app.ui import themes
+    settings = get_settings()
+    key = themes.resolve(settings.get("ui.theme", themes.DEFAULT_THEME), True,
+                         settings.get("ui.theme_dark", themes.DEFAULT_DARK),
+                         settings.get("ui.theme_light", themes.DEFAULT_LIGHT))
+    active = themes.set_active(key, settings.get("ui.accent"))
+    return themes.themed((Path(__file__).parent / "tui.tcss").read_text(encoding="utf-8"), active, force=True)
 
 
 class PolyGetTuiApp(App[None]):
     """PolyGet TUI Application."""
 
     TITLE = "PolyGet"
-    CSS_PATH = "tui.tcss"
+    CSS = ""  # filled from tui.tcss in __init__, recoloured for the chosen theme
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("space", "toggle_select", "Toggle Select"),
@@ -293,8 +279,11 @@ class PolyGetTuiApp(App[None]):
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the PolyGetTuiApp, discover available managers, and set up state."""
+        type(self).CSS = themed_tui_css()
         super().__init__(**kwargs)
-        self.managers: list[PackageManager] = discover_managers()
+        from app.core.settings_store import get_settings
+        disabled = set(get_settings().disabled_managers())
+        self.managers: list[PackageManager] = [m for m in discover_managers() if m.name not in disabled]
         # Track selected managers for upgrading
         self.selected_managers: set[str] = set()
         # Track which managers are currently being checked/scanned
@@ -349,34 +338,45 @@ class PolyGetTuiApp(App[None]):
     async def _scan_manager(self, mgr: PackageManager) -> None:
         """Scan a single package manager for updates in the background."""
         error = None
+        is_unsupported = False
         try:
             updates = await mgr.check_updates()
         except NotImplementedError as e:
+            is_unsupported = True
+            updates = []
             self.updates_cache[mgr.name] = []
             self.scan_errors.pop(mgr.name, None)
             self.unsupported_checks[mgr.name] = describe_error(e)
             self.notify(f"Scan skipped: {mgr.name} ({describe_error(e)})", title="Upgrader", severity="information", timeout=3)
-            return
         except Exception as e:
             updates = []
             error = str(e)
 
-        self.updates_cache[mgr.name] = updates
-        self.unsupported_checks.pop(mgr.name, None)
-        if error:
-            self.scan_errors[mgr.name] = error
-            self.notify(
-                f"Scan failed: {mgr.name} ({error})",
-                title="Upgrader",
-                severity="error",
-                timeout=5,
-            )
-        elif updates:
-            self.scan_errors.pop(mgr.name, None)
-            self.selected_managers.add(mgr.name)
-            self.notify(f"Scan complete: {mgr.name} ({len(updates)} updates)", title="Upgrader", severity="warning", timeout=3)
-        else:
-            self.notify(f"Scan complete: {mgr.name} (Up to date)", title="Upgrader", severity="info", timeout=3)
+        if not is_unsupported:
+            # Filter out ignored packages (consistent with GUI behavior)
+            try:
+                from app.core.ignore_store import IgnoreStore
+                store = IgnoreStore()
+                updates = [u for u in updates if not store.is_ignored(mgr.name, u.get("name", ""))]
+            except Exception:
+                pass
+
+            self.updates_cache[mgr.name] = updates
+            self.unsupported_checks.pop(mgr.name, None)
+            if error:
+                self.scan_errors[mgr.name] = error
+                self.notify(
+                    f"Scan failed: {mgr.name} ({error})",
+                    title="Upgrader",
+                    severity="error",
+                    timeout=5,
+                )
+            elif updates:
+                self.scan_errors.pop(mgr.name, None)
+                self.selected_managers.add(mgr.name)
+                self.notify(f"Scan complete: {mgr.name} ({len(updates)} updates)", title="Upgrader", severity="warning", timeout=3)
+            else:
+                self.notify(f"Scan complete: {mgr.name} (Up to date)", title="Upgrader", severity="info", timeout=3)
 
         if mgr.name in self.checking_managers:
             self.checking_managers.remove(mgr.name)

@@ -95,6 +95,9 @@ class YarnManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["yarn", "global", "add", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["yarn", "global", "remove"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # Yarn Classic has no built-in search command; it shares npm's registry,
         # so delegate to the npm registry search API directly rather than

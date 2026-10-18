@@ -3,8 +3,11 @@
 import asyncio
 import importlib
 import json
+import logging
 from pathlib import Path
 from typing import Type, Any
+
+logger = logging.getLogger(__name__)
 
 
 def describe_error(e: Exception) -> str:
@@ -93,6 +96,11 @@ class PackageManager:
         wanted = set(packages)
         return sorted({u.get("name") for u in await self.check_updates()} & wanted)
 
+    async def still_installed(self, packages: list[str]) -> list[str]:
+        """Which of `packages` this manager still lists as installed (raises DriverError if the check
+        fails). Used after a removal, for the same reason as `still_outdated`."""
+        return sorted(set(packages) & set(await self.list_installed()))
+
     def is_available(self) -> bool:
         """Check if the package manager's binary is available in the system PATH.
 
@@ -100,6 +108,37 @@ class PackageManager:
             bool: True if available, False otherwise.
         """
         raise NotImplementedError("Subclasses must implement is_available()")
+
+    async def get_self_version(self) -> str | None:
+        """Return the package manager's own version string, or None if undetectable.
+
+        The default implementation runs ``{binary} --version`` and returns the
+        first line of output. Drivers override this when the binary name differs
+        from the driver name or the version flag is non-standard.
+        """
+        import shutil
+        binary = shutil.which(self.name.lower())
+        if binary is None:
+            return None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                binary, "--version",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            line = stdout.decode(errors="ignore").strip().splitlines()
+            return line[0].strip() if line else None
+        except Exception:
+            return None
+
+    async def check_self_update(self) -> dict[str, str] | None:
+        """Check whether the package manager itself has a newer version available.
+
+        Returns:
+            dict with 'current' and 'latest' keys, or None when the manager has
+            no self-update mechanism or the check is unsupported.
+        """
+        return None
 
     async def check_updates(self) -> list[dict[str, Any]]:
         """Asynchronously query the package manager for outdated packages.
@@ -182,6 +221,78 @@ class PackageManager:
             list[str]: The command list to install the package.
         """
         raise NotImplementedError("Subclasses must implement get_install_command()")
+
+    # True for tools that prompt for the sudo password themselves even though their commands
+    # don't start with pkexec/sudo (AUR helpers call sudo internally). The GUI counts these as
+    # "needs your admin password" alongside pkexec-prefixed commands.
+    asks_for_password: bool = False
+
+    async def get_build_script(self, package: str) -> tuple[str, str]:
+        """Return (source URL, text) of the script that installing `package` would execute.
+
+        For managers that build from user-submitted recipes (the AUR's PKGBUILDs), so the user can
+        read what will run before it runs. Most managers install prebuilt artifacts and leave this
+        unimplemented.
+
+        Raises:
+            NotImplementedError: Packages from this manager don't come with a reviewable script.
+            DriverError: The package doesn't exist or the script couldn't be fetched.
+        """
+        raise NotImplementedError(f"{self.name} packages have no build script to review")
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        """Reclaimable space this manager can free: orphans, caches, leftover data.
+
+        Returns:
+            list[dict]: Targets built with `app.core.janitor.target()`, each carrying the command
+                that cleans it and `bytes` (None when the size can't be known before running).
+                Only targets with something to clean are returned.
+
+        Raises:
+            NotImplementedError: This manager has nothing PolyGet knows how to clean.
+            DriverError: A query failed. Never guess: a target built from a failed query
+                (e.g. "leftover data" when the installed list didn't load) could delete real data.
+        """
+        raise NotImplementedError(f"{self.name} has no cleanup targets")
+
+    # True for tools whose remove command takes exactly one package (e.g. `pipx uninstall`);
+    # callers then build one command per package instead of passing a list.
+    removes_one_at_a_time: bool = False
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        """Get the command to uninstall packages.
+
+        Args:
+            packages (list[str]): Package names, as `list_installed()` reports them. A
+                single-package tool (`removes_one_at_a_time`) only ever receives one.
+
+        Returns:
+            list[str]: The command and its arguments.
+
+        Raises:
+            NotImplementedError: This manager has no uninstall command.
+        """
+        raise NotImplementedError(f"{self.name} does not support removing packages")
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        """Return every package removing `packages` would take out, dependencies included.
+
+        Only system managers resolve dependencies on removal, so only they override this.
+
+        Raises:
+            NotImplementedError: No dry-run is available; the remove command is the whole plan.
+            DriverError: The dry-run failed — typically a package that isn't installed, or one
+                that other installed packages still depend on.
+        """
+        raise NotImplementedError(f"{self.name} has no removal dry-run")
+
+    def get_install_command_for(self, item: dict[str, Any]) -> list[str]:
+        """Command to install a search/Store result (as returned by search_packages()).
+
+        Drivers whose results carry more than the package id (Flatpak's remote) override this;
+        everyone else installs by id.
+        """
+        return self.get_install_command(item["id"])
 
     def get_self_install_command(self) -> list[str] | None:
         """Get the command to install this manager itself on the current distro.
@@ -276,8 +387,9 @@ def discover_managers() -> list[PackageManager]:
     # Import drivers to trigger their decorators
     try:
         importlib.import_module("app.core.drivers")
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.exception("Failed to import app.core.drivers — no managers will be discovered")
+        raise
 
     active = []
     for cls in _REGISTRY:
@@ -295,6 +407,7 @@ def get_all_managers() -> list[PackageManager]:
     """
     try:
         importlib.import_module("app.core.drivers")
-    except ImportError:
-        pass
+    except ImportError as e:
+        logger.exception("Failed to import app.core.drivers — no managers will be discovered")
+        raise
     return [cls() for cls in _REGISTRY]

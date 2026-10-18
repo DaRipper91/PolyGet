@@ -24,7 +24,7 @@ def main() -> int:
 
     # Any subcommand (or --help/--version/--json) routes to the headless CLI, so PySide6 is
     # never imported for scripted or agent use.
-    cli_flags = {"-h", "--help", "--version", "--json"}
+    cli_flags = {"-h", "--help", "--version", "--json", "--debug", "--debug-file"}
     if len(sys.argv) > 1 and (sys.argv[1] in COMMANDS or sys.argv[1] in cli_flags):
         from app.cli import main as cli_main
         return cli_main(sys.argv[1:])
@@ -35,6 +35,7 @@ def main() -> int:
         app.run()
         return 0
 
+    from PySide6.QtCore import QSize
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
     from app.ui.main_window import MainWindow
@@ -48,6 +49,12 @@ def main() -> int:
     for icon_path in _icon_candidates():
         icon = QIcon(str(icon_path))
         if not icon.isNull():
+            # The 16/32px PNGs are drawn from a simplified source (no stripes); prefer them over
+            # scaling the full SVG down at those sizes.
+            for size in (16, 32):
+                small = icon_path.parent / f"polyget-{size}.png"
+                if icon_path.suffix == ".svg" and small.exists():
+                    icon.addFile(str(small), QSize(size, size))
             app.setWindowIcon(icon)
             break
 

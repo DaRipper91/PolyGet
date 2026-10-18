@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tray, a scan or upgrade failed: the Confluence mark plus a warning triangle in the panel's
+     negative colour (Plasma ColorScheme-NegativeText, GTK .error), clear of the arrowhead. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="16" height="16">
+  <style id="current-color-scheme">.ColorScheme-Text { color: #232629; } .ColorScheme-NegativeText { color: #da4453; }</style>
+  <g class="ColorScheme-Text"><path fill="currentColor" d="M33.56,122.54 L64.72,86.54 A10.0,10.0 0 0 0 49.60,73.46 L18.44,109.46 A10.0,10.0 0 0 0 33.56,122.54 Z M74.00,116.00 L74.00,80.00 A10.0,10.0 0 0 0 54.00,80.00 L54.00,116.00 A10.0,10.0 0 0 0 74.00,116.00 Z M109.56,109.46 L78.40,73.46 A10.0,10.0 0 0 0 63.28,86.54 L94.44,122.54 A10.0,10.0 0 0 0 109.56,109.46 Z"/><path fill="currentColor" d="M64,5 L117,60 Q119,63 115,63 L13,63 Q9,63 11,60 Z"/></g>
+  <path class="ColorScheme-NegativeText error" fill="currentColor" d="M112,0 Q114,-2 116,0 L128,24 Q129,27 126,27 L102,27 Q99,27 100,24 Z"/>
+</svg>

@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 from packaging.version import InvalidVersion, Version
+from app.core.janitor import dir_size, target
 from app.core.manager import DriverError, PackageManager, fetch_json, register_manager, run_capture
 
 try:
@@ -135,5 +136,16 @@ class UvManager(PackageManager):
             return ["uv", "tool", "upgrade"] + packages
         return ["uv", "tool", "upgrade", "--all"]
 
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        cache = (await run_capture(["uv", "cache", "dir"], label=f"{self.name} cache query")).strip()
+        size = await dir_size(Path(cache)) if cache else 0
+        if not size:
+            return []
+        return [target(self.name, "cache", "Package cache", ["uv", "cache", "prune"], size,
+                       detail="prunes unreferenced wheels, sources, and cached metadata")]
+
     def get_install_command(self, package: str) -> list[str]:
         return ["uv", "tool", "install", package]
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["uv", "tool", "uninstall"] + packages

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A: Sunrise, retuned. The synthwave sun with its carved arrow, without the neon grid and rim
+     (noise below 32px), in the app's Catppuccin Mocha palette (base #1e1e2e, mauve #cba6f7).
+     The previous synthwave icon is kept as concepts/polyget-g-synth.svg. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#1e1e2e" stroke="#45475a" stroke-width="3"/>
+  <circle cx="64" cy="68" r="40" fill="#cba6f7"/>
+  <g fill="#1e1e2e">
+    <rect x="16" y="80" width="96" height="4"/>
+    <rect x="16" y="90" width="96" height="5"/>
+    <rect x="16" y="101" width="96" height="7"/>
+    <polygon points="64,30 88,56 75,56 75,98 53,98 53,56 40,56"/>
+  </g>
+</svg>

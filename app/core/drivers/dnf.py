@@ -1,8 +1,10 @@
 import asyncio
 import shutil
+from pathlib import Path
 import sys
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.janitor import dir_size, target
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 from app.core.settings_store import get_settings
 
 # Any dnf call may first refresh expired repo metadata, which routinely takes well over 15s.
@@ -13,6 +15,7 @@ def _log(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
 
 
+_ARCHES = {"x86_64", "aarch64", "noarch", "i686", "armv7hl", "ppc64le", "s390x"}
 @register_manager
 class DnfManager(PackageManager):
     """Package manager driver for DNF (Dandified YUM)."""
@@ -160,6 +163,10 @@ class DnfManager(PackageManager):
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade system packages using DNF.
 
+        `--refresh`: the scan reads the user's dnf cache, but this runs as root with root's cache.
+        When root's is older, dnf finds "nothing to do", exits 0, and the upgrade verifies as
+        *not upgraded* every time.
+
         Returns:
             list[str]: The upgrade command and its arguments.
         """
@@ -168,8 +175,8 @@ class DnfManager(PackageManager):
             # too; split into two dnf runs if that ever matters.
             allowed = set(get_settings().get("dnf.allow_vendor_change", []))
             flag = ["--allow-vendor-change"] if allowed.intersection(packages) else []
-            return ["pkexec", "dnf", "upgrade", "-y"] + flag + packages
-        return ["pkexec", "dnf", "upgrade", "-y"]
+            return ["pkexec", "dnf", "upgrade", "-y", "--refresh"] + flag + packages
+        return ["pkexec", "dnf", "upgrade", "-y", "--refresh"]
 
     def get_sync_command(self) -> list[str] | None:
         """Get the command to sync repository metadata for DNF.
@@ -261,6 +268,58 @@ class DnfManager(PackageManager):
         """
         return ["pkexec", "dnf", "install", "-y", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "dnf", "remove", "-y"] + packages
+
+    @staticmethod
+    def _parse_removal_transaction(output: str) -> list[str]:
+        """Package names from the "Removing:" sections of a dnf (4 or 5) transaction table."""
+        names, in_section = [], False
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Transaction Summary"):
+                break
+            if stripped.endswith(":") and not line.startswith(" "):
+                # Section headers: "Removing:", "Removing unused dependencies:", "Removing dependent packages:".
+                in_section = stripped.startswith("Removing")
+            elif in_section and line.startswith(" ") and stripped:
+                first = stripped.split()[0]
+                # dnf4 wraps a long name onto its own line; the continuation starts with the arch.
+                if first not in _ARCHES:
+                    names.append(first)
+        return names
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        # --assumeno resolves the transaction and then declines it, exiting 1 by design.
+        out = await run_capture(
+            ["dnf", "remove", "--assumeno"] + packages,
+            label=f"{self.name} removal preview", timeout=60.0, ok_codes=(0, 1),
+        )
+        names = self._parse_removal_transaction(out)
+        if not names:
+            raise DriverError(f"{self.name} removal preview found nothing to remove — are these packages installed?")
+        return names
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = []
+        out = await run_capture(
+            ["dnf", "autoremove", "--assumeno"], label=f"{self.name} autoremove query", timeout=60.0, ok_codes=(0, 1),
+        )
+        unused = self._parse_removal_transaction(out)
+        if unused:
+            targets.append(target(
+                self.name, "orphans", "Unused dependencies", ["pkexec", "dnf", "autoremove", "-y"],
+                items=unused, detail="installed as dependencies, no longer required by anything",
+            ))
+        # dnf5 keeps its cache in libdnf5, dnf4 in dnf; only one exists on a given system.
+        cached = sum([await dir_size(Path(p)) for p in ("/var/cache/libdnf5", "/var/cache/dnf")])
+        if cached:
+            targets.append(target(
+                self.name, "cache", "Package and metadata cache", ["pkexec", "dnf", "clean", "all"], cached,
+                detail="downloaded packages and repo metadata; metadata is fetched again on the next check",
+            ))
+        return targets
+
     supports_repos: bool = True
 
     async def list_repos(self) -> list[dict[str, Any]]:
@@ -292,26 +351,21 @@ class DnfManager(PackageManager):
             # Skip header line if present
             start_idx = 1 if "repo id" in lines[0].lower() else 0
             for line in lines[start_idx:]:
-                import re
-                parts = re.split(r'\s{2,}', line.strip())
-                if len(parts) >= 2:
-                    # Check status column (parts[2]) or prefix
-                    enabled = True
-                    if len(parts) >= 3:
-                        status_str = parts[2].lower()
-                        if "disabled" in status_str:
-                            enabled = False
-                    elif parts[0].startswith("!"):
-                        enabled = False
-                    
-                    repo_id = parts[0].lstrip("!*")
-                    repo_name = parts[1]
-                    repos.append({
-                        "id": repo_id,
-                        "name": repo_name,
-                        "url": "",
-                        "enabled": enabled
-                    })
+                # Columns are space-padded, but a long repo id leaves a single space before the
+                # name, so split on words: ids never contain spaces, and the status is last.
+                words = line.split()
+                if len(words) < 2:
+                    continue
+                enabled = not words[0].startswith("!")
+                if words[-1].lower() in ("enabled", "disabled"):
+                    enabled = words.pop().lower() == "enabled"
+                repo_id = words[0].lstrip("!*")
+                repos.append({
+                    "id": repo_id,
+                    "name": " ".join(words[1:]) or repo_id,
+                    "url": "",
+                    "enabled": enabled
+                })
             return repos
         except DriverError:
             raise

@@ -65,6 +65,11 @@ class DartPubManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["dart", "pub", "global", "activate", package]
 
+    removes_one_at_a_time = True
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["dart", "pub", "global", "deactivate", packages[0]]
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # pub.dev has a documented search API (unlike PyPI) — use it directly.
         try:

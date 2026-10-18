@@ -69,6 +69,9 @@ class PoetryManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["poetry", "self", "add", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["poetry", "self", "remove"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # Poetry plugins are just PyPI packages tagged appropriately — reuse
         # the same local-index approach as pipx.py rather than duplicating it.

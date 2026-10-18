@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tray, updates waiting: the Confluence mark (polyget-symbolic.svg) plus a dot in the panel's
+     highlight colour, clear of the arrowhead by at least 1px at 16px. Fills only; drawn on a 128
+     grid, shown at 16. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="16" height="16">
+  <style id="current-color-scheme">.ColorScheme-Text { color: #232629; } .ColorScheme-Highlight { color: #3daee9; }</style>
+  <g class="ColorScheme-Text"><path fill="currentColor" d="M33.56,122.54 L64.72,86.54 A10.0,10.0 0 0 0 49.60,73.46 L18.44,109.46 A10.0,10.0 0 0 0 33.56,122.54 Z M74.00,116.00 L74.00,80.00 A10.0,10.0 0 0 0 54.00,80.00 L54.00,116.00 A10.0,10.0 0 0 0 74.00,116.00 Z M109.56,109.46 L78.40,73.46 A10.0,10.0 0 0 0 63.28,86.54 L94.44,122.54 A10.0,10.0 0 0 0 109.56,109.46 Z"/><path fill="currentColor" d="M64,5 L117,60 Q119,63 115,63 L13,63 Q9,63 11,60 Z"/></g>
+  <circle class="ColorScheme-Highlight accent" fill="currentColor" cx="110" cy="18" r="17"/>
+</svg>

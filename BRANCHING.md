@@ -14,10 +14,9 @@ Neither beta overwrites `master`, and neither overwrites the other.
 
 ## Who owns what
 
-- **`master` is co-owned, and protected on GitHub** (enabled 2026-10-17): it requires a **pull request**, enforced for admins too,
-  with no force-push and no deletion. Either machine advances it only by getting a PR merged, never by pushing to it, following
-  "Promoting a beta change to `master`" below, only after `scripts/repo-check.sh --promoting --peer <other machine>` is clean and
-  the user has approved. Tell the other machine afterwards; its next repo check will show that `master` moved.
+- **`master` is co-owned.** Either machine may advance it, but only by following "Promoting a beta change to `master`" below,
+  by fast-forward or merge, never by force, and only after `scripts/repo-check.sh --promoting --peer <other machine>` is clean.
+  Tell the other machine afterwards; its next repo check will show that `master` moved.
 - **Each beta branch has exactly one owner.** `CachyOS/BETA-FEATURES` is written only from the CachyOS desktop and
   `Asahi/BETA-FEATURES` only from the Asahi laptop. Read the other machine's beta freely; never write to it.
 
@@ -131,20 +130,19 @@ builds, add only facts you verified on your own hardware, and use tests that fak
 
 ## Guarding `master` (optional speed bump, on either machine)
 
-`master` is protected (a PR is required), so GitHub rejects a direct push to it. `scripts/git-hooks/pre-push` is an optional local
-reminder that fails earlier and says why. Hooks are not versioned, so install it per clone on any machine that wants it:
+`master` is co-owned, so pushing it is allowed, but it should be deliberate. `scripts/git-hooks/pre-push` makes it so. Hooks are not
+versioned, so install it per clone on any machine that wants it:
 
 ```bash
 cp scripts/git-hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 ```
 
 - Without an override, a push to `master` is refused and the hook explains the steps.
-- The override `git -c polyget.allowMasterPush=true push origin master` still runs `scripts/repo-check.sh --promoting` and
-  **refuses on an ALERT**, but GitHub rejects the push itself while the protection is on.
+- A deliberate push: `git -c polyget.allowMasterPush=true push origin master`. The override still runs
+  `scripts/repo-check.sh --promoting` and **refuses on an ALERT**.
 - The hook **fails closed**: if `scripts/repo-check.sh` is not in the checkout (for example `master` predates it), the push is
   refused rather than silently unchecked. Push with `--no-verify` only if you accept that risk.
 - Git itself already refuses an ordinary non-fast-forward push before any hook runs. The hook's check matters most for **forced**
   pushes, which skip that protection.
-- The server-side rule exists: GitHub branch protection requires a PR for `master`, enforced for admins, with 0 required approvals
-  (a solo owner cannot approve their own PR). It covers accidents from any tool. To relax it:
-  `gh api -X DELETE repos/DaRipper91/PolyGet/branches/master/protection`.
+- A server-side rule (GitHub branch protection requiring a PR for `master`) is the only guard that also covers accidents from other
+  tools. It is a setting on the remote and has not been enabled.

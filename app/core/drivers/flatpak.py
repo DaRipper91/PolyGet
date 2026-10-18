@@ -1,7 +1,9 @@
 import asyncio
 import shutil
+from pathlib import Path
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.janitor import dir_size, target
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
 @register_manager
@@ -36,6 +38,11 @@ class FlatpakManager(PackageManager):
                     stderr=asyncio.subprocess.PIPE
                 )
                 list_stdout, _ = await asyncio.wait_for(list_proc.communicate(), timeout=8.0)
+                if list_proc.returncode != 0:
+                    raise DriverError(
+                        f"{self.name} installed-package query failed: "
+                        f"`flatpak list` exited with status {list_proc.returncode}"
+                    )
                 if list_stdout:
                     import json
                     installed_data = json.loads(list_stdout.decode(errors="ignore"))
@@ -45,7 +52,7 @@ class FlatpakManager(PackageManager):
                             # Use version, fallback to branch, then default to "Installed"
                             version = pkg.get("version") or pkg.get("branch") or "Installed"
                             commit = pkg.get("active_commit") or ""
-                            
+
                             # Parse alt-id from options (crucial for OCI registries like Fedora's)
                             alt_id = ""
                             options = pkg.get("options") or ""
@@ -64,7 +71,9 @@ class FlatpakManager(PackageManager):
                     await list_proc.wait()
                 except Exception:
                     pass
-                raise RuntimeError(f"{self.name} installed-package query failed: {describe_error(e)}") from e
+                if isinstance(e, DriverError):
+                    raise
+                raise DriverError(f"{self.name} installed-package query failed: {describe_error(e)}") from e
 
             # 2. Query Flatpak for updates
             try:
@@ -73,14 +82,23 @@ class FlatpakManager(PackageManager):
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # fetches remote metadata
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)  # fetches remote metadata
+                if proc.returncode != 0:
+                    detail = stderr.decode(errors="ignore").strip().splitlines()
+                    suffix = f": {detail[-1]}" if detail else ""
+                    raise DriverError(
+                        f"{self.name} update query failed: "
+                        f"`flatpak remote-ls --updates` exited with status {proc.returncode}{suffix}"
+                    )
+            except DriverError:
+                raise
             except Exception as e:
                 try:
                     proc.kill()
                     await proc.wait()
                 except Exception:
                     pass
-                raise RuntimeError(f"{self.name} update query failed: {describe_error(e)}") from e
+                raise DriverError(f"{self.name} update query failed: {describe_error(e)}") from e
 
             if not stdout:
                 return []
@@ -100,7 +118,9 @@ class FlatpakManager(PackageManager):
 
                     # Filter out OCI registry ghost updates. If the remote commit hash matches
                     # the local alt-id, the package is actually already installed and up to date.
-                    if alt_id and remote_commit and (alt_id.startswith(remote_commit) or remote_commit.startswith(alt_id)):
+                    # Require a minimum length to avoid coincidental short-prefix matches.
+                    if alt_id and remote_commit and len(alt_id) >= 8 and len(remote_commit) >= 8 and \
+                       (alt_id.startswith(remote_commit) or remote_commit.startswith(alt_id)):
                         continue
 
                     # If version strings are the same, append commit info to make the drift distinct
@@ -117,8 +137,10 @@ class FlatpakManager(PackageManager):
                         "new": new_ver
                     })
             return updates
+        except DriverError:
+            raise
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+            raise DriverError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade packages using Flatpak.
@@ -150,8 +172,15 @@ class FlatpakManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
-            if proc.returncode != 0 or not stdout:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if proc.returncode != 0:
+                detail = stderr.decode(errors="ignore").strip().splitlines()
+                suffix = f": {detail[-1]}" if detail else ""
+                raise DriverError(
+                    f"{self.name} installed-package query failed: "
+                    f"`flatpak list` exited with status {proc.returncode}{suffix}"
+                )
+            if not stdout:
                 return []
             import json
             data = json.loads(stdout.decode(errors="ignore"))
@@ -178,8 +207,15 @@ class FlatpakManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
-            if proc.returncode != 0 or not stdout:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            if proc.returncode != 0:
+                detail = stderr.decode(errors="ignore").strip().splitlines()
+                suffix = f": {detail[-1]}" if detail else ""
+                raise DriverError(
+                    f"{self.name} installed-version query failed: "
+                    f"`flatpak list` exited with status {proc.returncode}{suffix}"
+                )
+            if not stdout:
                 return {}
             import json
             data = json.loads(stdout.decode(errors="ignore"))
@@ -205,6 +241,40 @@ class FlatpakManager(PackageManager):
             list[str]: The install command list.
         """
         return ["flatpak", "install", "-y", package]
+
+    def get_install_command_for(self, item: dict[str, Any]) -> list[str]:
+        """Install from the remote the result came from, so a second remote can't shadow it."""
+        remote = item.get("remote")
+        if remote:
+            return ["flatpak", "install", "-y", remote, item["id"]]
+        return self.get_install_command(item["id"])
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["flatpak", "uninstall", "-y"] + packages
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = [target(
+            self.name, "unused", "Unused runtimes", ["flatpak", "uninstall", "--unused", "-y"],
+            detail="runtimes and extensions no installed app uses, if any (flatpak counts them when run)",
+        )]
+        # Leftover app data (Warehouse's cleanup): ~/.var/app/<id> for apps that are gone. The
+        # installed list must load completely, or a missing entry would read as "uninstalled" and
+        # its user data would be offered for deletion.
+        data_root = Path.home() / ".var" / "app"
+        if data_root.is_dir():
+            out = await run_capture(
+                ["flatpak", "list", "--columns=application"], label=f"{self.name} installed-ID query", timeout=15.0,
+            )
+            installed = {line.strip() for line in out.splitlines() if line.strip()}
+            leftovers = sorted(d for d in data_root.iterdir() if d.is_dir() and d.name not in installed)
+            if leftovers:
+                size = sum([await dir_size(d) for d in leftovers])
+                targets.append(target(
+                    self.name, "leftover-data", "Data of uninstalled apps",
+                    ["rm", "-rf", "--"] + [str(d) for d in leftovers], size, [d.name for d in leftovers],
+                    "settings and saved data in ~/.var/app; deleting it cannot be undone",
+                ))
+        return targets
 
     supports_repos: bool = True
 

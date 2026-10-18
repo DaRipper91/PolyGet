@@ -66,7 +66,7 @@ class PipxManager(PackageManager):
             list[dict[str, Any]]: A list containing update details if found, or empty list.
 
         Raises:
-            RuntimeError: The check itself failed (command error, non-zero exit, malformed output).
+            DriverError: The check itself failed (command error, non-zero exit, malformed output).
         """
         try:
             pip_proc = await asyncio.create_subprocess_exec(
@@ -76,12 +76,12 @@ class PipxManager(PackageManager):
             )
             pip_stdout, pip_stderr = await asyncio.wait_for(pip_proc.communicate(), timeout=30.0)
         except Exception as e:
-            raise RuntimeError(f"Pipx per-package update check failed for '{name}': {describe_error(e)}") from e
+            raise DriverError(f"Pipx per-package update check failed for '{name}': {describe_error(e)}") from e
 
         if pip_proc.returncode not in (0, None):
             detail = pip_stderr.decode(errors="ignore").strip().splitlines()
             suffix = f": {detail[-1]}" if detail else ""
-            raise RuntimeError(
+            raise DriverError(
                 f"Pipx per-package update check failed for '{name}': "
                 f"`pipx runpip` exited with status {pip_proc.returncode}{suffix}"
             )
@@ -119,7 +119,15 @@ class PipxManager(PackageManager):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+
+            if proc.returncode != 0:
+                detail = stderr.decode(errors="ignore").strip().splitlines()
+                suffix = f": {detail[-1]}" if detail else ""
+                raise DriverError(
+                    f"{self.name} update check failed: "
+                    f"`pipx list --short` exited with status {proc.returncode}{suffix}"
+                )
 
             packages = []
             for line in stdout.decode(errors="ignore").splitlines():
@@ -144,8 +152,10 @@ class PipxManager(PackageManager):
             for result in results:
                 updates.extend(result)
             return updates
+        except DriverError:
+            raise
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+            raise DriverError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade all Pipx-managed applications.
@@ -235,10 +245,18 @@ class PipxManager(PackageManager):
         """
         return ["pipx", "install", package]
 
+    removes_one_at_a_time = True
+
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pipx", "uninstall", packages[0]]
+
     from pathlib import Path
     _INDEX_CACHE_PATH = Path.home() / ".cache" / "polyget" / "pypi_simple_index.json"
     _INDEX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 1 week
-    _index_lock = asyncio.Lock()
+    # One lock per event loop: GUI workers each run their own loop, and before Python 3.12 a
+    # Lock used in one loop raises in another. The atomic rename covers writers across loops.
+    import weakref
+    _index_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
 
     async def _ensure_index_cached(self) -> list[str]:
         """Download and cache the full list of PyPI package names, refreshing weekly.
@@ -273,7 +291,8 @@ class PipxManager(PackageManager):
         if cached is not None:
             return cached
 
-        async with self._index_lock:
+        lock = self._index_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+        async with lock:
             # Re-check after acquiring the lock: another concurrent caller may have
             # already refreshed the cache while this one was waiting.
             cached = _read_cache_if_fresh()

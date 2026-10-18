@@ -82,3 +82,75 @@ def test_pacman_search_packages():
         assert results[1]["name"] == "gimp"
 
     asyncio.run(run_test())
+
+
+def test_pacman_check_updates_with_checkupdates_success():
+    manager = PacmanManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate.return_value = (
+            b"bazaar 0.9.8-1.1 -> 0.9.9-1.1\n"
+            b"deno 2.9.7-1.1 -> 2.9.7-2.1\n",
+            b""
+        )
+        with patch("shutil.which", return_value="/usr/bin/checkupdates"), \
+                patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            updates = await manager.check_updates()
+            mock_exec.assert_called_once_with(
+                "checkupdates",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+
+        assert len(updates) == 2
+        assert updates[0] == {"name": "bazaar", "current": "0.9.8-1.1", "new": "0.9.9-1.1"}
+        assert updates[1] == {"name": "deno", "current": "2.9.7-1.1", "new": "2.9.7-2.1"}
+
+    asyncio.run(run_test())
+
+
+def test_pacman_check_updates_with_checkupdates_none():
+    manager = PacmanManager()
+
+    async def run_test():
+        mock_proc = AsyncMock()
+        # checkupdates returns exit code 2 when there are no updates
+        mock_proc.returncode = 2
+        mock_proc.communicate.return_value = (b"", b"")
+        with patch("shutil.which", return_value="/usr/bin/checkupdates"), \
+                patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            updates = await manager.check_updates()
+            mock_exec.assert_called_once_with(
+                "checkupdates",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+
+        assert updates == []
+
+    asyncio.run(run_test())
+
+
+def test_pacman_check_updates_with_checkupdates_fallback():
+    manager = PacmanManager()
+
+    async def run_test():
+        mock_checkupdates = AsyncMock()
+        mock_checkupdates.returncode = 1
+        mock_checkupdates.communicate.return_value = (b"", b"network error")
+
+        mock_pacman = AsyncMock()
+        mock_pacman.returncode = 0
+        mock_pacman.communicate.return_value = (b"systemd 252 -> 253\n", b"")
+
+        calls = [mock_checkupdates, mock_pacman]
+
+        with patch("shutil.which", return_value="/usr/bin/checkupdates"), \
+                patch("asyncio.create_subprocess_exec", side_effect=calls) as mock_exec:
+            updates = await manager.check_updates()
+            assert mock_exec.call_count == 2
+
+        assert len(updates) == 1
+        assert updates[0] == {"name": "systemd", "current": "252", "new": "253"}
+
+    asyncio.run(run_test())

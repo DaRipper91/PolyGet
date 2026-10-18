@@ -30,10 +30,12 @@ few seconds; focus with `tests/test_<area>.py` while iterating).
 drives the same driver layer as the GUI, with no Qt import. Prefer it over ad-hoc
 `python -c "import asyncio; ..."` snippets when you need to see what a driver actually returns.
 
-- Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `audit`, `repos`,
+- Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `review -m aur PKG`, `audit`, `repos`,
   `history`, `catalog`, `ignore list`. All accept `-m/--manager NAME` (repeatable,
-  case-insensitive).
-- Mutating: `upgrade`, `install`, `sync` **only print the planned commands** unless `--yes` is
+  case-insensitive). `needs-restart` reports whether installed updates need a reboot.
+- Config: `hooks list|add|remove` — argv commands run before/after `upgrade`/`remove`
+  (`polyget hooks add pre -m pacman -- CMD ARGS`); a failed pre-hook stops the operation.
+- Mutating: `upgrade`, `install`, `remove`, `clean`, `sync` **only print the planned commands** unless `--yes` is
   passed. Never pass `--yes` on your own initiative; show the plan and let the user run it.
   System managers (DNF/Pacman/APT) use `pkexec`, which fails without a TTY/polkit agent, so the
   user should run those themselves via `! polyget upgrade -m dnf --yes`.

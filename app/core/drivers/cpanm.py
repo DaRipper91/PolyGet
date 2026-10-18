@@ -62,6 +62,9 @@ class CpanmManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return ["cpanm", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["cpanm", "--uninstall", "--force"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # MetaCPAN has a real, documented public search API — use it directly.
         try:

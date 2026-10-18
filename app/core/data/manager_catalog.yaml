@@ -420,3 +420,53 @@
   has_driver: true
   self_install:
     arch: ["pkexec", "pacman", "-S", "--noconfirm", "conda"]
+
+# Firmware is not packages, but it is the one thing every comparable updater (GNOME Software,
+# Discover, Topgrade) covers that PolyGet didn't. Apple Silicon firmware is not on the LVFS, so on
+# Asahi this only reaches fwupd-supported peripherals.
+- id: fwupd
+  name: Firmware
+  category: System
+  description: Device firmware (UEFI, SSDs, docks, peripherals) from the LVFS via fwupd.
+  icon: drive-harddisk
+  binary: fwupdmgr
+  has_driver: true
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "fwupd"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "fwupd"]
+    debian: ["pkexec", "apt-get", "install", "-y", "fwupd"]
+
+# Rustup is usually installed with its curl-piped script (not expressible as a safe argv); the
+# distro packages below are the safe alternative.
+- id: rustup
+  name: Rustup
+  category: Language/Dev
+  description: Rust toolchains (stable, nightly, pinned versions) managed by rustup.
+  icon: text-x-generic
+  binary: rustup
+  has_driver: true
+  verified_on: [x86_64]
+  self_install:
+    fedora: ["pkexec", "dnf", "install", "-y", "rustup"]
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "rustup"]
+
+- id: mise
+  name: Mise
+  category: Language/Dev
+  description: Polyglot runtime and tool version manager (node, python, go, ...); the asdf successor.
+  icon: text-x-generic
+  binary: mise
+  has_driver: true
+  self_install:
+    arch: ["pkexec", "pacman", "-S", "--noconfirm", "mise"]
+
+# Fisher itself is a fish function installed from fish (curl-piped), so there is no argv to offer;
+# the binary checked is fish, and the driver additionally requires fisher.fish to be present.
+- id: fisher
+  name: Fisher
+  category: Language/Dev
+  description: Plugin manager for the fish shell.
+  icon: utilities-terminal
+  binary: fish
+  has_driver: true
+  self_install: {}

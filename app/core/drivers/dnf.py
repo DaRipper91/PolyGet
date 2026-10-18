@@ -1,11 +1,16 @@
 import asyncio
 import shutil
+from pathlib import Path
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.janitor import dir_size, target
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 from app.core.settings_store import get_settings
 
 # Any dnf call may first refresh expired repo metadata, which routinely takes well over 15s.
 DNF_TIMEOUT = 120.0
+
+
+_ARCHES = {"x86_64", "aarch64", "noarch", "i686", "armv7hl", "ppc64le", "s390x"}
 
 
 @register_manager
@@ -253,6 +258,58 @@ class DnfManager(PackageManager):
         """
         return ["pkexec", "dnf", "install", "-y", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return ["pkexec", "dnf", "remove", "-y"] + packages
+
+    @staticmethod
+    def _parse_removal_transaction(output: str) -> list[str]:
+        """Package names from the "Removing:" sections of a dnf (4 or 5) transaction table."""
+        names, in_section = [], False
+        for line in output.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Transaction Summary"):
+                break
+            if stripped.endswith(":") and not line.startswith(" "):
+                # Section headers: "Removing:", "Removing unused dependencies:", "Removing dependent packages:".
+                in_section = stripped.startswith("Removing")
+            elif in_section and line.startswith(" ") and stripped:
+                first = stripped.split()[0]
+                # dnf4 wraps a long name onto its own line; the continuation starts with the arch.
+                if first not in _ARCHES:
+                    names.append(first)
+        return names
+
+    async def preview_remove(self, packages: list[str]) -> list[str]:
+        # --assumeno resolves the transaction and then declines it, exiting 1 by design.
+        out = await run_capture(
+            ["dnf", "remove", "--assumeno"] + packages,
+            label=f"{self.name} removal preview", timeout=60.0, ok_codes=(0, 1),
+        )
+        names = self._parse_removal_transaction(out)
+        if not names:
+            raise DriverError(f"{self.name} removal preview found nothing to remove — are these packages installed?")
+        return names
+
+    async def get_cleanup_targets(self) -> list[dict[str, Any]]:
+        targets = []
+        out = await run_capture(
+            ["dnf", "autoremove", "--assumeno"], label=f"{self.name} autoremove query", timeout=60.0, ok_codes=(0, 1),
+        )
+        unused = self._parse_removal_transaction(out)
+        if unused:
+            targets.append(target(
+                self.name, "orphans", "Unused dependencies", ["pkexec", "dnf", "autoremove", "-y"],
+                items=unused, detail="installed as dependencies, no longer required by anything",
+            ))
+        # dnf5 keeps its cache in libdnf5, dnf4 in dnf; only one exists on a given system.
+        cached = sum([await dir_size(Path(p)) for p in ("/var/cache/libdnf5", "/var/cache/dnf")])
+        if cached:
+            targets.append(target(
+                self.name, "cache", "Package and metadata cache", ["pkexec", "dnf", "clean", "all"], cached,
+                detail="downloaded packages and repo metadata; metadata is fetched again on the next check",
+            ))
+        return targets
+
     supports_repos: bool = True
 
     async def list_repos(self) -> list[dict[str, Any]]:
@@ -291,7 +348,7 @@ class DnfManager(PackageManager):
                     enabled = True
                     if len(parts) >= 3:
                         status_str = parts[2].lower()
-                        if "disabled" in status_str:
+                        if status_str == "disabled":
                             enabled = False
                     elif parts[0].startswith("!"):
                         enabled = False

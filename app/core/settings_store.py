@@ -67,11 +67,30 @@ class SettingsStore:
                 "scan_on_launch": True,
                 "confirm_commands": True,  # show the exact command before PolyGet runs it
                 "touch_mode": False,
+                "sidebar_header": "banner",  # banner | brand | status (see app/ui/sidebar.py)
+                "sidebar_nav": "list",  # list | grouped | rail
+                "theme": "mocha",  # a key of app/ui/themes.THEMES, or "system"
+                "theme_dark": "mocha",  # used by "system" when the desktop is dark
+                "theme_light": "latte",  # ... and when it's light
+                "accent": None,  # None = the theme's own; else an ACCENT_ROLES name
             },
             "tray": {
                 "enabled": False,  # tray icon, close-to-tray, and background scans
                 "scan_interval_hours": 6,  # 0 = no background scans
                 "notify": True,
+            },
+            "notify": {
+                # "every" | "digest" | "off". Unset means: follow the older tray.notify switch.
+                "new_updates": None,
+                "digest_hour": 8,
+                "only_major": False,
+                "finished": True,   # upgrade done/progress, only when the window isn't in front
+                "password": True,   # an upgrade may be waiting on a password prompt
+                "failures": True,
+                "restart": True,  # an upgrade needs a reboot to finish
+                "quiet_hours": False,  # hold background notifications between these hours
+                "quiet_start": 22,
+                "quiet_end": 8,
             },
         }
 

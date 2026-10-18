@@ -38,6 +38,7 @@ def test_pipx_check_updates():
         manager = PipxManager()
 
         mock_pipx_list_proc = AsyncMock()
+        mock_pipx_list_proc.returncode = 0
         mock_pipx_list_proc.communicate.return_value = (b"package1 1.0.0\npackage2 2.0.0\n", b"")
 
         mock_pip_proc1 = AsyncMock()

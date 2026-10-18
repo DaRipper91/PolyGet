@@ -85,6 +85,9 @@ class HomebrewManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return [_brew(), "install", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return [_brew(), "uninstall"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # Exit 1 means "no matches". Off a TTY brew prints one name per line under "==> Formulae"
         # / "==> Casks" headings. `--desc` is avoided: it matches descriptions only, not names.

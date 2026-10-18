@@ -60,6 +60,9 @@ class CondaManager(PackageManager):
     def get_install_command(self, package: str) -> list[str]:
         return [_conda(), "install", "-y", package]
 
+    def get_remove_command(self, packages: list[str]) -> list[str]:
+        return [_conda(), "remove", "-y"] + packages
+
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         label = f"{self.name} search"
         # Exit 1 with a JSON error body means "no matches" (PackagesNotFoundError).

@@ -44,6 +44,7 @@ def test_installer_bakes_the_checkouts_real_paths_into_the_launcher(fake_checkou
     assert f"TryExec={repo}/.venv/bin/python" in entry
     assert "/path/to/PolyGet" not in entry
     assert (home / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "polyget.svg").is_file()
+    assert (home / ".local" / "share" / "icons" / "hicolor" / "symbolic" / "apps" / "polyget-symbolic.svg").is_file()
 
 
 def test_installer_refuses_without_a_venv_interpreter(fake_checkout):

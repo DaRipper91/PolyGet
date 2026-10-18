@@ -141,8 +141,8 @@ class UvManager(PackageManager):
         size = await dir_size(Path(cache)) if cache else 0
         if not size:
             return []
-        return [target(self.name, "cache", "Package cache", ["uv", "cache", "clean"], size,
-                       detail="wheels and sources uv downloads again on demand")]
+        return [target(self.name, "cache", "Package cache", ["uv", "cache", "prune"], size,
+                       detail="prunes unreferenced wheels, sources, and cached metadata")]
 
     def get_install_command(self, package: str) -> list[str]:
         return ["uv", "tool", "install", package]

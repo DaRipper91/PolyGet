@@ -32,20 +32,38 @@ class PacmanManager(PackageManager):
 
     async def check_updates(self) -> list[dict[str, Any]]:
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "pacman", "-Qu",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
-            # pacman -Qu returns 1 when there are no updates, not just when there's an error —
-            # only treat it as a real failure if stdout is also empty.
-            if proc.returncode not in (0, 1):
-                raise RuntimeError("pacman update check failed")
-            if not stdout:
+            stdout_text = None
+            if shutil.which("checkupdates"):
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        "checkupdates",
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+                    if proc.returncode == 0:
+                        stdout_text = stdout.decode(errors="ignore")
+                    elif proc.returncode == 2:
+                        return []
+                except Exception:
+                    stdout_text = None
+
+            if stdout_text is None:
+                proc = await asyncio.create_subprocess_exec(
+                    "pacman", "-Qu",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
+                # pacman -Qu returns 1 when there are no updates, not just when there's an error —
+                # only treat it as a real failure if stdout is also empty.
+                if proc.returncode not in (0, 1):
+                    raise RuntimeError("pacman update check failed")
+                stdout_text = stdout.decode(errors="ignore") if stdout else ""
+
+            if not stdout_text.strip():
                 return []
 
             updates = []
-            for line in stdout.decode(errors="ignore").splitlines():
+            for line in stdout_text.splitlines():
                 # Format: "pkgname old_version -> new_version" (optionally with "[ignored]" suffix)
                 parts = line.split()
                 if len(parts) >= 4 and parts[2] == "->":
@@ -147,7 +165,7 @@ class PacmanManager(PackageManager):
             sizes = [_to_bytes(line) for line in info.splitlines() if line.startswith("Installed Size")]
             targets.append(target(
                 self.name, "orphans", "Orphaned dependencies",
-                ["pkexec", "pacman", "-Rns", "--noconfirm"] + orphans,
+                ["pkexec", "pacman", "-Rn", "--noconfirm"] + orphans,
                 sum(s for s in sizes if s) if sizes else None, orphans,
                 "installed as dependencies, no longer required by anything",
             ))

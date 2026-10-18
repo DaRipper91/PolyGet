@@ -27,7 +27,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "remove", "review", "clean", "sync", "history", "ignore", "projects", "catalog", "newest", "needs-restart", "system",
+    "upgrade", "install", "remove", "review", "clean", "hooks", "sync", "history", "ignore", "projects", "catalog", "newest", "needs-restart", "system",
     "self-version", "debug",
 )
 
@@ -138,6 +138,20 @@ def _run_command(cmd: list[str], args: argparse.Namespace) -> int:
     return proc.returncode
 
 
+def _with_hooks(steps: list[dict[str, Any]], operation: str) -> list[dict[str, Any]]:
+    """Surround an operation's steps with the user's matching pre/post hooks."""
+    if not steps:
+        return steps
+    from app.core.hooks import hooks_for
+    names = sorted({s["manager"] for s in steps})
+
+    def as_steps(when: str) -> list[dict[str, Any]]:
+        return [{"manager": f"hook:{when}", "hook": when, "command": h["command"]}
+                for h in hooks_for(when, operation, names)]
+
+    return as_steps("pre") + steps + as_steps("post")
+
+
 def _plan_or_execute(
     args: argparse.Namespace,
     steps: list[dict[str, Any]],
@@ -163,7 +177,13 @@ def _plan_or_execute(
         return EXIT_OK
 
     failed = False
+    aborted_by = None
     for step in steps:
+        if aborted_by is not None:
+            # A failed pre-hook (e.g. the snapshot didn't happen) stops everything after it.
+            step.update(returncode=None, success=False, skipped=f"pre-hook failed: {shlex.join(aborted_by)}")
+            failed = True
+            continue
         code = _run_command(step["command"], args)
         step["returncode"] = code
         step["success"] = code == 0
@@ -177,6 +197,10 @@ def _plan_or_execute(
                 _log(f"! {step['manager']}: could not verify the {action}: {describe_error(e)}")
             step["success"] = not step.get(leftover_key)
         failed |= not step["success"]
+        if step.get("hook") == "pre" and not step["success"]:
+            aborted_by = step["command"]
+        if step.get("hook"):
+            continue
         if record and action == "remove":
             from app.core.history_store import record_removal
             record_removal(
@@ -191,7 +215,8 @@ def _plan_or_execute(
             )
 
     human = "\n".join(
-        f"{'ok  ' if s['success'] else 'FAIL'} [{s['manager']}] exit {s['returncode']}"
+        (f"SKIP [{s['manager']}] {s['skipped']}" if s.get("skipped") else
+         f"{'ok  ' if s['success'] else 'FAIL'} [{s['manager']}] exit {s['returncode']}")
         + (f", still outdated: {', '.join(s['not_upgraded'])}" if s.get("not_upgraded") else "")
         + (f", still installed: {', '.join(s['not_removed'])}" if s.get("not_removed") else "")
         for s in steps
@@ -384,7 +409,7 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
             continue
         steps.append({"manager": name, "packages": pkgs, "command": command})
         _review_hint(args, by_name[name], pkgs)
-    code = _plan_or_execute(args, steps, record=True, verify=by_name)
+    code = _plan_or_execute(args, _with_hooks(steps, "upgrade"), record=True, verify=by_name)
     if args.yes and steps:
         _restart_hint()
     return EXIT_FAILED if scan_failed or build_failed else code
@@ -479,7 +504,7 @@ def cmd_remove(args: argparse.Namespace) -> int:
         steps[0]["would_remove"] = would_remove
         if extra:
             _log(f"{mgr.name} would also remove {len(extra)} dependent package(s): {', '.join(extra)}")
-    return _plan_or_execute(args, steps, record=True, verify={mgr.name: mgr}, action="remove")
+    return _plan_or_execute(args, _with_hooks(steps, "remove"), record=True, verify={mgr.name: mgr}, action="remove")
 
 
 def cmd_clean(args: argparse.Namespace) -> int:
@@ -508,6 +533,33 @@ def cmd_clean(args: argparse.Namespace) -> int:
 
     code = _plan_or_execute(args, [dict(t) for t in targets])
     return EXIT_FAILED if errors else code
+
+
+def cmd_hooks(args: argparse.Namespace) -> int:
+    from app.core import hooks
+
+    if args.action == "add":
+        if args.when not in hooks.WHEN or not args.hook_command:
+            raise UsageError("usage: polyget hooks add pre|post [-m MANAGER]... [--on upgrade|remove] -- COMMAND [ARGS...]")
+        try:
+            hook = hooks.add_hook(args.when, args.hook_command, args.manager, args.on)
+        except ValueError as e:
+            raise UsageError(str(e)) from e
+        _emit(args, hook, f"Added {hook['when']}-hook: {shlex.join(hook['command'])}")
+        return EXIT_OK
+    if args.action == "remove":
+        try:
+            removed = hooks.remove_hook(int(args.when or "0") - 1)
+        except (ValueError, IndexError) as e:
+            raise UsageError(f"hooks remove needs a number from `polyget hooks list` ({e})") from e
+        _emit(args, removed, f"Removed {removed['when']}-hook: {shlex.join(removed['command'])}")
+        return EXIT_OK
+    listed = hooks.load_hooks()
+    rows = [{"#": i + 1, "when": h["when"], "on": ",".join(h.get("on", [])),
+             "managers": ",".join(h.get("managers") or []) or "(all)", "command": shlex.join(h["command"])}
+            for i, h in enumerate(listed)]
+    _emit(args, listed, _table(rows, ["#", "when", "on", "managers", "command"]))
+    return EXIT_OK
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -757,6 +809,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--only", action="append", metavar="TARGET",
                    help="limit to a target id (e.g. cache) or manager:id (e.g. pacman:orphans); repeatable")
     confirm(p)
+
+    p = add("hooks", cmd_hooks, "commands to run before/after upgrades and removals (e.g. a snapshot)")
+    p.add_argument("action", choices=["list", "add", "remove"], nargs="?", default="list")
+    p.add_argument("when", nargs="?", help="add: pre or post; remove: the hook's number from `list`")
+    p.add_argument("hook_command", nargs="*", help="add: the command, after -- so its own flags aren't read as polyget's")
+    p.add_argument("-m", "--manager", action="append", help="add: only when this manager is involved (repeatable)")
+    p.add_argument("--on", action="append", choices=["upgrade", "remove"], help="add: only for this operation")
 
     p = add("sync", cmd_sync, "refresh repository metadata")
     manager_filter(p)

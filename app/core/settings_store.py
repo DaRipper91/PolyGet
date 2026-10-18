@@ -69,6 +69,10 @@ class SettingsStore:
                 "touch_mode": False,
                 "sidebar_header": "banner",  # banner | brand | status (see app/ui/sidebar.py)
                 "sidebar_nav": "list",  # list | grouped | rail
+                "theme": "mocha",  # a key of app/ui/themes.THEMES, or "system"
+                "theme_dark": "mocha",  # used by "system" when the desktop is dark
+                "theme_light": "latte",  # ... and when it's light
+                "accent": None,  # None = the theme's own; else an ACCENT_ROLES name
             },
             "tray": {
                 "enabled": False,  # tray icon, close-to-tray, and background scans

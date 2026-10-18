@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 from PySide6.QtCore import Qt, QThread, Signal, Slot, QSize, QUrl, QSettings, QTimer
-from PySide6.QtGui import QIcon, QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QDesktopServices, QPixmap, QColor, QKeySequence, QShortcut
 from dataclasses import dataclass, field
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QListWidget, QListWidgetItem,
@@ -26,6 +26,7 @@ from app.core.sudo_secret import load as load_sudo_password
 from app.core.debug_log import debug_log
 from app.ui.updates_view import ManagerGroupHeader, SelectionBar
 from app.ui.review_dialog import BuildScriptDialog, BuildScriptWorker, has_build_scripts
+from app.ui import theme_qt, themes
 from app.ui.sidebar import (
     DEFAULT_HEADER_STYLE, DEFAULT_NAV_STYLE, HEADER_STYLES, NAV_STYLES, BannerHeader,
     BrandHeader, GroupedNav, NavEntry, RailNav, StatusCard,
@@ -1107,9 +1108,15 @@ class MainWindow(QMainWindow):
         self.notified_updates: set[tuple[str, str, str]] = set()
         self.really_quit = False
 
+        # Theme before any widget exists, so each is styled in the right colours from the start.
+        self.theme_filter = theme_qt.install()
+        self._select_theme()
         self.setup_ui()
         self.apply_touch_mode()
         self.apply_sidebar_style()
+        hints = QApplication.styleHints()
+        if hasattr(hints, "colorSchemeChanged"):
+            hints.colorSchemeChanged.connect(self._on_system_scheme_changed)
         self.restore_window_state()
         # Keeps the status card's "Checked N min ago" current between scans.
         self.sidebar_clock = QTimer(self)
@@ -2425,6 +2432,31 @@ class MainWindow(QMainWindow):
         for view in (self.nav_grouped, self.nav_rail):
             view.set_badge(PAGE_VERSION_CHECK, str(count) if count > 0 else "", style)
 
+    def _select_theme(self) -> None:
+        """Make the Settings theme (resolving "Follow system") the active one."""
+        from app.core.settings_store import get_settings
+        settings = get_settings()
+        key = themes.resolve(settings.get("ui.theme", themes.DEFAULT_THEME), theme_qt.system_is_dark(),
+                             settings.get("ui.theme_dark", themes.DEFAULT_DARK),
+                             settings.get("ui.theme_light", themes.DEFAULT_LIGHT))
+        themes.set_active(key, settings.get("ui.accent"))
+
+    def apply_appearance(self) -> None:
+        """Switch theme/accent live: restyle the window, every existing widget, and the lists."""
+        self._select_theme()
+        self.apply_touch_mode()  # re-applies the main stylesheet (and rebuilds the update list)
+        self.theme_filter.retheme_all()
+        self.refresh_sidebar_status()
+        self.apply_window_icon()
+
+    def apply_window_icon(self) -> None:
+        """Hook for the theme-tinted window icon (filled in by the icon work)."""
+
+    def _on_system_scheme_changed(self, *_args) -> None:
+        from app.core.settings_store import get_settings
+        if get_settings().get("ui.theme", themes.DEFAULT_THEME) == themes.SYSTEM:
+            self.apply_appearance()
+
     def _sync_nav_views(self, page: int) -> None:
         """Mirror nav_list's current row onto the grouped and rail views."""
         for view in (self.nav_grouped, self.nav_rail):
@@ -2752,6 +2784,54 @@ class MainWindow(QMainWindow):
         font_layout.addWidget(font_spin)
         font_layout.addStretch()
         layout.addWidget(font_row)
+
+        heading("Theme", "Colours for the whole window (and the TUI next time it starts). "
+                "Changes apply right away.")
+        appearance_combos: dict[str, QComboBox] = {}
+
+        def choice_row(text: str, key: str, options: list[tuple[str, Any]], default: Any) -> QComboBox:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            label = QLabel(text)
+            label.setMinimumWidth(self._px(110))
+            row_layout.addWidget(label)
+            combo = QComboBox()
+            combo.setAccessibleName(text)
+            for option_label, value in options:
+                combo.addItem(option_label, value)
+            index = combo.findData(settings.get(key, default))
+            combo.setCurrentIndex(index if index >= 0 else max(combo.findData(default), 0))
+            combo.currentIndexChanged.connect(
+                lambda _i, c=combo, k=key: (settings.set(k, c.currentData()), sync_appearance(),
+                                            self.apply_appearance()))
+            row_layout.addWidget(combo)
+            row_layout.addStretch()
+            layout.addWidget(row)
+            appearance_combos[key] = combo
+            return combo
+
+        dark = [(t.name, k) for k, t in themes.THEMES.items() if not t.light]
+        light = [(t.name, k) for k, t in themes.THEMES.items() if t.light]
+        choice_row("Theme", "ui.theme",
+                   [("Follow system (dark/light)", themes.SYSTEM)] + dark + [(f"{n} (light)", k) for n, k in light],
+                   themes.DEFAULT_THEME)
+        choice_row("   When dark", "ui.theme_dark", dark + light, themes.DEFAULT_DARK)
+        choice_row("   When light", "ui.theme_light", light + dark, themes.DEFAULT_LIGHT)
+        accent_combo = choice_row("Accent", "ui.accent",
+                                  [("Theme default", None)] + [(r.capitalize(), r) for r in themes.ACCENT_ROLES if r != "blue"],
+                                  None)
+        for i in range(1, accent_combo.count()):
+            role = accent_combo.itemData(i)
+            swatch = QPixmap(14, 14)
+            swatch.fill(QColor(themes.active().theme.roles[role]))
+            accent_combo.setItemIcon(i, QIcon(swatch))
+
+        def sync_appearance() -> None:
+            follow = appearance_combos["ui.theme"].currentData() == themes.SYSTEM
+            for key in ("ui.theme_dark", "ui.theme_light"):
+                appearance_combos[key].parentWidget().setVisible(follow)
+        sync_appearance()
 
         heading("Sidebar", "How the sidebar's header and page list look. Changes apply right away.")
 
@@ -3115,7 +3195,7 @@ class MainWindow(QMainWindow):
         }
         
         prefix = text[0] if text else ""
-        color = color_map.get(prefix, "#cdd6f4") # default text color
+        color = themes.themed(color_map.get(prefix, "#cdd6f4"))  # default text color
         
         # Escape HTML characters to prevent breaking layout
         import html
@@ -4567,7 +4647,8 @@ class MainWindow(QMainWindow):
         self.apply_theme()
         touch = self.touch_mode
         if touch:
-            self.setStyleSheet(self.styleSheet() + _TOUCH_QSS)
+            # Append to the Mocha source, not the themed output, so colours are mapped once.
+            self.setStyleSheet((self.property("_polyget_qss_src") or self.styleSheet()) + _TOUCH_QSS)
             # Wider sidebar so the fatter scrollbar doesn't clip the nav labels.
             sizes = self.main_splitter.sizes()
             if sizes and sizes[0] < 300 and self.sidebar_nav_style != "rail":

@@ -275,11 +275,24 @@ def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
     return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
 
 
+def themed_tui_css() -> str:
+    """tui.tcss in the theme chosen in Settings (the GUI's theme; "Follow system" picks the
+    dark one, since a terminal has no colour-scheme signal)."""
+    from pathlib import Path
+    from app.ui import themes
+    settings = get_settings()
+    key = themes.resolve(settings.get("ui.theme", themes.DEFAULT_THEME), True,
+                         settings.get("ui.theme_dark", themes.DEFAULT_DARK),
+                         settings.get("ui.theme_light", themes.DEFAULT_LIGHT))
+    active = themes.set_active(key, settings.get("ui.accent"))
+    return themes.themed((Path(__file__).parent / "tui.tcss").read_text(encoding="utf-8"), active, force=True)
+
+
 class PolyGetTuiApp(App[None]):
     """PolyGet TUI Application."""
 
     TITLE = "PolyGet"
-    CSS_PATH = "tui.tcss"
+    CSS = ""  # filled from tui.tcss in __init__, recoloured for the chosen theme
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("space", "toggle_select", "Toggle Select"),
@@ -294,6 +307,7 @@ class PolyGetTuiApp(App[None]):
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the PolyGetTuiApp, discover available managers, and set up state."""
+        type(self).CSS = themed_tui_css()
         super().__init__(**kwargs)
         from app.core.settings_store import get_settings
         disabled = set(get_settings().disabled_managers())

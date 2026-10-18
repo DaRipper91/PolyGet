@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
+from app.ui.themes import themed
+
 HEADER_STYLES = {
     "banner": "Classic banner",
     "brand": "Name and system info",
@@ -293,7 +295,7 @@ class StatusCard(QFrame):
             self._bar_layout.addWidget(segment, n)
         self.bar.setVisible(bool(pending))
         self.legend.setText("   ".join(
-            f'<span style="color: {manager_tone(name)};">●</span> {name} {n}'
+            f'<span style="color: {themed(manager_tone(name))};">●</span> {name} {n}'
             for name, n in pending.items()))
         self.legend.setVisible(bool(pending))
 

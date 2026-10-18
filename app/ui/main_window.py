@@ -2712,7 +2712,7 @@ class MainWindow(QMainWindow):
         def entries(rows: list[tuple[str, Any]], empty: str, remove) -> None:
             if not rows:
                 lbl = QLabel(empty)
-                lbl.setStyleSheet("color: #6c7086; font-style: italic;")
+                lbl.setStyleSheet("color: #a6adc8; font-style: italic;")
                 layout.addWidget(lbl)
             for text, key in rows:
                 row = QWidget()
@@ -2808,7 +2808,7 @@ class MainWindow(QMainWindow):
             "Saved password: yes" if has_pw else "No saved password (keyring unavailable or none stored)."
         )
         lbl_pw_status.setObjectName("sudo-pw-status")
-        lbl_pw_status.setStyleSheet("color: #6c7086; font-size: 11px;")
+        lbl_pw_status.setStyleSheet("color: #a6adc8; font-size: 11px;")
         layout.addWidget(lbl_pw_status)
 
         heading("Debug",
@@ -2825,7 +2825,7 @@ class MainWindow(QMainWindow):
         debug_box.stateChanged.connect(_toggle_debug)
         layout.addWidget(debug_box)
         lbl_debug_path = QLabel(f"Log file: {_dl_mod.debug_log.log_path}")
-        lbl_debug_path.setStyleSheet("color: #6c7086; font-size: 11px;")
+        lbl_debug_path.setStyleSheet("color: #a6adc8; font-size: 11px;")
         layout.addWidget(lbl_debug_path)
 
         heading("Tray & background checks",

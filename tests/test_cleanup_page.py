@@ -21,6 +21,7 @@ def qapp():
 
 ORPHANS = target("DNF", "orphans", "Orphaned packages", ["pkexec", "dnf", "autoremove", "-y"], 1024 * 1024, ["libfoo"])
 LEFTOVER = target("Flatpak", "leftover-data", "Data of uninstalled apps",
+                  ["rm", "-rf", "--", "/home/u/.var/app/org.gone.App"], 10, ["org.gone.App"])
 CACHE = target("NPM", "cache", "Package cache", ["npm", "cache", "clean", "--force"], 1024, [])
 
 

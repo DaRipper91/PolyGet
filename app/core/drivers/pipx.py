@@ -253,7 +253,10 @@ class PipxManager(PackageManager):
     from pathlib import Path
     _INDEX_CACHE_PATH = Path.home() / ".cache" / "polyget" / "pypi_simple_index.json"
     _INDEX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60  # 1 week
-    _index_lock = asyncio.Lock()
+    # One lock per event loop: GUI workers each run their own loop, and before Python 3.12 a
+    # Lock used in one loop raises in another. The atomic rename covers writers across loops.
+    import weakref
+    _index_locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
 
     async def _ensure_index_cached(self) -> list[str]:
         """Download and cache the full list of PyPI package names, refreshing weekly.
@@ -288,7 +291,8 @@ class PipxManager(PackageManager):
         if cached is not None:
             return cached
 
-        async with self._index_lock:
+        lock = self._index_locks.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+        async with lock:
             # Re-check after acquiring the lock: another concurrent caller may have
             # already refreshed the cache while this one was waiting.
             cached = _read_cache_if_fresh()

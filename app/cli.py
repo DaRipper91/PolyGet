@@ -910,7 +910,19 @@ def cmd_debug(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    argv = sys.argv[1:] if argv is None else list(argv)
+    # `hooks add ... -- CMD ARGS`: argparse before 3.12 rejects "--" after an option when the
+    # command is a positional, so take everything after it ourselves.
+    tail = None
+    if "--" in argv:
+        cut = argv.index("--")
+        head, tail = argv[:cut], argv[cut + 1:]
+    args = parser.parse_args(head if tail is not None else argv)
+    if tail is not None:
+        if args.command == "hooks":
+            args.hook_command = args.hook_command + tail
+        else:
+            args = parser.parse_args(argv)
 
     # --debug-file: enable structured JSONL file logging (root or subcommand level)
     if getattr(args, "debug_file", False):

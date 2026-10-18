@@ -1,55 +1,22 @@
 # Agent Report
 
 ## Summary
-
-Implementing audit fixes in order on `CachyOS/BETA-FEATURES`. FIX-03 through FIX-09 done and committed. Only REF-01 remains (documentation only, no code change).
-
-Files created/modified this session:
-- `app/core/settings_store.py` — threading.Lock around `_save()` (FIX-03)
-- `app/core/ignore_store.py` — threading.Lock around `_save()` (FIX-04)
-- `app/core/history_store.py` — threading.Lock around `record_upgrade()` (FIX-02)
-- `app/core/coordinator.py` — lock held across kill loop in `terminate_all()` (FIX-01)
-- `app/core/coordinator.py` — kill fallback errors logged instead of swallowed (FIX-10)
-- `app/core/drivers/aur.py` — off-by-one range fix in search_packages() (FIX-05)
-- `app/core/drivers/dnf.py` — vendor-change detection logged + flagged instead of swallowed (FIX-06)
-- `app/core/drivers/pnpm.py` — behavior-based shim detection instead of magic bytes (FIX-07)
-- `app/ui/main_window.py` — _parse_icon_from_file targeted exception handling + logging (FIX-08)
-- `app/ui/tui.py` — _send_phone_notification targeted exception handling + logging (FIX-09)
-- `tests/test_settings_store.py`, `tests/test_ignore_store.py`, `tests/test_history_store.py`, `tests/test_coordinator.py`, `tests/test_aur_driver.py`, `tests/test_dnf_driver.py`, `tests/test_pnpm_driver.py`, `tests/test_main_window.py`, `tests/test_tui.py` — new/updated test files
-- `AGENT_REPORT.md` — updated
+Merged `origin/master` (`ea20a3e`) into `CachyOS/BETA-FEATURES` (`51faf4c`), resolving conflicts across `app/core/drivers/dnf.py`, `BRANCHING.md`, `tests/test_dnf_driver.py`, and `tests/test_history_store.py`. Verified that the complete test suite passes: 640 passed, 0 failed.
 
 ## Feature / Task Status
-
-- ✅ Stage 01–06 — full audit chain complete, clean pass
-- ✅ FIX-03 (`settings_store.py`) — data-store locking
-- ✅ FIX-04 (`ignore_store.py`) — data-store locking
-- ✅ FIX-02 (`history_store.py`) — history JSONL locking
-- ✅ FIX-01 (`coordinator.py`) — PID-reuse race
-- ✅ FIX-10 (`coordinator.py`) — kill fallback swallow
-- ✅ FIX-05 (`aur.py`) — off-by-one range skip
-- ✅ FIX-06 (`dnf.py`) — vendor-change swallow
-- ✅ FIX-07 (`pnpm.py`) — shim detection drift
-- ✅ FIX-08 (`main_window.py`) — icon read swallow
-- ✅ FIX-09 (`tui.py`) — kdeconnect silent failure
-- ⚪ REF-01 — `assets/polyget.desktop` hardcoded `Polyget` path. Already mitigated by
-  install-time sed in scripts/install-desktop.sh (lines 40-43 replace Exec/TryExec
-  with $REPO_ROOT/run.py). No code change needed — documentation only.
-
-## What the Next Agent Should Do First
-
-All 10 fix tasks + 1 reference note from the audit fix plan are complete.
-Next steps:
-1. Run full test suite one final time to confirm 414 passed, 0 failed
-2. Commit AGENT_REPORT.md
-3. Consider pushing CachyOS/BETA-FEATURES to origin (currently ahead by commits)
-4. Optionally merge master into beta to pick up any upstream changes
-
-## Blocking Issues
-
-None.
+- ✅ FIX-01 (`coordinator.py`): Lock held across kill loop in `terminate_all()`.
+- ✅ FIX-02 (`history_store.py`): Lock held around `record_upgrade()` and `record_removal()`.
+- ✅ FIX-03 (`settings_store.py`): Threading lock around `_save()`.
+- ✅ FIX-04 (`ignore_store.py`): Threading lock around `_save()`.
+- ✅ FIX-05 (`aur.py`): Off-by-one range skip fixed in search.
+- ✅ FIX-06 (`dnf.py`): Vendor-change detection logged and flagged instead of swallowed; `--refresh` preserved in upgrade commands.
+- ✅ FIX-07 (`pnpm.py`): Behavior-based shim detection instead of magic bytes.
+- ✅ FIX-08 (`main_window.py`): Targeted exception handling and logging in `_parse_icon_from_file()`.
+- ✅ FIX-09 (`tui.py`): Targeted exception handling and logging in `_send_phone_notification()`.
+- ✅ FIX-10 (`coordinator.py`): Kill fallback errors logged instead of swallowed.
+- ✅ Upstream Master Sync: Merged `origin/master` containing the new cleanup page, icons, themes, and unit test suites.
+- ✅ Test Suite Validation: 640 passed, 0 failed with `QT_QPA_PLATFORM=offscreen`.
 
 ## Build / Test Status
-
-- Build: ✅ passing (414 tests passed, 0 failed; all entry points verified)
-- Lint: ⚠️ ruff stylistic errors pre-existing (no new findings from changes)
-- Tests: ✅ 414 passed, 0 failed (full suite, `QT_QPA_PLATFORM=offscreen`)
+- Build: ✅ Passing
+- Tests: ✅ 640 passed, 0 failed (full suite)

@@ -242,7 +242,10 @@ def test_active_managers_sanity():
                 assert isinstance(item, str)
 
             # Verify get_install_command returns a list of strings
-            cmd = mgr.get_install_command("dummy-package")
+            try:
+                cmd = mgr.get_install_command("dummy-package")
+            except NotImplementedError:
+                continue  # nothing to install by name (fwupd, bundler, gradle) — expected
             assert isinstance(cmd, list)
             assert len(cmd) > 0
             for part in cmd:

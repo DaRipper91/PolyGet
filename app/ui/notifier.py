@@ -22,6 +22,7 @@ from typing import Callable
 
 from PySide6.QtCore import QObject, QProcess, Signal, Slot, SLOT
 from PySide6.QtDBus import QDBusConnection
+from shiboken6 import isValid
 
 SERVICE = "org.freedesktop.Notifications"
 PATH = "/org/freedesktop/Notifications"
@@ -114,6 +115,9 @@ class Notifier(QObject):
                                  "--method", f"{IFACE}.CloseNotification", f"uint32 {nid}"])
 
     def _on_sent(self, proc: QProcess, key: str) -> None:
+        # Destroying the Notifier kills its child processes, which still emit finished.
+        if not isValid(proc):
+            return
         out = bytes(proc.readAllStandardOutput()).decode(errors="ignore")
         match = _ID.search(out)
         if match:

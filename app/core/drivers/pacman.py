@@ -31,16 +31,18 @@ class PacmanManager(PackageManager):
         return shutil.which("pacman") is not None
 
     async def check_updates(self) -> list[dict[str, Any]]:
+        # Prefer checkupdates when installed (pacman-contrib); it checks remote mirrors safely.
+        # Fall back to pacman -Qu if checkupdates is absent.
+        cmd = ["checkupdates"] if shutil.which("checkupdates") else ["pacman", "-Qu"]
         try:
             proc = await asyncio.create_subprocess_exec(
-                "pacman", "-Qu",
+                *cmd,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=12.0)
-            # pacman -Qu returns 1 when there are no updates, not just when there's an error —
-            # only treat it as a real failure if stdout is also empty.
-            if proc.returncode not in (0, 1):
-                raise RuntimeError("pacman update check failed")
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+            # checkupdates returns 2 when up to date; pacman -Qu returns 1 when up to date.
+            if proc.returncode not in (0, 1, 2):
+                raise RuntimeError(f"{cmd[0]} update check failed")
             if not stdout:
                 return []
 
@@ -147,7 +149,7 @@ class PacmanManager(PackageManager):
             sizes = [_to_bytes(line) for line in info.splitlines() if line.startswith("Installed Size")]
             targets.append(target(
                 self.name, "orphans", "Orphaned dependencies",
-                ["pkexec", "pacman", "-Rns", "--noconfirm"] + orphans,
+                ["pkexec", "pacman", "-R", "--noconfirm"] + orphans,
                 sum(s for s in sizes if s) if sizes else None, orphans,
                 "installed as dependencies, no longer required by anything",
             ))

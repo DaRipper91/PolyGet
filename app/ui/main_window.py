@@ -5261,17 +5261,33 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _confirm_destructive(self, target: dict[str, Any]) -> bool:
-        """Deleting user data gets its own dialog: every path listed, and an explicit checkbox."""
-        box = QMessageBox(QMessageBox.Icon.Warning, "Delete App Data?",
-                          f"{target['manager']}: {target['label']}. This permanently deletes the saved "
-                          f"settings and data of {len(target['items'])} uninstalled app(s). It cannot be undone.",
+        """Deleting user data or uninstalling packages gets its own dialog."""
+        is_orphan = target.get("id") == "orphans"
+        if is_orphan:
+            title = "Remove Orphaned Packages?"
+            prompt = (f"{target['manager']}: {target['label']}. This will uninstall "
+                      f"{len(target['items'])} orphaned package(s) from your system.")
+            checkbox_text = "I understand these packages will be uninstalled"
+            btn_text = "Remove"
+        else:
+            title = "Delete App Data?"
+            prompt = (f"{target['manager']}: {target['label']}. This permanently deletes the saved "
+                      f"settings and data of {len(target['items'])} uninstalled app(s). It cannot be undone.")
+            checkbox_text = "I understand these folders will be permanently deleted"
+            btn_text = "Delete"
+
+        box = QMessageBox(QMessageBox.Icon.Warning, title, prompt,
                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
-        box.setDetailedText("\n".join(target["command"][3:] if target["command"][:3] == ["rm", "-rf", "--"]
-                                      else target["items"]))
-        understand = QCheckBox("I understand these folders will be permanently deleted")
+        details = (
+            target["command"][3:]
+            if target["command"][:3] == ["rm", "-rf", "--"]
+            else (target.get("items", []) or target["command"])
+        )
+        box.setDetailedText("\n".join(details))
+        understand = QCheckBox(checkbox_text)
         box.setCheckBox(understand)
         yes = box.button(QMessageBox.StandardButton.Yes)
-        yes.setText("Delete")
+        yes.setText(btn_text)
         yes.setEnabled(False)
         understand.toggled.connect(yes.setEnabled)
         return box.exec() == QMessageBox.StandardButton.Yes

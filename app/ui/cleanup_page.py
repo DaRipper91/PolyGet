@@ -18,8 +18,11 @@ _ITEMS_SHOWN = 50
 
 
 def is_destructive(target: dict[str, Any]) -> bool:
-    """Deletes user data rather than packages or caches (Flatpak's leftover ~/.var/app dirs)."""
-    return target.get("id") == "leftover-data" or target.get("command", [])[:1] == ["rm"]
+    """Deletes user data or uninstalls packages (orphans, leftover ~/.var/app dirs)."""
+    return (
+        target.get("id") in ("leftover-data", "orphans")
+        or target.get("command", [])[:1] == ["rm"]
+    )
 
 
 class CleanupScanWorker(QThread):

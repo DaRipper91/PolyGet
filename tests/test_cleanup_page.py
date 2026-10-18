@@ -24,22 +24,27 @@ LEFTOVER = target("Flatpak", "leftover-data", "Data of uninstalled apps",
                   ["rm", "-rf", "--", "/home/u/.var/app/org.gone.App"], 10, ["org.gone.App"])
 
 
+CACHE = target("NPM", "cache", "Download cache", ["npm", "cache", "clean", "--force"], 500)
+
+
 def test_page_lists_targets_unticks_data_deletion_and_shows_failures(qapp):
     page = CleanupPage()
     page.set_results({
         "DNF": {"ok": True, "result": [ORPHANS]},
         "Flatpak": {"ok": True, "result": [LEFTOVER]},
-        "NPM": {"ok": False, "error": "npm cache verify failed"},
+        "NPM": {"ok": True, "result": [CACHE]},
+        "Pacman": {"ok": False, "error": "pacman failed"},
         "Cargo": {"ok": False, "unsupported": True},
     })
     rows = {page.tree.topLevelItem(i).text(1): page.tree.topLevelItem(i) for i in range(page.tree.topLevelItemCount())}
-    assert set(rows) == {"DNF", "Flatpak", "NPM"}                 # unsupported managers aren't listed
-    assert rows["DNF"].checkState(0) == Qt.CheckState.Checked
-    assert rows["Flatpak"].checkState(0) == Qt.CheckState.Unchecked  # never ticked for you
+    assert set(rows) == {"DNF", "Flatpak", "NPM", "Pacman"}                 # unsupported managers aren't listed
+    assert rows["DNF"].checkState(0) == Qt.CheckState.Unchecked       # orphans are never ticked for you
+    assert rows["Flatpak"].checkState(0) == Qt.CheckState.Unchecked  # leftover data is never ticked for you
+    assert rows["NPM"].checkState(0) == Qt.CheckState.Checked        # caches are ticked by default
     assert rows["Flatpak"].child(0).text(0) == "org.gone.App"
-    assert rows["NPM"].text(0).startswith("Couldn't check")      # a failure, not "nothing to clean"
+    assert rows["Pacman"].text(0).startswith("Couldn't check")       # a failure, not "nothing to clean"
     assert "couldn't be checked" in page.summary.text()
-    assert page.selected_targets() == [ORPHANS] and page.btn_clean.text() == "Clean 1 selected"
+    assert page.selected_targets() == [CACHE] and page.btn_clean.text() == "Clean 1 selected"
 
 
 def test_scan_worker_separates_failures_from_unsupported(qapp):
@@ -65,8 +70,9 @@ def test_scan_worker_separates_failures_from_unsupported(qapp):
     assert got[0]["Cargo"] == {"ok": False, "unsupported": True}
 
 
-def test_only_data_deletion_counts_as_destructive():
-    assert is_destructive(LEFTOVER) and not is_destructive(ORPHANS)
+def test_data_deletion_and_orphans_count_as_destructive():
+    assert is_destructive(LEFTOVER) and is_destructive(ORPHANS)
+    assert not is_destructive(CACHE)
 
 
 @pytest.fixture
@@ -84,8 +90,8 @@ def test_page_is_reachable_and_scans_on_first_visit(window):
 def test_cleaning_without_data_deletion_runs_each_command(window):
     with patch.object(MainWindow, "_confirm_commands", return_value=True), \
             patch.object(MainWindow, "_run_commands") as run:
-        window.clean_targets([ORPHANS])
-    assert run.call_args[0][0] == [ORPHANS["command"]]
+        window.clean_targets([CACHE])
+    assert run.call_args[0][0] == [CACHE["command"]]
 
 
 def test_data_deletion_needs_its_own_confirmation(window):
@@ -131,3 +137,23 @@ def test_destructive_dialog_needs_the_checkbox(window):
         assert window._confirm_destructive(LEFTOVER)
     assert shown == {"enabled_before": False, "enabled_after": True,
                      "details": "/home/u/.var/app/org.gone.App"}
+
+
+def test_orphan_destructive_dialog_needs_the_checkbox(window):
+    shown = {}
+
+    def fake_exec(box):
+        yes = box.button(QMessageBox.StandardButton.Yes)
+        shown["title"] = box.windowTitle()
+        shown["btn_text"] = yes.text()
+        shown["enabled_before"] = yes.isEnabled()
+        box.checkBox().setChecked(True)
+        shown["enabled_after"] = yes.isEnabled()
+        shown["details"] = box.detailedText()
+        return QMessageBox.StandardButton.Yes
+
+    with patch.object(QMessageBox, "exec", fake_exec):
+        assert window._confirm_destructive(ORPHANS)
+    assert shown == {"title": "Remove Orphaned Packages?", "btn_text": "Remove",
+                     "enabled_before": False, "enabled_after": True,
+                     "details": "libfoo"}

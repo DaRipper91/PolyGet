@@ -182,6 +182,9 @@ class BannerHeader(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("sidebar-banner")
+        # A plain QWidget subclass ignores a stylesheet background without this: the gradient
+        # never paints and the dark title vanishes into the dark sidebar.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
         layout.setSpacing(4)

@@ -27,6 +27,7 @@ from app.core.debug_log import debug_log
 from app.ui.updates_view import ManagerGroupHeader, SelectionBar, bump_kind
 from app.ui.notifier import CRITICAL, LOW, Notifier
 from app.ui.review_dialog import BuildScriptDialog, BuildScriptWorker, has_build_scripts
+from app.ui.cleanup_page import CleanupPage, CleanupScanWorker, is_destructive
 from app.ui import theme_qt, themes
 from app.ui.icons import app_icon, tray_icon
 from app.ui.sidebar import (
@@ -1011,7 +1012,7 @@ QScrollBar:horizontal { height: 16px; }
 
 # Sidebar rows and stacked pages share these indices; keep them in setup_ui's order.
 (PAGE_UPDATES, PAGE_VERSION_CHECK, PAGE_STORE, PAGE_CONSOLE, PAGE_BLUEPRINTS,
- PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS, PAGE_DEBUG) = range(10)
+ PAGE_MANAGERS, PAGE_REPOS, PAGE_HISTORY, PAGE_SETTINGS, PAGE_DEBUG, PAGE_CLEANUP) = range(11)
 
 # (page, label, short rail label, icon-theme name) for the grouped and rail sidebar styles.
 _NAV_PAGES = [
@@ -1025,10 +1026,11 @@ _NAV_PAGES = [
     (PAGE_HISTORY, "Update History", "History", "document-open-recent"),
     (PAGE_SETTINGS, "Settings", "Settings", "configure"),
     (PAGE_DEBUG, "Debug Console", "Debug", "dialog-information"),
+    (PAGE_CLEANUP, "Clean Up", "Clean", "edit-clear"),
 ]
 _NAV_GROUPS = [
     ("Software", [PAGE_UPDATES, PAGE_STORE, PAGE_VERSION_CHECK]),
-    ("System", [PAGE_MANAGERS, PAGE_REPOS, PAGE_BLUEPRINTS]),
+    ("System", [PAGE_MANAGERS, PAGE_REPOS, PAGE_BLUEPRINTS, PAGE_CLEANUP]),
     ("Activity", [PAGE_CONSOLE, PAGE_HISTORY, PAGE_DEBUG]),
 ]
 
@@ -1223,6 +1225,10 @@ class MainWindow(QMainWindow):
         item_debug = QListWidgetItem("Debug Console")
         item_debug.setIcon(QIcon.fromTheme("document-properties"))
         self.nav_list.addItem(item_debug)
+
+        item_cleanup = QListWidgetItem("Clean Up")
+        item_cleanup.setIcon(QIcon.fromTheme("edit-clear"))
+        self.nav_list.addItem(item_cleanup)
 
         # A plain-text item's sizeHint (queried only once it's actually in the list — before
         # that, QListWidgetItem.sizeHint() isn't backed by a real style/delegate context) already
@@ -1750,6 +1756,13 @@ class MainWindow(QMainWindow):
 
         self.stacked_widget.addWidget(debug_page)
 
+        # PAGE 11: Clean up (orphans, caches, leftover app data)
+        self.cleanup_page = CleanupPage()
+        self.cleanup_page.scan_requested.connect(self.scan_cleanup)
+        self.cleanup_page.clean_requested.connect(self.clean_targets)
+        self._cleanup_scanned = False
+        self.stacked_widget.addWidget(self.cleanup_page)
+
         splitter.addWidget(self.stacked_widget)
 
         splitter.setSizes([250, 750])
@@ -1971,6 +1984,43 @@ class MainWindow(QMainWindow):
             QPushButton#selection-clear:hover {
                 background-color: #45475a;
                 color: #cdd6f4;
+            }
+            QTreeWidget {
+                background-color: #181825;
+                alternate-background-color: #1e1e2e;
+                border: 1px solid #313244;
+                border-radius: 8px;
+                color: #cdd6f4;
+                outline: none;
+            }
+            QTreeWidget::item {
+                padding: 4px 2px;
+            }
+            QTreeWidget::item:selected {
+                background-color: #313244;
+                color: #cdd6f4;
+            }
+            QTreeWidget::item:hover:!selected {
+                background-color: #1e1e2e;
+            }
+            QTreeWidget::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #585b70;
+                border-radius: 4px;
+                background-color: #11111b;
+            }
+            QTreeWidget::indicator:checked {
+                background-color: #89b4fa;
+                border-color: #89b4fa;
+            }
+            QHeaderView::section {
+                background-color: #11111b;
+                color: #a6adc8;
+                border: none;
+                border-bottom: 1px solid #313244;
+                padding: 6px 8px;
+                font-weight: bold;
             }
             QFrame#restart-banner {
                 background-color: #38331f;
@@ -2634,6 +2684,8 @@ class MainWindow(QMainWindow):
                 self.populate_settings_page()
             elif index == PAGE_DEBUG:
                 self._enter_debug_page()
+            elif index == PAGE_CLEANUP and not self._cleanup_scanned:
+                self.scan_cleanup()
 
     def _enter_debug_page(self):
         """Subscribe to the debug log stream when the Debug Console page is shown."""
@@ -4035,20 +4087,25 @@ class MainWindow(QMainWindow):
 
         Pre-hooks stop at the first failure; post-hooks all run and report every failure.
         """
-        queue = [list(h["command"]) for h in hooks]
+        self._run_commands([list(h["command"]) for h in hooks], on_done, stop_on_failure, "hook")
+
+    def _run_commands(self, commands: list[list[str]], on_done, stop_on_failure: bool = True,
+                      what: str = "command") -> None:
+        """Run commands one after another through ExecutionWorker; on_done(failed commands)."""
+        queue = list(commands)
         failed: list[str] = []
 
         def run_next(_ok: bool | None = None, last: list[str] | None = None) -> None:
             if last is not None and not _ok:
                 failed.append(shlex.join(last))
-                self.log(f"❌ Hook failed: {shlex.join(last)}")
+                self.log(f"❌ {what.capitalize()} failed: {shlex.join(last)}")
                 if stop_on_failure:
                     queue.clear()
             if not queue:
                 on_done(failed)
                 return
             cmd = queue.pop(0)
-            self.log(f"🪝 Running hook: {shlex.join(cmd)}")
+            self.log(f"{'🪝' if what == 'hook' else '▶'} Running {what}: {shlex.join(cmd)}")
             worker = ExecutionWorker(cmd)
             worker.log_signal.connect(self.log)
             worker.finished_signal.connect(lambda ok, c=cmd: run_next(ok, c))
@@ -5173,6 +5230,103 @@ class MainWindow(QMainWindow):
                 label = "This morning" if now.hour < 12 else "Today"
                 self._send_updates(items, f"{label}: {len(items)} update{'s' if len(items) != 1 else ''}",
                                    [("review", "Review"), ("later", "Later")])
+
+    # --- Clean up ----------------------------------------------------------------------------
+
+    def _cleanup_managers(self) -> list[PackageManager]:
+        from app.core.settings_store import get_settings
+        disabled = set(get_settings().disabled_managers())
+        return [m for m in discover_managers() if m.name not in disabled]
+
+    def scan_cleanup(self) -> None:
+        self._cleanup_scanned = True
+        self.cleanup_page.set_scanning()
+        worker = CleanupScanWorker(self._cleanup_managers())
+        worker.result_signal.connect(self.cleanup_page.set_results)
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def _confirm_destructive(self, target: dict[str, Any]) -> bool:
+        """Deleting user data gets its own dialog: every path listed, and an explicit checkbox."""
+        box = QMessageBox(QMessageBox.Icon.Warning, "Delete App Data?",
+                          f"{target['manager']}: {target['label']}. This permanently deletes the saved "
+                          f"settings and data of {len(target['items'])} uninstalled app(s). It cannot be undone.",
+                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
+        box.setDetailedText("\n".join(target["command"][3:] if target["command"][:3] == ["rm", "-rf", "--"]
+                                      else target["items"]))
+        understand = QCheckBox("I understand these folders will be permanently deleted")
+        box.setCheckBox(understand)
+        yes = box.button(QMessageBox.StandardButton.Yes)
+        yes.setText("Delete")
+        yes.setEnabled(False)
+        understand.toggled.connect(yes.setEnabled)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
+    def clean_targets(self, targets: list[dict[str, Any]]) -> None:
+        if not targets or self.active_operation is not None:
+            return
+        destructive = [t for t in targets if is_destructive(t)]
+        for t in destructive:
+            if not self._confirm_destructive(t):
+                return
+        if not self._confirm_commands("Confirm Clean Up", [t["command"] for t in targets]):
+            return
+        if not destructive:
+            self._run_cleanup(targets)
+            return
+        # Re-check data deletions right before running: an app reinstalled since the scan
+        # would otherwise have its fresh data deleted.
+        by_name = {m.name: m for m in self._cleanup_managers()}
+        managers = sorted({t["manager"] for t in destructive})
+
+        async def fresh():
+            out = {}
+            for name in managers:
+                out[name] = await by_name[name].get_cleanup_targets()
+            return out
+
+        def compare(current: dict | None, error: str) -> None:
+            if error or current is None:
+                QMessageBox.warning(self, "Clean Up Stopped",
+                                    f"Couldn't re-check before deleting app data: {error}. Nothing was run.")
+                return
+            for t in destructive:
+                now = next((c for c in current.get(t["manager"], []) if c["id"] == t["id"]), None)
+                if now is None or now["command"] != t["command"]:
+                    QMessageBox.warning(self, "Clean Up Stopped",
+                                        f"{t['manager']}'s leftover data changed since the scan (an app may "
+                                        "have been reinstalled). Nothing was run; scan again and review it.")
+                    self.scan_cleanup()
+                    return
+            self._run_cleanup(targets)
+
+        if any(name not in by_name for name in managers):
+            compare(None, "manager no longer available")
+            return
+        worker = AsyncCallWorker(fresh)
+        worker.result_signal.connect(compare)
+        worker.finished.connect(self._on_worker_finished)
+        self.active_workers.append(worker)
+        worker.start()
+
+    def _run_cleanup(self, targets: list[dict[str, Any]]) -> None:
+        self.active_operation = "clean up"
+        self._show_terminal("🧹 Cleaning up")
+        self.nav_list.setCurrentRow(PAGE_CONSOLE)
+
+        def done(failed: list[str]) -> None:
+            self.active_operation = None
+            self.terminal_overlay.hide()
+            self.nav_list.setCurrentRow(PAGE_CLEANUP)
+            self.scan_cleanup()
+            if failed:
+                QMessageBox.warning(self, "Clean Up Finished With Problems",
+                                    "These commands failed:\n\n" + "\n".join(failed))
+            else:
+                QMessageBox.information(self, "Clean Up Complete", f"Cleaned {len(targets)} item(s).")
+
+        self._run_commands([t["command"] for t in targets], done, stop_on_failure=False)
 
     def check_restart(self, after_upgrade: bool = False) -> None:
         """Ask the system whether a reboot is needed; show the banner (and, after an upgrade, a

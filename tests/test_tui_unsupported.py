@@ -33,8 +33,12 @@ def test_unsupported_check_is_labelled_as_such_and_a_real_clean_result_still_say
             app = PolyGetTuiApp()
             async with app.run_test():
                 unsupported, current = NoQuery(), Current()
+                app.checking_managers.add(unsupported.name)
+                app.checking_managers.add(current.name)
                 await app._scan_manager(unsupported)
                 await app._scan_manager(current)
+                assert unsupported.name not in app.checking_managers
+                assert current.name not in app.checking_managers
                 assert "Update check not supported" in app._get_manager_label(unsupported)
                 assert "Up to date" not in app._get_manager_label(unsupported)
                 assert "Up to date" in app._get_manager_label(current)

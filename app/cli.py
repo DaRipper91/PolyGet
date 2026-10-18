@@ -27,7 +27,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "remove", "review", "clean", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
+    "upgrade", "install", "remove", "review", "clean", "sync", "history", "ignore", "projects", "catalog", "newest", "needs-restart", "system",
     "self-version", "debug",
 )
 
@@ -385,7 +385,26 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
         steps.append({"manager": name, "packages": pkgs, "command": command})
         _review_hint(args, by_name[name], pkgs)
     code = _plan_or_execute(args, steps, record=True, verify=by_name)
+    if args.yes and steps:
+        _restart_hint()
     return EXIT_FAILED if scan_failed or build_failed else code
+
+
+def _restart_hint() -> None:
+    """After a real upgrade, say on stderr if a reboot is needed (stdout stays one JSON document)."""
+    from app.core.restart import check_restart_needed
+    result = asyncio.run(check_restart_needed())
+    if result["needed"]:
+        _log("Reboot needed to finish these updates" + (f": {'; '.join(result['reasons'])}" if result["reasons"] else "."))
+
+
+def cmd_needs_restart(args: argparse.Namespace) -> int:
+    from app.core.restart import check_restart_needed
+    result = asyncio.run(check_restart_needed())
+    verdict = {True: "Reboot needed", False: "No reboot needed", None: "Can't tell on this system"}[result["needed"]]
+    human = f"{verdict} (checked with {result['method']})" + "".join(f"\n  - {r}" for r in result["reasons"])
+    _emit(args, result, human)
+    return EXIT_OK
 
 
 def _has_build_scripts(mgr: PackageManager) -> bool:
@@ -754,6 +773,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("projects", cmd_projects, "manage project directories scanned by Bundler and Gradle")
     p.add_argument("action", choices=["list", "add", "remove"], nargs="?", default="list")
     p.add_argument("directory", nargs="?")
+
+    add("needs-restart", cmd_needs_restart, "check whether updates installed since boot need a reboot")
 
     add("system", cmd_system, "show the detected CPU architecture and distro family")
 

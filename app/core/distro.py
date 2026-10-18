@@ -79,3 +79,22 @@ def get_distro_name() -> str:
         return "macOS"
     fields = _os_release()
     return fields.get("PRETTY_NAME") or fields.get("NAME", "")
+
+
+# Asks the package manager whether a reboot is needed. Exit status 1 means "yes", 0 "no".
+# Families without one fall back to the running-kernel check in app/core/restart.py.
+_REBOOT_CHECK = {"fedora": ["dnf", "needs-restarting", "-r"]}
+
+
+def get_reboot_check_command() -> list[str] | None:
+    """The distro's own reboot-needed query, or None to rely on the generic checks."""
+    return _REBOOT_CHECK.get(get_distro_family())
+
+
+# Families whose kernel upgrade deletes the running kernel's modules (Fedora keeps old kernels
+# installed, so the same check there would always say "no reboot needed").
+_KERNEL_REPLACED_IN_PLACE = {"arch", "void", "alpine"}
+
+
+def replaces_running_kernel() -> bool:
+    return get_distro_family() in _KERNEL_REPLACED_IN_PLACE

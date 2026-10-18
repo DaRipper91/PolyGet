@@ -32,7 +32,7 @@ drives the same driver layer as the GUI, with no Qt import. Prefer it over ad-ho
 
 - Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `review -m aur PKG`, `audit`, `repos`,
   `history`, `catalog`, `ignore list`. All accept `-m/--manager NAME` (repeatable,
-  case-insensitive).
+  case-insensitive). `needs-restart` reports whether installed updates need a reboot.
 - Mutating: `upgrade`, `install`, `remove`, `clean`, `sync` **only print the planned commands** unless `--yes` is
   passed. Never pass `--yes` on your own initiative; show the plan and let the user run it.
   System managers (DNF/Pacman/APT) use `pkexec`, which fails without a TTY/polkit agent, so the

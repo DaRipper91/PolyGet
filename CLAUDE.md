@@ -30,7 +30,7 @@ few seconds; focus with `tests/test_<area>.py` while iterating).
 drives the same driver layer as the GUI, with no Qt import. Prefer it over ad-hoc
 `python -c "import asyncio; ..."` snippets when you need to see what a driver actually returns.
 
-- Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `audit`, `repos`,
+- Read-only: `managers [--all]`, `outdated`, `installed`, `search QUERY`, `review -m aur PKG`, `audit`, `repos`,
   `history`, `catalog`, `ignore list`. All accept `-m/--manager NAME` (repeatable,
   case-insensitive).
 - Mutating: `upgrade`, `install`, `remove`, `sync` **only print the planned commands** unless `--yes` is

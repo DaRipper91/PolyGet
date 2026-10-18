@@ -28,8 +28,8 @@ def test_every_driver_with_install_can_remove_or_says_why_not():
         # cmd[0] may be None here: helper-resolved binaries (paru/yay, conda, brew) aren't installed.
         assert isinstance(cmd, list) and all(isinstance(a, str) for a in cmd[1:]), mgr.name
         assert "pkg" in cmd, mgr.name
-    # Go installs loose binaries; Bundler and Gradle are per-project, not global.
-    assert unsupported == {"Go", "Bundler", "Gradle"}
+    # Go installs loose binaries; Bundler and Gradle are per-project, not global; firmware can't be uninstalled.
+    assert unsupported == {"Go", "Bundler", "Gradle", "Firmware"}
 
 
 def test_system_removals_escalate_with_pkexec():

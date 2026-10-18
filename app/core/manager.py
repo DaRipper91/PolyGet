@@ -222,6 +222,19 @@ class PackageManager:
     # "needs your admin password" alongside pkexec-prefixed commands.
     asks_for_password: bool = False
 
+    async def get_build_script(self, package: str) -> tuple[str, str]:
+        """Return (source URL, text) of the script that installing `package` would execute.
+
+        For managers that build from user-submitted recipes (the AUR's PKGBUILDs), so the user can
+        read what will run before it runs. Most managers install prebuilt artifacts and leave this
+        unimplemented.
+
+        Raises:
+            NotImplementedError: Packages from this manager don't come with a reviewable script.
+            DriverError: The package doesn't exist or the script couldn't be fetched.
+        """
+        raise NotImplementedError(f"{self.name} packages have no build script to review")
+
     # True for tools whose remove command takes exactly one package (e.g. `pipx uninstall`);
     # callers then build one command per package instead of passing a list.
     removes_one_at_a_time: bool = False

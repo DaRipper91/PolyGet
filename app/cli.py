@@ -26,7 +26,7 @@ EXIT_USAGE = 2
 
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
-    "upgrade", "install", "remove", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
+    "upgrade", "install", "remove", "review", "sync", "history", "ignore", "projects", "catalog", "newest", "system",
     "self-version", "debug",
 )
 
@@ -371,8 +371,20 @@ def cmd_upgrade(args: argparse.Namespace) -> int:
             build_failed = True
             continue
         steps.append({"manager": name, "packages": pkgs, "command": command})
+        _review_hint(args, by_name[name], pkgs)
     code = _plan_or_execute(args, steps, record=True, verify=by_name)
     return EXIT_FAILED if scan_failed or build_failed else code
+
+
+def _has_build_scripts(mgr: PackageManager) -> bool:
+    return type(mgr).get_build_script is not PackageManager.get_build_script
+
+
+def _review_hint(args: argparse.Namespace, mgr: PackageManager, packages: list[str]) -> None:
+    """Point at `review` before a plan that would build user-submitted scripts unread."""
+    if packages and not args.yes and _has_build_scripts(mgr):
+        _log(f"note: {mgr.name} packages run their build script as you. Read it first with "
+             f"`polyget review -m {mgr.name.lower()} {' '.join(packages)}`.")
 
 
 def cmd_install(args: argparse.Namespace) -> int:
@@ -381,7 +393,33 @@ def cmd_install(args: argparse.Namespace) -> int:
         {"manager": mgr.name, "packages": [pkg], "command": mgr.get_install_command(pkg)}
         for pkg in args.packages
     ]
+    _review_hint(args, mgr, list(args.packages))
     return _plan_or_execute(args, steps)
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    mgr = _single_manager(args.manager)
+    if not _has_build_scripts(mgr):
+        raise UsageError(f"{mgr.name} packages have no build script to review")
+
+    async def fetch(pkg: str) -> dict[str, Any]:
+        try:
+            url, script = await mgr.get_build_script(pkg)
+            return {"package": pkg, "ok": True, "url": url, "script": script}
+        except Exception as e:
+            return {"package": pkg, "ok": False, "error": describe_error(e)}
+
+    async def fetch_all() -> list[dict[str, Any]]:
+        return list(await asyncio.gather(*(fetch(p) for p in args.packages)))
+
+    results = asyncio.run(fetch_all())
+    human = "\n\n".join(
+        f"==> {r['package']}  ({r['url']})\n{r['script'].rstrip()}" if r["ok"]
+        else f"==> {r['package']}: {r['error']}"
+        for r in results
+    )
+    _emit(args, results, human)
+    return EXIT_OK if all(r["ok"] for r in results) else EXIT_FAILED
 
 
 def cmd_remove(args: argparse.Namespace) -> int:
@@ -649,6 +687,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-m", "--manager", required=True)
     p.add_argument("packages", nargs="+")
     confirm(p)
+
+    p = add("review", cmd_review, "print the build script (e.g. AUR PKGBUILD) a package would run")
+    p.add_argument("-m", "--manager", required=True)
+    p.add_argument("packages", nargs="+")
 
     p = add("sync", cmd_sync, "refresh repository metadata")
     manager_filter(p)

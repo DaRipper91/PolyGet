@@ -67,6 +67,38 @@ and removals. CachyOS defaults to btrfs + snapper. Gives the Operation Journal &
   environment can test the Pacman/DNF parsers against real captures.
 - Blueprint diff between the two machines.
 
+## Ported from comparable projects
+
+Compared against UniGetUI (the closest analogue: one GUI over many managers, on Windows), Topgrade,
+Pamac, Bauh, Octopi, Warehouse, GNOME Software/Discover, Homebrew Bundle and mise/asdf.
+
+**Done (2026-10-18):**
+- **Firmware via fwupd** (GNOME Software, Discover, Topgrade) — `Firmware` driver, System category.
+  Devices are shown by name and mapped back to fwupd device IDs for `fwupdmgr update`. No
+  `--assume-yes`, because a blanket yes would answer "Restart now?" mid-batch. Verify on hardware:
+  `polyget outdated -m firmware`, and whether `fwupdmgr update` from the GUI (no TTY) prompts or
+  proceeds.
+- **AUR PKGBUILD review** (Pamac, paru) — `PackageManager.get_build_script()`, implemented for the
+  AUR (resolves the package base through the AUR RPC, then fetches the PKGBUILD). New
+  `polyget review -m aur PKG...`; install/upgrade plans for the AUR point at it. The GUI install
+  dialog should show the script too (UI session).
+- **Topgrade-style extra steps** — `Rustup` (toolchains via `rustup check`/`rustup update
+  --no-self-update`), `Mise` (`mise outdated --json`, `mise upgrade`), `Fisher` (fish plugins from
+  `fish_plugins`; update check unsupported like Nix, `fisher update` still works). All have catalog
+  entries so they show in the Manager Store when not installed.
+
+**Next candidates:**
+- Pre/post upgrade hooks (Topgrade, pacman hooks) — also the plug-in point for snapshots and pacnew.
+- Unattended updates for user-level managers only (UniGetUI, dnf-automatic).
+- Package details panel: homepage, license, size, files, deps, Flatpak permissions (Pamac, Octopi, Flatseal).
+- Install a specific version / downgrade / pin (UniGetUI, Bauh, `downgrade`).
+- rpm-ostree driver for Atomic Fedora (`distro.py` family check).
+- Offline/next-boot system updates (`dnf offline-upgrade`).
+- Blueprint sync to a private gist/dotfiles repo, and declarative `polyget apply --prune` (Brewfile).
+- Repology lookup for "is my distro behind upstream?".
+- Smaller: Flatpak leftover-data cleanup (Warehouse), bulk install from a pasted list, shell
+  completions, mirror ranking (`reflector`/`rate-mirrors`) on CachyOS.
+
 ## UI hooks for the redesign
 - Uninstall needs an Installed view, which the GUI doesn't have yet (the Store only searches).
   Cheapest path: a "Remove…" entry in the per-row `⋯` menu of the proposed Updates page, plus

@@ -49,7 +49,7 @@ def test_pacman_orphans_and_paccache(monkeypatch):
     })
     orphans, cache = asyncio.run(PacmanManager().get_cleanup_targets())
     assert orphans["items"] == ["libfoo", "libbar"] and orphans["bytes"] == 1024 ** 2 + 512 * 1024
-    assert orphans["command"] == ["pkexec", "pacman", "-R", "--noconfirm", "libfoo", "libbar"]
+    assert orphans["command"] == ["pkexec", "pacman", "-Rn", "--noconfirm", "libfoo", "libbar"]
     assert cache["command"] == ["pkexec", "paccache", "-rk2"] and cache["bytes"] == int(1.5 * 1024 ** 3)
 
 

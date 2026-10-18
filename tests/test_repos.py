@@ -22,15 +22,20 @@ def test_dnf_repository_management():
         mock_proc.communicate.return_value = (
             b"repo id                                           repo name                                           status\n"
             b"fedora                                            Fedora 40                                           enabled\n"
-            b"fedora-testing                                    Fedora testing                                      disabled\n",
+            b"fedora-testing                                    Fedora testing                                      disabled\n"
+            # A long id leaves one space before the name; it used to swallow the name and turn
+            # "enabled" into the name, so Remove/Disable targeted an id that doesn't exist.
+            b"copr:copr.fedorainfracloud.org:group_asahi:fedora-remix-branding Copr repo for fedora-remix-branding owned by @asahi enabled\n",
             b""
         )
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
             repos = await manager.list_repos()
             
-        assert len(repos) == 2
+        assert len(repos) == 3
         assert repos[0] == {"id": "fedora", "name": "Fedora 40", "url": "", "enabled": True}
         assert repos[1] == {"id": "fedora-testing", "name": "Fedora testing", "url": "", "enabled": False}
+        assert repos[2] == {"id": "copr:copr.fedorainfracloud.org:group_asahi:fedora-remix-branding",
+                            "name": "Copr repo for fedora-remix-branding owned by @asahi", "url": "", "enabled": True}
 
     asyncio.run(run_test())
 

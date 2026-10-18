@@ -5261,33 +5261,31 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _confirm_destructive(self, target: dict[str, Any]) -> bool:
-        """Deleting user data or uninstalling packages gets its own dialog."""
+        """Deleting user data or removing orphan packages gets its own dialog: explicit warning and confirmation."""
         is_orphan = target.get("id") == "orphans"
         if is_orphan:
             title = "Remove Orphaned Packages?"
-            prompt = (f"{target['manager']}: {target['label']}. This will uninstall "
-                      f"{len(target['items'])} orphaned package(s) from your system.")
+            text = (f"{target['manager']}: {target['label']}. This will remove {len(target.get('items', []))} "
+                    f"package(s) installed as dependencies but no longer required by any installed package. "
+                    f"This may remove development tools or packages you use directly.")
             checkbox_text = "I understand these packages will be uninstalled"
-            btn_text = "Remove"
+            button_text = "Remove"
+            detail = "\n".join(target.get("items", []) or target.get("command", []))
         else:
             title = "Delete App Data?"
-            prompt = (f"{target['manager']}: {target['label']}. This permanently deletes the saved "
-                      f"settings and data of {len(target['items'])} uninstalled app(s). It cannot be undone.")
+            text = (f"{target['manager']}: {target['label']}. This permanently deletes the saved "
+                    f"settings and data of {len(target.get('items', []))} uninstalled app(s). It cannot be undone.")
             checkbox_text = "I understand these folders will be permanently deleted"
-            btn_text = "Delete"
-
-        box = QMessageBox(QMessageBox.Icon.Warning, title, prompt,
+            button_text = "Delete"
+            detail = "\n".join(target["command"][3:] if target.get("command", [])[:3] == ["rm", "-rf", "--"]
+                               else (target.get("items", []) or target.get("command", [])))
+        box = QMessageBox(QMessageBox.Icon.Warning, title, text,
                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel, self)
-        details = (
-            target["command"][3:]
-            if target["command"][:3] == ["rm", "-rf", "--"]
-            else (target.get("items", []) or target["command"])
-        )
-        box.setDetailedText("\n".join(details))
+        box.setDetailedText(detail)
         understand = QCheckBox(checkbox_text)
         box.setCheckBox(understand)
         yes = box.button(QMessageBox.StandardButton.Yes)
-        yes.setText(btn_text)
+        yes.setText(button_text)
         yes.setEnabled(False)
         understand.toggled.connect(yes.setEnabled)
         return box.exec() == QMessageBox.StandardButton.Yes
@@ -5318,14 +5316,15 @@ class MainWindow(QMainWindow):
         def compare(current: dict | None, error: str) -> None:
             if error or current is None:
                 QMessageBox.warning(self, "Clean Up Stopped",
-                                    f"Couldn't re-check before deleting app data: {error}. Nothing was run.")
+                                    f"Couldn't re-check before clean up: {error}. Nothing was run.")
                 return
             for t in destructive:
                 now = next((c for c in current.get(t["manager"], []) if c["id"] == t["id"]), None)
                 if now is None or now["command"] != t["command"]:
+                    item_type = "orphaned packages" if t.get("id") == "orphans" else "leftover data"
                     QMessageBox.warning(self, "Clean Up Stopped",
-                                        f"{t['manager']}'s leftover data changed since the scan (an app may "
-                                        "have been reinstalled). Nothing was run; scan again and review it.")
+                                        f"{t['manager']}'s {item_type} changed since the scan. "
+                                        "Nothing was run; scan again and review it.")
                     self.scan_cleanup()
                     return
             self._run_cleanup(targets)

@@ -21,10 +21,7 @@ def qapp():
 
 ORPHANS = target("DNF", "orphans", "Orphaned packages", ["pkexec", "dnf", "autoremove", "-y"], 1024 * 1024, ["libfoo"])
 LEFTOVER = target("Flatpak", "leftover-data", "Data of uninstalled apps",
-                  ["rm", "-rf", "--", "/home/u/.var/app/org.gone.App"], 10, ["org.gone.App"])
-
-
-CACHE = target("NPM", "cache", "Download cache", ["npm", "cache", "clean", "--force"], 500)
+CACHE = target("NPM", "cache", "Package cache", ["npm", "cache", "clean", "--force"], 1024, [])
 
 
 def test_page_lists_targets_unticks_data_deletion_and_shows_failures(qapp):
@@ -87,19 +84,20 @@ def test_page_is_reachable_and_scans_on_first_visit(window):
     assert window.stacked_widget.currentWidget() is window.cleanup_page and scan.called
 
 
-def test_cleaning_without_data_deletion_runs_each_command(window):
+def test_cleaning_without_destructive_runs_each_command(window):
     with patch.object(MainWindow, "_confirm_commands", return_value=True), \
             patch.object(MainWindow, "_run_commands") as run:
         window.clean_targets([CACHE])
     assert run.call_args[0][0] == [CACHE["command"]]
 
 
-def test_data_deletion_needs_its_own_confirmation(window):
-    with patch.object(MainWindow, "_confirm_destructive", return_value=False), \
-            patch.object(MainWindow, "_run_commands") as run, \
-            patch.object(MainWindow, "_confirm_commands") as confirm:
-        window.clean_targets([LEFTOVER])
-    assert not confirm.called and not run.called
+def test_destructive_needs_its_own_confirmation(window):
+    for t in (LEFTOVER, ORPHANS):
+        with patch.object(MainWindow, "_confirm_destructive", return_value=False), \
+                patch.object(MainWindow, "_run_commands") as run, \
+                patch.object(MainWindow, "_confirm_commands") as confirm:
+            window.clean_targets([t])
+        assert not confirm.called and not run.called
 
 
 def test_data_deletion_stops_if_the_leftovers_changed_since_the_scan(window):
@@ -137,7 +135,6 @@ def test_destructive_dialog_needs_the_checkbox(window):
         assert window._confirm_destructive(LEFTOVER)
     assert shown == {"enabled_before": False, "enabled_after": True,
                      "details": "/home/u/.var/app/org.gone.App"}
-
 
 def test_orphan_destructive_dialog_needs_the_checkbox(window):
     shown = {}

@@ -18,11 +18,9 @@ _ITEMS_SHOWN = 50
 
 
 def is_destructive(target: dict[str, Any]) -> bool:
-    """Deletes user data or uninstalls packages (orphans, leftover ~/.var/app dirs)."""
-    return (
-        target.get("id") in ("leftover-data", "orphans")
-        or target.get("command", [])[:1] == ["rm"]
-    )
+    """Deletes user data or uninstalls packages rather than clearing caches."""
+    return target.get("id") in ("leftover-data", "orphans") or target.get("command", [])[:1] == ["rm"]
+
 
 
 class CleanupScanWorker(QThread):
@@ -84,8 +82,8 @@ class CleanupPage(QWidget):
         self.tree.itemChanged.connect(lambda *_: self._refresh_buttons())
         layout.addWidget(self.tree)
 
-        note = QLabel("Ticked items are cleaned with each manager's own command. Leftover app data "
-                      "is never ticked for you: deleting it cannot be undone.")
+        note = QLabel("Ticked items are cleaned with each manager's own command. Orphan packages and "
+                      "leftover app data are never ticked for you: removing them cannot be undone.")
         note.setWordWrap(True)
         note.setObjectName("group-footer")
         layout.addWidget(note)

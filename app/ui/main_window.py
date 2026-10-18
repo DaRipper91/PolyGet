@@ -835,21 +835,10 @@ class ManagerItemWidget(QWidget):
         details_layout = QVBoxLayout()
         details_layout.setSpacing(2)
 
-        lbl_name = QLabel(f"{self.mgr_name} ({self.category})")
-        if self.version:
-            lbl_name.setText(f"{self.mgr_name} ({self.category}) — v{self.version}")
+        lbl_name = QLabel(self._title(self.version))
         lbl_name.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffffff;")
         details_layout.addWidget(lbl_name)
         self._name_label = lbl_name
-
-    def set_version(self, version: str | None) -> None:
-        """Update the displayed version after it's been fetched asynchronously."""
-        self.version = version
-        if hasattr(self, "_name_label"):
-            if version:
-                self._name_label.setText(f"{self.mgr_name} ({self.category}) — v{version}")
-            else:
-                self._name_label.setText(f"{self.mgr_name} ({self.category})")
 
         lbl_desc = QLabel(self.entry.description)
         lbl_desc.setStyleSheet("color: #a6adc8; font-size: 12px;")
@@ -901,6 +890,20 @@ class ManagerItemWidget(QWidget):
                     
                 self.btn_action.clicked.connect(lambda: self.install_requested.emit(self.entry))
                 layout.addWidget(self.btn_action)
+
+    def set_version(self, version: str | None) -> None:
+        """Update the displayed version after it's been fetched asynchronously."""
+        self.version = version
+        if hasattr(self, "_name_label"):
+            self._name_label.setText(self._title(version))
+
+    def _title(self, version: str | None) -> str:
+        """"Cargo (Language/Dev) — v1.99.1". Tools report their whole version line ("cargo 1.99.1
+        (…)", "dnf5 version 5.4.6.0"), so only a bare number gets the "v"."""
+        title = f"{self.mgr_name} ({self.category})"
+        if not version:
+            return title
+        return f"{title} — {'v' if version[:1].isdigit() else ''}{version}"
 
 
 class RepoItemWidget(QWidget):
@@ -3240,6 +3243,7 @@ class MainWindow(QMainWindow):
             lambda repos, g=generation, m=mgr: self.display_repos_list(repos, m, g)
         )
         worker.error_signal.connect(lambda err: self.log(f"❌ Error fetching repositories: {err}"))
+        worker.finished.connect(self._on_worker_finished)
         self.active_workers.append(worker)
         worker.start()
 

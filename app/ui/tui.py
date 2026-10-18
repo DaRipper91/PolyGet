@@ -241,39 +241,6 @@ class DetailModal(ModalScreen[None]):
         if event.button.id == "close-btn":
             self.dismiss()
 
-    _PKEXEC_NO_AGENT_MARKERS = (
-        "authentication agent",
-        "no session for cookie",
-        "not authorized",
-        "cannot determine the session",
-    )
-
-    _SUDO_AUTH_FAILURE_MARKERS = (
-    "incorrect password",
-    "sorry, try again",
-    "no password was provided",
-    "a password is required",
-)
-
-
-def _looks_like_sudo_auth_failure(stderr_text: str) -> bool:
-    """sudo rejected (or never got) the password, as opposed to the command failing."""
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in _SUDO_AUTH_FAILURE_MARKERS)
-
-
-def _looks_like_pkexec_no_agent_failure(stderr_text: str) -> bool:
-    """Heuristic: pkexec failed because no polkit authentication agent is bound to
-    this session (e.g. a bare terminal/SSH session with no desktop running), rather
-    than because the privileged command itself failed for an unrelated reason. This
-    is reasoned from documented polkit behavior, not verified against every polkit
-    version — it deliberately requires a stderr marker rather than treating any
-    nonzero pkexec exit as "needs a password," so real command failures (e.g. an
-    unreachable mirror, a genuinely missing package) aren't masked as an auth issue.
-    """
-    lowered = stderr_text.lower()
-    return any(marker in lowered for marker in _PKEXEC_NO_AGENT_MARKERS)
-
 
 def themed_tui_css() -> str:
     """tui.tcss in the theme chosen in Settings (the GUI's theme; "Follow system" picks the
@@ -366,42 +333,45 @@ class PolyGetTuiApp(App[None]):
     async def _scan_manager(self, mgr: PackageManager) -> None:
         """Scan a single package manager for updates in the background."""
         error = None
+        is_unsupported = False
         try:
             updates = await mgr.check_updates()
         except NotImplementedError as e:
+            is_unsupported = True
+            updates = []
             self.updates_cache[mgr.name] = []
             self.scan_errors.pop(mgr.name, None)
             self.unsupported_checks[mgr.name] = describe_error(e)
             self.notify(f"Scan skipped: {mgr.name} ({describe_error(e)})", title="Upgrader", severity="information", timeout=3)
-            return
         except Exception as e:
             updates = []
             error = str(e)
 
-        # Filter out ignored packages (consistent with GUI behavior)
-        try:
-            from app.core.ignore_store import IgnoreStore
-            store = IgnoreStore()
-            updates = [u for u in updates if not store.is_ignored(mgr.name, u.get("name", ""))]
-        except Exception:
-            pass
+        if not is_unsupported:
+            # Filter out ignored packages (consistent with GUI behavior)
+            try:
+                from app.core.ignore_store import IgnoreStore
+                store = IgnoreStore()
+                updates = [u for u in updates if not store.is_ignored(mgr.name, u.get("name", ""))]
+            except Exception:
+                pass
 
-        self.updates_cache[mgr.name] = updates
-        self.unsupported_checks.pop(mgr.name, None)
-        if error:
-            self.scan_errors[mgr.name] = error
-            self.notify(
-                f"Scan failed: {mgr.name} ({error})",
-                title="Upgrader",
-                severity="error",
-                timeout=5,
-            )
-        elif updates:
-            self.scan_errors.pop(mgr.name, None)
-            self.selected_managers.add(mgr.name)
-            self.notify(f"Scan complete: {mgr.name} ({len(updates)} updates)", title="Upgrader", severity="warning", timeout=3)
-        else:
-            self.notify(f"Scan complete: {mgr.name} (Up to date)", title="Upgrader", severity="info", timeout=3)
+            self.updates_cache[mgr.name] = updates
+            self.unsupported_checks.pop(mgr.name, None)
+            if error:
+                self.scan_errors[mgr.name] = error
+                self.notify(
+                    f"Scan failed: {mgr.name} ({error})",
+                    title="Upgrader",
+                    severity="error",
+                    timeout=5,
+                )
+            elif updates:
+                self.scan_errors.pop(mgr.name, None)
+                self.selected_managers.add(mgr.name)
+                self.notify(f"Scan complete: {mgr.name} ({len(updates)} updates)", title="Upgrader", severity="warning", timeout=3)
+            else:
+                self.notify(f"Scan complete: {mgr.name} (Up to date)", title="Upgrader", severity="info", timeout=3)
 
         if mgr.name in self.checking_managers:
             self.checking_managers.remove(mgr.name)

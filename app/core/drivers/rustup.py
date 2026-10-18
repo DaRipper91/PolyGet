@@ -8,7 +8,9 @@ from app.core.manager import PackageManager, register_manager, run_capture
 # `rustup check` prints one line per toolchain, plus one for rustup itself:
 #   stable-x86_64-unknown-linux-gnu - Update available : 1.97.0 (2d8144b78 2026-07-07) -> 1.99.1 (58cf8f9c3 2026-10-13)
 #   nightly-x86_64-unknown-linux-gnu - Up to date : 1.100.0-nightly (abc 2026-10-16)
-_CHECK_RE = re.compile(r"^(\S+) - Update available : (\S+).*? -> (\S+)")
+# rustup 1.29 writes "- update available: X -> Y" (lowercase, no space before the colon) and
+# exits 100 when anything is outdated.
+_CHECK_RE = re.compile(r"^(\S+) - update available\s*: (\S+).*? -> (\S+)", re.IGNORECASE)
 
 
 def _parse_check(output: str) -> list[dict[str, Any]]:
@@ -34,7 +36,8 @@ class RustupManager(PackageManager):
         return shutil.which("rustup") is not None
 
     async def check_updates(self) -> list[dict[str, Any]]:
-        out = await run_capture(["rustup", "check"], label=f"{self.name} update check", timeout=60.0)
+        out = await run_capture(["rustup", "check"], label=f"{self.name} update check", timeout=60.0,
+                                ok_codes=(0, 100))
         return _parse_check(out)
 
     async def list_installed(self) -> list[str]:

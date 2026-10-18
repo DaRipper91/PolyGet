@@ -157,6 +157,10 @@ class DnfManager(PackageManager):
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         """Get the command to upgrade system packages using DNF.
 
+        `--refresh`: the scan reads the user's dnf cache, but this runs as root with root's cache.
+        When root's is older, dnf finds "nothing to do", exits 0, and the upgrade verifies as
+        *not upgraded* every time.
+
         Returns:
             list[str]: The upgrade command and its arguments.
         """
@@ -165,8 +169,8 @@ class DnfManager(PackageManager):
             # too; split into two dnf runs if that ever matters.
             allowed = set(get_settings().get("dnf.allow_vendor_change", []))
             flag = ["--allow-vendor-change"] if allowed.intersection(packages) else []
-            return ["pkexec", "dnf", "upgrade", "-y"] + flag + packages
-        return ["pkexec", "dnf", "upgrade", "-y"]
+            return ["pkexec", "dnf", "upgrade", "-y", "--refresh"] + flag + packages
+        return ["pkexec", "dnf", "upgrade", "-y", "--refresh"]
 
     def get_sync_command(self) -> list[str] | None:
         """Get the command to sync repository metadata for DNF.

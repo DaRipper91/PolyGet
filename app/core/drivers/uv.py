@@ -141,7 +141,14 @@ class UvManager(PackageManager):
         size = await dir_size(Path(cache)) if cache else 0
         if not size:
             return []
-        return [target(self.name, "cache", "Package cache", ["uv", "cache", "clean"], size,
+        clean_cmd = [
+            "sh", "-c",
+            'if pgrep -f "/\\.cache/uv/" >/dev/null 2>&1; then '
+            'echo "Skipped: uv cache is currently in-use by active background processes (e.g. MCP servers)"; exit 0; '
+            'elif command -v timeout >/dev/null 2>&1; then timeout 15 uv cache clean; '
+            'else uv cache clean; fi',
+        ]
+        return [target(self.name, "cache", "Package cache", clean_cmd, size,
                        detail="wheels and sources uv downloads again on demand")]
 
     def get_install_command(self, package: str) -> list[str]:

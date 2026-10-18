@@ -3872,8 +3872,8 @@ class MainWindow(QMainWindow):
     def run_next_upgrade_queue(self):
         # Start all non-elevated (parallel) workers at once
         self._running_workers = len(self._parallel_queue) + (1 if self._elevated_queue else 0)
-        for mgr, pkgs in self._parallel_queue:
-            self._start_upgrade_worker(mgr, pkgs)
+        for task in self._parallel_queue:
+            self._start_upgrade_worker(task.manager, task.packages)
         self._parallel_queue = []
 
         # Start first elevated worker (rest queued in _elevated_queue)

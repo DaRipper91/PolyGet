@@ -1,14 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- A: Sunrise, retuned. The synthwave sun with its carved arrow, without the neon grid and rim
-     (noise below 32px), in the app's Catppuccin Mocha palette (base #1e1e2e, mauve #cba6f7).
-     The previous synthwave icon is kept as concepts/polyget-g-synth.svg. -->
+<!-- Confluence: five lanes in real manager colours (DNF, Flatpak, Snap, Cargo, npm; MANAGER_TONE in app/ui/sidebar.py) converge into one mauve update arrow. Many package managers, one get. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="#1e1e2e" stroke="#45475a" stroke-width="3"/>
-  <circle cx="64" cy="68" r="40" fill="#cba6f7"/>
-  <g fill="#1e1e2e">
-    <rect x="16" y="80" width="96" height="4"/>
-    <rect x="16" y="90" width="96" height="5"/>
-    <rect x="16" y="101" width="96" height="7"/>
-    <polygon points="64,30 88,56 75,56 75,98 53,98 53,56 40,56"/>
-  </g>
+  <defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#313244"/><stop offset="1" stop-color="#1e1e2e"/></linearGradient></defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#t)" stroke="#6c7086" stroke-width="3"/>
+  <g fill="none" stroke-width="9" stroke-linecap="round"><path d="M30,104 L57.9,64" stroke="#89b4fa"/><path d="M47,104 L60.9,64" stroke="#94e2d5"/><path d="M64,104 L64.0,64" stroke="#a6e3a1"/><path d="M81,104 L67.1,64" stroke="#fab387"/><path d="M98,104 L70.1,64" stroke="#f38ba8"/></g>
+  <path d="M64,24 L94,62 L34,62 Z" fill="#cba6f7" stroke="#cba6f7" stroke-width="6" stroke-linejoin="round"/>
 </svg>

@@ -33,7 +33,7 @@ def test_symbolic_icon_is_recolourable():
     assert "#" not in body  # no hard-coded colours outside the scheme stylesheet
 
 
-@pytest.mark.parametrize("size", [16, 32, 48, 64, 128, 256, 512])
+@pytest.mark.parametrize("size", [16, 22, 24, 32, 48, 64, 128, 256, 512])
 def test_rendered_pngs_exist_at_their_size(qapp, size):
     image = QImage(str(ICONS / f"polyget-{size}.png"))
     assert (image.width(), image.height()) == (size, size)
@@ -70,7 +70,7 @@ def test_app_icon_takes_the_themes_brand_colour(qapp):
     try:
         themes.set_active("gruvbox-dark")
         img = app_icon().pixmap(128, 128).toImage()
-        sun = img.pixelColor(30, 64).name()  # left edge of the sun, clear of the arrow
-        assert sun == themes.THEMES["gruvbox-dark"].roles["brand"] == "#fabd2f"
+        arrow = img.pixelColor(64, 50).name()  # middle of the Confluence mark's update arrow
+        assert arrow == themes.THEMES["gruvbox-dark"].roles["brand"] == "#fabd2f"
     finally:
         themes.set_active("mocha")

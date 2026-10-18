@@ -994,6 +994,14 @@ def set_autostart(enabled: bool) -> None:
 
 
 # Appended to the theme in touch mode: every tap target at least ~44px.
+def managers_page_description(system_manager: str | None) -> str:
+    """Intro text for the Package Managers page, naming this distro's own manager when PolyGet knows it."""
+    text = "Browse which manager backend drivers are active on your system."
+    if system_manager:
+        return f"{text} Missing backends can be installed from here, usually through {system_manager}."
+    return f"{text} Missing backends can be installed from here when PolyGet knows the install command for your distro."
+
+
 _TOUCH_QSS = """
 QPushButton { min-height: 44px; }
 QListWidget#nav-list::item { padding: 14px; }
@@ -1627,7 +1635,8 @@ class MainWindow(QMainWindow):
         lbl_managers_title.setObjectName("summary-label")
         managers_layout.addWidget(lbl_managers_title)
 
-        lbl_managers_desc = QLabel("Browse which manager backend drivers are active on your system. You can install missing backends directly via DNF.")
+        from app.core.distro import get_system_manager_name
+        lbl_managers_desc = QLabel(managers_page_description(get_system_manager_name()))
         lbl_managers_desc.setObjectName("summary-label")
         lbl_managers_desc.setWordWrap(True)
         lbl_managers_desc.setStyleSheet("font-size: 13px; font-weight: normal; color: #a6adc8;")
@@ -2848,7 +2857,7 @@ class MainWindow(QMainWindow):
         def entries(rows: list[tuple[str, Any]], empty: str, remove) -> None:
             if not rows:
                 lbl = QLabel(empty)
-                lbl.setStyleSheet("color: #6c7086; font-style: italic;")
+                lbl.setStyleSheet("color: #a6adc8; font-style: italic;")
                 layout.addWidget(lbl)
             for text, key in rows:
                 row = QWidget()
@@ -2992,7 +3001,7 @@ class MainWindow(QMainWindow):
             "Saved password: yes" if has_pw else "No saved password (keyring unavailable or none stored)."
         )
         lbl_pw_status.setObjectName("sudo-pw-status")
-        lbl_pw_status.setStyleSheet("color: #6c7086; font-size: 11px;")
+        lbl_pw_status.setStyleSheet("color: #a6adc8; font-size: 11px;")
         layout.addWidget(lbl_pw_status)
 
         heading("Debug",
@@ -3009,7 +3018,7 @@ class MainWindow(QMainWindow):
         debug_box.stateChanged.connect(_toggle_debug)
         layout.addWidget(debug_box)
         lbl_debug_path = QLabel(f"Log file: {_dl_mod.debug_log.log_path}")
-        lbl_debug_path.setStyleSheet("color: #6c7086; font-size: 11px;")
+        lbl_debug_path.setStyleSheet("color: #a6adc8; font-size: 11px;")
         layout.addWidget(lbl_debug_path)
 
         heading("Tray & background checks",

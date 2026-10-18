@@ -1,12 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- C: single-colour tray/panel icon: icon A's sun, cut flat at the horizon, with the arrow
-     carved out (even-odd), over a horizon bar. Plasma recolours the ColorScheme-Text class and
-     GTK recolours symbolic fills, so it follows light and dark panels. Fills only, no strokes. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+<!-- Confluence, single colour for tray and panel. Plasma recolours the ColorScheme-Text class and GTK recolours symbolic icons, so it follows light and dark panels. Drawn on a 128 grid, shown at 16. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="16" height="16">
   <style id="current-color-scheme">.ColorScheme-Text { color: #232629; }</style>
-  <g class="ColorScheme-Text" fill="currentColor">
-    <path fill-rule="evenodd" d="M2.88 12.5 A6.5 6.5 0 1 1 13.12 12.5 Z
-                                 M8 3.2 L11.2 6.8 L9.2 6.8 L9.2 12.5 L6.8 12.5 L6.8 6.8 L4.8 6.8 Z"/>
-    <rect x="1" y="14" width="14" height="1.5" rx="0.75"/>
-  </g>
+  <g class="ColorScheme-Text"><path fill="currentColor" d="M33.56,122.54 L64.72,86.54 A10.0,10.0 0 0 0 49.60,73.46 L18.44,109.46 A10.0,10.0 0 0 0 33.56,122.54 Z M74.00,116.00 L74.00,80.00 A10.0,10.0 0 0 0 54.00,80.00 L54.00,116.00 A10.0,10.0 0 0 0 74.00,116.00 Z M109.56,109.46 L78.40,73.46 A10.0,10.0 0 0 0 63.28,86.54 L94.44,122.54 A10.0,10.0 0 0 0 109.56,109.46 Z"/><path fill="currentColor" d="M64,5 L117,60 Q119,63 115,63 L13,63 Q9,63 11,60 Z"/></g>
 </svg>

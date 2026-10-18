@@ -34,18 +34,18 @@ def _render(svg_text: str, sizes: tuple[int, ...], icon: QIcon | None = None) ->
     return icon
 
 
-_SUN = "#cba6f7"  # the icon's sun, drawn in Mocha mauve
-_SUN_MARK = "#b0b0b1"  # placeholder while theming; no theme maps it
+_MARK = "#cba6f7"  # the logo's update arrow, drawn in Mocha mauve
+_PLACEHOLDER = "#b0b0b1"  # placeholder while theming; no theme maps it
 
 
 def _brand_themed(svg_text: str) -> str:
-    """Theme the icon, painting the sun in the theme's brand colour rather than its mauve."""
-    marked = svg_text.replace(_SUN, _SUN_MARK)
-    return themes.themed(marked, force=True).replace(_SUN_MARK, themes.active().role("brand"))
+    """Theme the icon, painting the arrow in the theme's brand colour rather than its mauve."""
+    marked = svg_text.replace(_MARK, _PLACEHOLDER)
+    return themes.themed(marked, force=True).replace(_PLACEHOLDER, themes.active().role("brand"))
 
 
 def app_icon() -> QIcon:
-    """polyget.svg in the active theme's colours (its brand colour for the sun), with the
+    """polyget.svg in the active theme's colours (its brand colour for the arrow), with the
     simplified drawing at 16/32px where the stripes would blur."""
     big, small = (_brand_themed((ICON_DIR / name).read_text(encoding="utf-8"))
                   for name in ("polyget.svg", "polyget-small.svg"))

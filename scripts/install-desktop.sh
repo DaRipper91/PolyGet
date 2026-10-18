@@ -23,7 +23,7 @@ fi
 
 uninstall() {
     rm -fv "$APPLICATIONS_DIR/polyget.desktop"
-    for size in 16 32 48 64 128 256 512; do
+    for size in 16 22 24 32 48 64 128 256 512; do
         rm -fv "$ICON_THEME_DIR/${size}x${size}/apps/polyget.png"
     done
     rm -fv "$ICON_THEME_DIR/scalable/apps/polyget.svg"
@@ -52,7 +52,7 @@ install() {
     for state in "" -updates -updating -error; do
         cp "$ICON_SRC_DIR/polyget${state}-symbolic.svg" "$ICON_THEME_DIR/symbolic/apps/polyget${state}-symbolic.svg"
     done
-    for size in 16 32 48 64 128 256 512; do
+    for size in 16 22 24 32 48 64 128 256 512; do
         mkdir -p "$ICON_THEME_DIR/${size}x${size}/apps"
         cp "$ICON_SRC_DIR/polyget-$size.png" "$ICON_THEME_DIR/${size}x${size}/apps/polyget.png"
     done

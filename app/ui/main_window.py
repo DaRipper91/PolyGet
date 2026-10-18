@@ -997,6 +997,14 @@ def set_autostart(enabled: bool) -> None:
 
 
 # Appended to the theme in touch mode: every tap target at least ~44px.
+def managers_page_description(system_manager: str | None) -> str:
+    """Intro text for the Package Managers page, naming this distro's own manager when PolyGet knows it."""
+    text = "Browse which manager backend drivers are active on your system."
+    if system_manager:
+        return f"{text} Missing backends can be installed from here, usually through {system_manager}."
+    return f"{text} Missing backends can be installed from here when PolyGet knows the install command for your distro."
+
+
 _TOUCH_QSS = """
 QPushButton { min-height: 44px; }
 QListWidget#nav-list::item { padding: 14px; }
@@ -1588,7 +1596,8 @@ class MainWindow(QMainWindow):
         lbl_managers_title.setObjectName("summary-label")
         managers_layout.addWidget(lbl_managers_title)
 
-        lbl_managers_desc = QLabel("Browse which manager backend drivers are active on your system. You can install missing backends directly via DNF.")
+        from app.core.distro import get_system_manager_name
+        lbl_managers_desc = QLabel(managers_page_description(get_system_manager_name()))
         lbl_managers_desc.setObjectName("summary-label")
         lbl_managers_desc.setWordWrap(True)
         lbl_managers_desc.setStyleSheet("font-size: 13px; font-weight: normal; color: #a6adc8;")

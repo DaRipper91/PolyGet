@@ -115,3 +115,65 @@ def test_settings_page_combos_save_and_apply(window, settings):
     assert settings.get("ui.sidebar_nav") == "rail"
     assert window.sidebar_nav_style == "rail"
     assert not combos["Header"].isEnabled()
+
+
+def test_sidebar_nav_views_are_scrollable_under_constrained_height(window, settings):
+    from PySide6.QtWidgets import QScrollArea
+    from PySide6.QtCore import Qt
+    from app.ui.main_window import PAGE_SETTINGS
+
+    assert isinstance(window.nav_grouped, QScrollArea)
+    assert isinstance(window.nav_rail, QScrollArea)
+    assert window.nav_grouped.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+    assert window.nav_rail.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+
+    # Grouped style at constrained size
+    _style(window, settings, "banner", "grouped")
+    window.resize(1000, 450)
+    window.show()
+    QApplication.processEvents()
+    assert window.nav_grouped.verticalScrollBar().maximum() > 0
+
+    # Rail style at constrained size
+    _style(window, settings, "banner", "rail")
+    window.resize(1000, 450)
+    window.show()
+    QApplication.processEvents()
+    assert window.nav_rail.verticalScrollBar().maximum() > 0
+
+
+def test_sidebar_nav_scrolls_to_active_tab(window, settings):
+    from app.ui.main_window import PAGE_SETTINGS
+    _style(window, settings, "banner", "grouped")
+    window.resize(1000, 400)
+    window.show()
+    QApplication.processEvents()
+
+    # Navigating to PAGE_SETTINGS should automatically scroll it into view
+    window.nav_grouped.set_current(PAGE_SETTINGS)
+    QApplication.processEvents()
+    assert window.nav_grouped.verticalScrollBar().value() > 0
+
+
+def test_console_windows_have_persistent_scrollbars(window):
+    from PySide6.QtCore import Qt
+    from app.ui.main_window import PAGE_CONSOLE
+
+    assert window.console.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+    assert window.debug_console.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+    assert window.terminal_output.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+
+    window.stacked_widget.setCurrentIndex(PAGE_CONSOLE)
+    window.show()
+    QApplication.processEvents()
+    assert window.console.verticalScrollBar().isVisible()
+
+
+def test_pacman_selective_upgrade_includes_sync_flag():
+    from app.core.drivers.pacman import PacmanManager
+    mgr = PacmanManager()
+    cmd = mgr.get_upgrade_command(["haskell-http-client"])
+    assert cmd == ["pkexec", "pacman", "-Sy", "--noconfirm", "haskell-http-client"]
+    full_cmd = mgr.get_upgrade_command()
+    assert full_cmd == ["pkexec", "pacman", "-Syu", "--noconfirm"]
+

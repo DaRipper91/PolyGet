@@ -74,7 +74,7 @@ class PacmanManager(PackageManager):
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:
-            return ["pkexec", "pacman", "-S", "--noconfirm"] + packages
+            return ["pkexec", "pacman", "-Sy", "--noconfirm"] + packages
         return ["pkexec", "pacman", "-Syu", "--noconfirm"]
 
     def get_sync_command(self) -> list[str] | None:

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QLabel, QPushButton, QTextEdit, QPlainTextEdit, QProgressBar, QMessageBox, QCheckBox,
     QLineEdit, QStackedWidget, QSplitter, QFrame, QComboBox, QFileDialog,
     QTreeWidget, QTreeWidgetItem, QHeaderView, QMenu, QScrollArea, QSpinBox, QSystemTrayIcon,
-    QApplication, QSizePolicy, QStyle, QToolButton, QDialog
+    QApplication, QSizePolicy, QStyle, QToolButton, QDialog, QAbstractItemView
 )
 from app.core.arch import describe_system
 from app.core.manager import DriverError, PackageManager, describe_error, discover_managers
@@ -1213,6 +1213,9 @@ class MainWindow(QMainWindow):
         # Nav List
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("nav-list")
+        self.nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.nav_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         
         item_store = QListWidgetItem("Browse Store")
         item_store.setIcon(QIcon.fromTheme("emblem-downloads"))
@@ -1572,6 +1575,8 @@ class MainWindow(QMainWindow):
         self.console = QTextEdit()
         self.console.setReadOnly(True)
         self.console.setObjectName("console-output")
+        self.console.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.console.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         console_layout.addWidget(self.console)
 
         self.stacked_widget.addWidget(console_page)
@@ -1769,6 +1774,8 @@ class MainWindow(QMainWindow):
         self.debug_console = QTextEdit()
         self.debug_console.setReadOnly(True)
         self.debug_console.setObjectName("console-output")
+        self.debug_console.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.debug_console.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         debug_layout.addWidget(self.debug_console)
 
         btn_debug_clear = QPushButton("Clear")
@@ -1837,6 +1844,8 @@ class MainWindow(QMainWindow):
         self.terminal_output = QTextEdit()
         self.terminal_output.setReadOnly(True)
         self.terminal_output.setObjectName("terminal-output")
+        self.terminal_output.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.terminal_output.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         overlay_layout.addWidget(self.terminal_output)
 
         parent_layout.addWidget(self.terminal_overlay)
@@ -2344,17 +2353,49 @@ class MainWindow(QMainWindow):
             /* Custom ScrollBar Styling */
             QScrollBar:vertical {
                 border: none;
-                background: #11111b;
-                width: 8px;
+                background: #181825;
+                width: 10px;
                 margin: 0px;
-                border-radius: 4px;
+                border-radius: 5px;
             }
             QScrollBar::handle:vertical {
                 background: #45475a;
-                min-height: 20px;
-                border-radius: 4px;
+                min-height: 24px;
+                border-radius: 5px;
             }
             QScrollBar::handle:vertical:hover {
+                background: #585b70;
+            }
+            QScrollBar::handle:vertical:pressed {
+                background: #89b4fa;
+            }
+            QScrollBar:vertical:disabled {
+                background: #181825;
+            }
+            QScrollBar::handle:vertical:disabled {
+                background: #313244;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QTextEdit#console-output QScrollBar:vertical,
+            QTextEdit#terminal-output QScrollBar:vertical {
+                background: #181825;
+                border-left: 1px solid #313244;
+            }
+            QScrollArea#nav-grouped QScrollBar:vertical,
+            QScrollArea#nav-rail QScrollBar:vertical {
+                background: transparent;
+                width: 6px;
+                border-radius: 3px;
+            }
+            QScrollArea#nav-grouped QScrollBar::handle:vertical,
+            QScrollArea#nav-rail QScrollBar::handle:vertical {
+                background: #45475a;
+                min-height: 20px;
+                border-radius: 3px;
+            }
+            QScrollArea#nav-grouped QScrollBar::handle:vertical:hover,
+            QScrollArea#nav-rail QScrollBar::handle:vertical:hover {
                 background: #585b70;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {

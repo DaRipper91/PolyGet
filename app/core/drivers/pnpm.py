@@ -1,6 +1,7 @@
 """Package manager driver for pnpm (Node.js, global installs)."""
 
 import asyncio
+import json
 import shutil
 import subprocess
 from typing import Any
@@ -67,26 +68,44 @@ class PnpmManager(PackageManager):
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except Exception:
             try:
                 proc.kill()
             except Exception:
                 pass
             raise
-        return proc, stdout
+        return proc, stdout, stderr
 
     async def check_updates(self) -> list[dict[str, Any]]:
+        label = f"{self.name} update check"
         try:
-            _, stdout = await self._run(
+            # The shim probe is a blocking subprocess.run; keep it off the shared scan loop.
+            await asyncio.to_thread(self._needs_shell_fallback)
+            proc, stdout, stderr = await self._run(
                 self._pnpm_argv("outdated", "--global", "--format", "json"), timeout=120.0
             )
-            import json
-            data = json.loads(stdout.decode(errors="ignore") or "{}")
-            return [{"name": name, "current": info.get("current", ""), "new": info.get("latest", "")}
-                    for name, info in data.items()]
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+            raise DriverError(f"{label} failed: {describe_error(e)}") from e
+        out = stdout.decode(errors="ignore")
+        err = stderr.decode(errors="ignore")
+        # No global package.json yet means nothing is installed globally (pnpm 10 prints this
+        # error on stdout, exit 1), which is a genuinely empty answer, not a failed scan.
+        if "ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND" in out + err:
+            return []
+        # `pnpm outdated` exits 0 when everything is current and 1 when something is outdated.
+        if proc.returncode not in (0, 1):
+            raise DriverError(f"{label} failed: pnpm exited with status {proc.returncode}{_first_line(err or out)}")
+        try:
+            data = json.loads(out) if out.strip() else None
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            if proc.returncode == 0 and not out.strip():
+                return []
+            raise DriverError(f"{label} failed: pnpm exited with status {proc.returncode}{_first_line(err or out)}")
+        return [{"name": name, "current": info.get("current", ""), "new": info.get("latest", "")}
+                for name, info in data.items()]
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:
@@ -95,10 +114,9 @@ class PnpmManager(PackageManager):
 
     async def list_installed(self) -> list[str]:
         try:
-            _, stdout = await self._run(
+            _, stdout, _ = await self._run(
                 self._pnpm_argv("list", "--global", "--depth=0", "--json"), timeout=10.0
             )
-            import json
             data = json.loads(stdout.decode(errors="ignore") or "[]")
             deps = data[0].get("dependencies", {}) if data else {}
             return list(deps.keys())
@@ -109,10 +127,9 @@ class PnpmManager(PackageManager):
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
-            _, stdout = await self._run(
+            _, stdout, _ = await self._run(
                 self._pnpm_argv("list", "--global", "--depth=0", "--json"), timeout=10.0
             )
-            import json
             data = json.loads(stdout.decode(errors="ignore") or "[]")
             deps = data[0].get("dependencies", {}) if data else {}
             return {name: info.get("version", "unknown") for name, info in deps.items()}
@@ -130,8 +147,7 @@ class PnpmManager(PackageManager):
     async def search_packages(self, query: str) -> list[dict[str, Any]]:
         # Same reasoning as Yarn — pnpm has no native search, shares npm's registry.
         try:
-            _, stdout = await self._run(["npm", "search", "--json", query], timeout=15.0)
-            import json
+            _, stdout, _ = await self._run(["npm", "search", "--json", query], timeout=15.0)
             data = json.loads(stdout.decode(errors="ignore"))
             return [{"name": i.get("name", ""), "id": i.get("name", ""),
                      "description": i.get("description", ""), "version": i.get("version", "")}
@@ -140,3 +156,8 @@ class PnpmManager(PackageManager):
             raise DriverError(
                 f"{self.name} search failed: {describe_error(e)}"
             ) from e
+
+
+def _first_line(text: str) -> str:
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    return f": {lines[0]}" if lines else ""

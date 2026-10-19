@@ -1,9 +1,11 @@
 """Package manager driver for Yarn (Node.js, global installs)."""
 
 import asyncio
+import json
 import shutil
+from pathlib import Path
 from typing import Any
-from app.core.manager import DriverError, PackageManager, describe_error, register_manager
+from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
 
 
 @register_manager
@@ -15,39 +17,54 @@ class YarnManager(PackageManager):
     def is_available(self) -> bool:
         return shutil.which("yarn") is not None
 
-    async def _run(self, argv: list[str], timeout: float):
+    async def _run(self, argv: list[str], timeout: float, cwd: Path | None = None):
         """Run argv capturing output, killing a hung child instead of hanging."""
         proc = await asyncio.create_subprocess_exec(
-            *argv,
+            *argv, cwd=cwd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except Exception:
             try:
                 proc.kill()
             except Exception:
                 pass
             raise
-        return proc, stdout
+        return proc, stdout, stderr
 
     async def check_updates(self) -> list[dict[str, Any]]:
+        # Yarn Classic has no `yarn global outdated` (it errors "Invalid subcommand"), so run
+        # plain `yarn outdated` inside the global install directory that `yarn global dir` names.
+        label = f"{self.name} update check"
+        global_dir = Path((await run_capture(["yarn", "global", "dir"], label=label)).strip())
+        if not (global_dir / "package.json").is_file():
+            return []  # nothing has ever been installed globally
         try:
-            _, stdout = await self._run(["yarn", "global", "outdated", "--json"], timeout=120.0)
-            import json
-            updates = []
-            for line in stdout.decode(errors="ignore").splitlines():
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if obj.get("type") == "table":
-                    for row in obj.get("data", {}).get("body", []):
-                        if len(row) >= 4:
-                            updates.append({"name": row[0], "current": row[1], "new": row[3]})
-            return updates
+            proc, stdout, stderr = await self._run(["yarn", "outdated", "--json"], timeout=120.0, cwd=global_dir)
         except Exception as e:
-            raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
+            raise DriverError(f"{label} failed: {describe_error(e)}") from e
+        updates = []
+        errors = []
+        for line in (stdout + b"\n" + stderr).decode(errors="ignore").splitlines():
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            if obj.get("type") == "error":
+                errors.append(str(obj.get("data", "")))
+            elif obj.get("type") == "table":
+                for row in obj.get("data", {}).get("body", []):
+                    if len(row) >= 4:
+                        updates.append({"name": row[0], "current": row[1], "new": row[3]})
+        # `yarn outdated` exits 0 when everything is current and 1 when something is outdated;
+        # an error line, any other status, or a 1 without a table means the scan itself broke.
+        if errors or proc.returncode not in (0, 1) or (proc.returncode == 1 and not updates):
+            detail = f": {errors[0]}" if errors else ""
+            raise DriverError(f"{label} failed: yarn exited with status {proc.returncode}{detail}")
+        return updates
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
         if packages:
@@ -56,7 +73,7 @@ class YarnManager(PackageManager):
 
     async def list_installed(self) -> list[str]:
         try:
-            _, stdout = await self._run(["yarn", "global", "list", "--depth=0"], timeout=10.0)
+            _, stdout, _ = await self._run(["yarn", "global", "list", "--depth=0"], timeout=10.0)
             installed = []
             for line in stdout.decode(errors="ignore").splitlines():
                 line = line.strip()
@@ -74,7 +91,7 @@ class YarnManager(PackageManager):
 
     async def list_installed_versions(self) -> dict[str, str]:
         try:
-            _, stdout = await self._run(["yarn", "global", "list", "--depth=0"], timeout=10.0)
+            _, stdout, _ = await self._run(["yarn", "global", "list", "--depth=0"], timeout=10.0)
             versions = {}
             for line in stdout.decode(errors="ignore").splitlines():
                 line = line.strip()
@@ -103,8 +120,7 @@ class YarnManager(PackageManager):
         # so delegate to the npm registry search API directly rather than
         # reinventing it — same registry, same package names.
         try:
-            _, stdout = await self._run(["npm", "search", "--json", query], timeout=15.0)
-            import json
+            _, stdout, _ = await self._run(["npm", "search", "--json", query], timeout=15.0)
             data = json.loads(stdout.decode(errors="ignore"))
             return [{"name": i.get("name", ""), "id": i.get("name", ""),
                      "description": i.get("description", ""), "version": i.get("version", "")}

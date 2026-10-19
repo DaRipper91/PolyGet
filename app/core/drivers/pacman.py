@@ -73,12 +73,15 @@ class PacmanManager(PackageManager):
             raise RuntimeError(f"{self.name} update check failed: {describe_error(e)}") from e
 
     def get_upgrade_command(self, packages: list[str] = None) -> list[str]:
-        if packages:
-            return ["pkexec", "pacman", "-Sy", "--noconfirm"] + packages
+        # Arch does not support partial upgrades: refreshing the sync DB (-y) and then
+        # installing only a subset leaves libraries newer than their dependents. A package
+        # list is therefore ignored and the whole system is upgraded.
         return ["pkexec", "pacman", "-Syu", "--noconfirm"]
 
     def get_sync_command(self) -> list[str] | None:
-        return ["pkexec", "pacman", "-Sy"]
+        # A bare `pacman -Sy` is the first half of a partial upgrade. Update checks use
+        # checkupdates' temporary DB, so nothing here needs the system DB refreshed alone.
+        return None
 
     async def list_installed(self) -> list[str]:
         try:

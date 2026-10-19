@@ -192,3 +192,23 @@ def test_main_routes_subcommands_to_cli(monkeypatch):
     monkeypatch.setattr(cli, "main", lambda argv: seen.setdefault("argv", argv) and 0)
     app.main.main()
     assert seen["argv"] == ["managers", "--json"]
+
+
+def test_pacman_upgrade_plan_is_a_full_upgrade_not_a_partial_sync(managers, capsys, monkeypatch):
+    from app.core.drivers.pacman import PacmanManager
+
+    class OutdatedPacman(PacmanManager):
+        def is_available(self):
+            return True
+
+        async def check_updates(self):
+            return [{"name": "linux", "current": "6.1", "new": "6.2"}]
+
+    pool = [OutdatedPacman()]
+    monkeypatch.setattr(cli, "discover_managers", lambda: pool)
+    monkeypatch.setattr(cli, "get_all_managers", lambda: pool)
+    code, data = run_json(capsys, "upgrade", "-m", "pacman")
+    assert code == cli.EXIT_OK
+    command = data["steps"][0]["command"]
+    assert "-Syu" in command and "-Sy" not in command
+    assert "linux" not in command

@@ -154,3 +154,17 @@ def test_pacman_check_updates_with_checkupdates_fallback():
         assert updates[0] == {"name": "systemd", "current": "252", "new": "253"}
 
     asyncio.run(run_test())
+
+
+def test_pacman_upgrade_command_never_syncs_without_upgrading():
+    manager = PacmanManager()
+    for packages in (None, [], ["a", "b"]):
+        cmd = manager.get_upgrade_command(packages)
+        assert "-Sy" not in cmd
+        assert "-Syu" in cmd
+        assert "a" not in cmd and "b" not in cmd
+
+
+def test_pacman_has_no_bare_sync_command():
+    # A bare `pacman -Sy` followed by installs is a partial upgrade.
+    assert PacmanManager().get_sync_command() is None

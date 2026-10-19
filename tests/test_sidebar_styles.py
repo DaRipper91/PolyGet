@@ -169,11 +169,11 @@ def test_console_windows_have_persistent_scrollbars(window):
     assert window.console.verticalScrollBar().isVisible()
 
 
-def test_pacman_selective_upgrade_includes_sync_flag():
+def test_pacman_selective_upgrade_is_a_full_system_upgrade():
+    # `pacman -Sy <subset>` is an unsupported partial upgrade on Arch.
     from app.core.drivers.pacman import PacmanManager
     mgr = PacmanManager()
-    cmd = mgr.get_upgrade_command(["haskell-http-client"])
-    assert cmd == ["pkexec", "pacman", "-Sy", "--noconfirm", "haskell-http-client"]
-    full_cmd = mgr.get_upgrade_command()
-    assert full_cmd == ["pkexec", "pacman", "-Syu", "--noconfirm"]
+    full_cmd = ["pkexec", "pacman", "-Syu", "--noconfirm"]
+    assert mgr.get_upgrade_command(["haskell-http-client"]) == full_cmd
+    assert mgr.get_upgrade_command() == full_cmd
 

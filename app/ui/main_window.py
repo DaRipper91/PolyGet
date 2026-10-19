@@ -1021,6 +1021,7 @@ QToolButton#rail-button { min-height: 52px; }
 QCheckBox { spacing: 14px; min-height: 44px; }
 QCheckBox::indicator { width: 30px; height: 30px; border-radius: 6px; }
 QLineEdit, QComboBox, QSpinBox { min-height: 44px; }
+QPushButton#btn-font-arrow { min-width: 44px; max-width: 44px; min-height: 44px; max-height: 44px; font-size: 15px; }
 QListWidget#status-list::item { padding: 14px 10px; }
 QTreeWidget::item { padding: 10px; }
 QScrollBar:vertical { width: 16px; border-radius: 8px; }
@@ -2452,6 +2453,27 @@ class MainWindow(QMainWindow):
                 background-color: #1e1e2e;
                 color: #cdd6f4;
             }
+            QPushButton#btn-font-arrow {
+                background-color: #181825;
+                color: #cdd6f4;
+                border: 1px solid #313244;
+                border-radius: 6px;
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 34px;
+                max-height: 34px;
+                font-size: 12px;
+                font-weight: bold;
+                padding: 0px;
+            }
+            QPushButton#btn-font-arrow:hover {
+                background-color: #313244;
+                border-color: #89b4fa;
+                color: #89b4fa;
+            }
+            QPushButton#btn-font-arrow:pressed {
+                background-color: #45475a;
+            }
             QToolTip {
                 background-color: #181825;
                 color: #cdd6f4;
@@ -2891,8 +2913,11 @@ class MainWindow(QMainWindow):
         scale_row = QWidget()
         scale_layout = QHBoxLayout(scale_row)
         scale_layout.setContentsMargins(0, 0, 0, 0)
-        scale_layout.addWidget(QLabel("UI scale"))
+        lbl_scale = QLabel("UI scale")
+        lbl_scale.setMinimumWidth(self._px(110))
+        scale_layout.addWidget(lbl_scale)
         scale_spin = QSpinBox()
+        scale_spin.setAccessibleName("UI scale")
         scale_spin.setRange(75, 200)
         scale_spin.setSingleStep(5)
         scale_spin.setSuffix(" %")
@@ -2906,17 +2931,117 @@ class MainWindow(QMainWindow):
         font_row = QWidget()
         font_layout = QHBoxLayout(font_row)
         font_layout.setContentsMargins(0, 0, 0, 0)
-        font_layout.addWidget(QLabel("Font size"))
-        font_spin = QSpinBox()
-        font_spin.setRange(0, 32)
-        font_spin.setSpecialValueText("default")
-        font_spin.setSuffix(" px")
-        font_spin.setValue(int(settings.get("ui.font_size", 0)))
-        font_spin.valueChanged.connect(
-            lambda v: (settings.set("ui.font_size", v), self.apply_touch_mode()))
-        font_layout.addWidget(font_spin)
+        lbl_font = QLabel("Font size")
+        lbl_font.setMinimumWidth(self._px(110))
+        font_layout.addWidget(lbl_font)
+
+        font_combo = QComboBox()
+        font_combo.setAccessibleName("Font size")
+        font_combo.setObjectName("font-size-combo")
+        font_combo.setMinimumWidth(self._px(150))
+
+        font_presets = [
+            ("Default (13 px)", 0),
+            ("9 px", 9),
+            ("10 px", 10),
+            ("11 px", 11),
+            ("12 px", 12),
+            ("13 px", 13),
+            ("14 px", 14),
+            ("15 px", 15),
+            ("16 px", 16),
+            ("17 px", 17),
+            ("18 px", 18),
+            ("19 px", 19),
+            ("20 px", 20),
+            ("21 px", 21),
+            ("22 px", 22),
+            ("24 px", 24),
+            ("26 px", 26),
+            ("28 px", 28),
+            ("30 px", 30),
+            ("32 px", 32),
+        ]
+        current_font = int(settings.get("ui.font_size", 0))
+        if 0 < current_font < 8:
+            current_font = 0
+            settings.set("ui.font_size", 0)
+        preset_values = {val for _, val in font_presets}
+        if current_font not in preset_values and 8 <= current_font <= 32:
+            font_presets.append((f"{current_font} px", current_font))
+            font_presets.sort(key=lambda item: (item[1] != 0, item[1]))
+
+        for label_text, val in font_presets:
+            font_combo.addItem(label_text, val)
+
+        idx = font_combo.findData(current_font)
+        font_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+        font_layout.addWidget(font_combo)
+        font_layout.addSpacing(self._px(10))
+
+        btn_font_down = QPushButton("▼")
+        btn_font_down.setObjectName("btn-font-arrow")
+        btn_font_down.setToolTip("Decrease font size (▼)")
+        btn_font_down.setAccessibleName("Decrease font size")
+
+        font_layout.addWidget(btn_font_down)
+        font_layout.addSpacing(self._px(8))
+
+        btn_font_up = QPushButton("▲")
+        btn_font_up.setObjectName("btn-font-arrow")
+        btn_font_up.setToolTip("Increase font size (▲)")
+        btn_font_up.setAccessibleName("Increase font size")
+
+        font_layout.addWidget(btn_font_up)
         font_layout.addStretch()
         layout.addWidget(font_row)
+
+        def set_font_size(new_val: int) -> None:
+            new_val = max(0, min(32, new_val))
+            if new_val == int(settings.get("ui.font_size", 0)):
+                return
+            settings.set("ui.font_size", new_val)
+            find_idx = font_combo.findData(new_val)
+            font_combo.blockSignals(True)
+            if find_idx >= 0:
+                font_combo.setCurrentIndex(find_idx)
+            else:
+                label_text = f"{new_val} px" if new_val > 0 else "Default (13 px)"
+                inserted = False
+                for i in range(font_combo.count()):
+                    d = font_combo.itemData(i)
+                    if d is not None and d > new_val:
+                        font_combo.insertItem(i, label_text, new_val)
+                        font_combo.setCurrentIndex(i)
+                        inserted = True
+                        break
+                if not inserted:
+                    font_combo.addItem(label_text, new_val)
+                    font_combo.setCurrentIndex(font_combo.count() - 1)
+            font_combo.blockSignals(False)
+            self.apply_touch_mode()
+
+        def on_font_combo_changed(_idx: int) -> None:
+            val = font_combo.currentData()
+            if val is not None and val != int(settings.get("ui.font_size", 0)):
+                settings.set("ui.font_size", val)
+                self.apply_touch_mode()
+
+        font_combo.currentIndexChanged.connect(on_font_combo_changed)
+
+        def step_font(delta: int) -> None:
+            current = int(settings.get("ui.font_size", 0))
+            effective = 13 if current == 0 else current
+            target = effective + delta
+            if target < 9:
+                target = 0
+            elif target > 32:
+                target = 32
+            set_font_size(target)
+
+        btn_font_down.clicked.connect(lambda: step_font(-1))
+        btn_font_up.clicked.connect(lambda: step_font(1))
 
         heading("Theme", "Colours for the whole window (and the TUI next time it starts). "
                 "Changes apply right away.")
@@ -5000,7 +5125,8 @@ class MainWindow(QMainWindow):
     def ui_font_size(self) -> int:
         """Base font size in px. 0 = use theme default (13px)."""
         from app.core.settings_store import get_settings
-        return int(get_settings().get("ui.font_size", 0))
+        val = int(get_settings().get("ui.font_size", 0))
+        return val if val >= 8 else 0
 
     def _px(self, base: int) -> int:
         """Scale a pixel value by the current UI scale factor."""

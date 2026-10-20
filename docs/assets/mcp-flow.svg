@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 300" width="100%" height="300">
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace; font-size: 11px; }
+    .sans { font-family: system-ui, -apple-system, sans-serif; }
+    .box { fill: #1f2335; stroke: #414868; stroke-width: 1.5; rx: 6px; }
+    .title { fill: #c0caf5; font-weight: 700; font-size: 13px; }
+    .sub { fill: #565f89; font-size: 11px; }
+    .arrow { stroke: #7aa2f7; stroke-width: 2; marker-end: url(#arrowhead); }
+    .arrow-mcp { stroke: #ff9e64; stroke-width: 2; marker-end: url(#arrowhead-orange); stroke-dasharray: 4 4; }
+    @media (prefers-color-scheme: light) {
+      .box { fill: #ffffff !important; stroke: #c0caf5 !important; }
+      .title { fill: #2e3440 !important; }
+      .bg { fill: #e6e7ed !important; }
+    }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#7aa2f7" />
+    </marker>
+    <marker id="arrowhead-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#ff9e64" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect class="bg" width="960" height="300" fill="#16161e" rx="8"/>
+
+  <!-- Step 1: AI Agent Host -->
+  <g transform="translate(30, 40)">
+    <rect class="box" width="190" height="220" stroke="#ff9e64"/>
+    <rect x="0" y="0" width="190" height="28" rx="6" fill="#ff9e64" fill-opacity="0.15"/>
+    <text class="mono" x="14" y="19" fill="#ff9e64" font-weight="700">AI AGENT HOST</text>
+    <text class="sans title" x="14" y="55">Antigravity / agy</text>
+    <text class="sans title" x="14" y="75">Claude Code / Cursor</text>
+    <line x1="14" y1="90" x2="176" y2="90" stroke="#414868" stroke-width="1"/>
+    <text class="mono sub" x="14" y="110">Native Tool Calling:</text>
+    <text class="mono" x="14" y="128" fill="#73daca">• polyget_outdated</text>
+    <text class="mono" x="14" y="146" fill="#73daca">• polyget_upgrade_plan</text>
+    <text class="mono" x="14" y="164" fill="#73daca">• polyget_needs_restart</text>
+    <text class="mono" x="14" y="182" fill="#73daca">• polyget_search</text>
+    <text class="mono sub" x="14" y="206">Stdio JSON-RPC Channel</text>
+  </g>
+
+  <!-- Connection: Stdio RPC -->
+  <path class="arrow-mcp" d="M 220 150 L 268 150"/>
+  <text class="mono" x="225" y="140" fill="#ff9e64" font-size="9">JSON-RPC</text>
+
+  <!-- Step 2: PolyGet MCP Server -->
+  <g transform="translate(270, 40)">
+    <rect class="box" width="200" height="220" stroke="#7aa2f7"/>
+    <rect x="0" y="0" width="200" height="28" rx="6" fill="#7aa2f7" fill-opacity="0.15"/>
+    <text class="mono" x="14" y="19" fill="#7aa2f7" font-weight="700">MCP SERVER LAYER</text>
+    <text class="sans title" x="14" y="55">app/mcp_server.py</text>
+    <text class="mono sub" x="14" y="75">FastMCP / MCPServer (2.x)</text>
+    <line x1="14" y1="90" x2="186" y2="90" stroke="#414868" stroke-width="1"/>
+    <text class="mono" x="14" y="112" fill="#c0caf5">Invariants Enforced:</text>
+    <text class="mono active-green" x="14" y="132" fill="#9ece6a">✔ Plan mode default</text>
+    <text class="mono active-green" x="14" y="152" fill="#9ece6a">✔ Zero shell injection</text>
+    <text class="mono active-green" x="14" y="172" fill="#9ece6a">✔ Structured return data</text>
+    <text class="mono active-green" x="14" y="192" fill="#9ece6a">✔ Non-zero exit isolation</text>
+  </g>
+
+  <!-- Connection: Async Core -->
+  <path class="arrow" d="M 470 150 L 518 150"/>
+
+  <!-- Step 3: PolyGet Core Driver Engine -->
+  <g transform="translate(520, 40)">
+    <rect class="box" width="200" height="220"/>
+    <rect x="0" y="0" width="200" height="28" rx="6" fill="#24283b"/>
+    <text class="mono" x="14" y="19" fill="#bb9af7" font-weight="700">DRIVER REGISTRY</text>
+    <text class="sans title" x="14" y="55">app/core/manager.py</text>
+    <text class="mono sub" x="14" y="75">31 Backends Subclassed</text>
+    <line x1="14" y1="90" x2="186" y2="90" stroke="#414868" stroke-width="1"/>
+    <text class="mono" x="14" y="112" fill="#c0caf5">Coordination:</text>
+    <text class="mono sub" x="14" y="130">• distro.py routing</text>
+    <text class="mono sub" x="14" y="148">• Parallel user scan</text>
+    <text class="mono sub" x="14" y="166">• Serial root/polkit queue</text>
+    <text class="mono sub" x="14" y="184">• Pre/Post txn hooks</text>
+    <text class="mono active-cyan" x="14" y="204" fill="#73daca">Shared with GUI &amp; TUI</text>
+  </g>
+
+  <!-- Connection: Subprocess -->
+  <path class="arrow" d="M 720 150 L 768 150"/>
+
+  <!-- Step 4: System Package Engines -->
+  <g transform="translate(770, 40)">
+    <rect class="box" width="160" height="220" stroke="#9ece6a"/>
+    <rect x="0" y="0" width="160" height="28" rx="6" fill="#9ece6a" fill-opacity="0.15"/>
+    <text class="mono" x="14" y="19" fill="#9ece6a" font-weight="700">EXECUTION</text>
+    <text class="sans title" x="14" y="55">OS &amp; Repos</text>
+    <line x1="14" y1="70" x2="146" y2="70" stroke="#414868" stroke-width="1"/>
+    <text class="mono" x="14" y="92" fill="#89b4fa">DNF / RPM</text>
+    <text class="mono" x="14" y="112" fill="#7aa2f7">Pacman / AUR</text>
+    <text class="mono" x="14" y="132" fill="#94e2d5">Flatpak</text>
+    <text class="mono" x="14" y="152" fill="#fab387">Cargo / Rustup</text>
+    <text class="mono" x="14" y="172" fill="#f38ba8">NPM / Bun</text>
+    <text class="mono" x="14" y="192" fill="#a6e3a1">Pipx / uv</text>
+  </g>
+</svg>

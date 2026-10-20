@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 32" width="100%" height="32">
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace; font-size: 11px; }
+    @media (prefers-color-scheme: light) {
+      .line { stroke: #c0caf5 !important; }
+      .tag { fill: #2e3440 !important; }
+      .sub { fill: #8990b3 !important; }
+    }
+  </style>
+  <line class="line" x1="0" y1="16" x2="380" y2="16" stroke="#24283b" stroke-width="1.5"/>
+  
+  <!-- Central Telemetry Pill -->
+  <g transform="translate(400, 4)">
+    <rect x="0" y="0" width="400" height="24" rx="4" fill="#1f2335" stroke="#414868" stroke-width="1"/>
+    <circle cx="14" cy="12" r="3.5" fill="#73daca"/>
+    <text class="mono tag" x="26" y="16" fill="#c0caf5" font-weight="700">SYS: DNF/PACMAN</text>
+    <text class="mono sub" x="145" y="16" fill="#565f89">|</text>
+    <circle cx="160" cy="12" r="3.5" fill="#9ece6a"/>
+    <text class="mono tag" x="172" y="16" fill="#c0caf5" font-weight="700">FLATPAK</text>
+    <text class="mono sub" x="245" y="16" fill="#565f89">|</text>
+    <circle cx="260" cy="12" r="3.5" fill="#ff9e64"/>
+    <text class="mono tag" x="272" y="16" fill="#ff9e64" font-weight="700">MCP ACTIVE</text>
+  </g>
+
+  <line class="line" x1="820" y1="16" x2="1200" y2="16" stroke="#24283b" stroke-width="1.5"/>
+</svg>

@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <linearGradient id="spBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16161e"/>
+      <stop offset="60%" stop-color="#1a1b26"/>
+      <stop offset="100%" stop-color="#101016"/>
+    </linearGradient>
+    <pattern id="spGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#24283b" stroke-width="0.8" stroke-opacity="0.5"/>
+    </pattern>
+  </defs>
+
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace; }
+    .sans { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .card { fill: #1f2335; stroke: #3b4261; stroke-width: 1.5; rx: 8px; }
+  </style>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#spBg)"/>
+  <rect width="1280" height="640" fill="url(#spGrid)"/>
+
+  <!-- Glowing Radial Core -->
+  <circle cx="640" cy="300" r="340" fill="#7aa2f7" fill-opacity="0.06"/>
+  <circle cx="640" cy="300" r="180" fill="#bb9af7" fill-opacity="0.04"/>
+
+  <!-- Header Title -->
+  <g transform="translate(640, 150)" text-anchor="middle">
+    <!-- Diamond Nexus Icon -->
+    <rect x="-30" y="-85" width="60" height="60" rx="12" fill="#24283b" stroke="#7aa2f7" stroke-width="2"/>
+    <path d="M -10 -55 L 0 -68 L 10 -55 L 0 -42 Z" fill="none" stroke="#7aa2f7" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="0" cy="-55" r="4" fill="#ff9e64"/>
+
+    <text class="sans" x="0" y="0" font-size="56" font-weight="900" fill="#c0caf5" letter-spacing="4px">POLYGET</text>
+    <text class="sans" x="0" y="38" font-size="20" font-weight="500" fill="#7aa2f7" letter-spacing="1.5px">SOVEREIGN LINUX PACKAGE MANAGEMENT</text>
+    <text class="mono" x="0" y="70" font-size="14" fill="#565f89">PySide6 GUI · Textual TUI · Headless CLI · Model Context Protocol (MCP)</text>
+  </g>
+
+  <!-- 4 Console Cards -->
+  <g transform="translate(140, 260)">
+    <!-- GUI -->
+    <g transform="translate(0, 0)">
+      <rect class="card" width="230" height="150" stroke="#7aa2f7"/>
+      <rect x="0" y="0" width="230" height="28" rx="6" fill="#7aa2f7" fill-opacity="0.15"/>
+      <text class="mono" x="12" y="19" font-size="12" fill="#7aa2f7" font-weight="700">01 // DESKTOP GUI</text>
+      <text class="sans" x="12" y="52" font-size="14" font-weight="700" fill="#c0caf5">PySide6 Suite</text>
+      <text class="mono" x="12" y="74" font-size="11" fill="#565f89">• Visual semver bumps</text>
+      <text class="mono" x="12" y="94" font-size="11" fill="#565f89">• Repo/mirror control</text>
+      <text class="mono" x="12" y="114" font-size="11" fill="#565f89">• Catalog explorer</text>
+      <text class="mono" x="12" y="134" font-size="10" fill="#7aa2f7">Daily Driver UI</text>
+    </g>
+
+    <!-- TUI -->
+    <g transform="translate(255, 0)">
+      <rect class="card" width="230" height="150" stroke="#bb9af7"/>
+      <rect x="0" y="0" width="230" height="28" rx="6" fill="#bb9af7" fill-opacity="0.15"/>
+      <text class="mono" x="12" y="19" font-size="12" fill="#bb9af7" font-weight="700">02 // TERMINAL TUI</text>
+      <text class="sans" x="12" y="52" font-size="14" font-weight="700" fill="#c0caf5">Textual Console</text>
+      <text class="mono" x="12" y="74" font-size="11" fill="#565f89">• Headless &amp; SSH boxes</text>
+      <text class="mono" x="12" y="94" font-size="11" fill="#565f89">• Polkit-aware sudo</text>
+      <text class="mono" x="12" y="114" font-size="11" fill="#565f89">• Keyboard workflow</text>
+      <text class="mono" x="12" y="134" font-size="10" fill="#bb9af7">python run.py --tui</text>
+    </g>
+
+    <!-- CLI -->
+    <g transform="translate(510, 0)">
+      <rect class="card" width="230" height="150" stroke="#73daca"/>
+      <rect x="0" y="0" width="230" height="28" rx="6" fill="#73daca" fill-opacity="0.15"/>
+      <text class="mono" x="12" y="19" font-size="12" fill="#73daca" font-weight="700">03 // HEADLESS CLI</text>
+      <text class="sans" x="12" y="52" font-size="14" font-weight="700" fill="#c0caf5">Scriptable Engine</text>
+      <text class="mono" x="12" y="74" font-size="11" fill="#565f89">• Pure JSON stdout</text>
+      <text class="mono" x="12" y="94" font-size="11" fill="#565f89">• Zero-blast-radius plan</text>
+      <text class="mono" x="12" y="114" font-size="11" fill="#565f89">• Exit code contracts</text>
+      <text class="mono" x="12" y="134" font-size="10" fill="#73daca">python run.py &lt;cmd&gt;</text>
+    </g>
+
+    <!-- MCP -->
+    <g transform="translate(765, 0)">
+      <rect class="card" width="230" height="150" stroke="#ff9e64" stroke-width="2"/>
+      <rect x="0" y="0" width="230" height="28" rx="6" fill="#ff9e64" fill-opacity="0.2"/>
+      <text class="mono" x="12" y="19" font-size="12" fill="#ff9e64" font-weight="700">04 // MCP SERVER</text>
+      <text class="sans" x="12" y="52" font-size="14" font-weight="700" fill="#c0caf5">Autonomous AI</text>
+      <text class="mono" x="12" y="74" font-size="11" fill="#565f89">• 9 tools over stdio</text>
+      <text class="mono" x="12" y="94" font-size="11" fill="#565f89">• Non-interactive agy/Claude</text>
+      <text class="mono" x="12" y="114" font-size="11" fill="#565f89">• Real driver verification</text>
+      <text class="mono" x="12" y="134" font-size="10" fill="#ff9e64">python run.py mcp</text>
+    </g>
+  </g>
+
+  <!-- Bottom Metric Bar -->
+  <g transform="translate(640, 480)" text-anchor="middle">
+    <rect x="-420" y="0" width="840" height="42" rx="8" fill="#1f2335" stroke="#414868" stroke-width="1"/>
+    <text class="mono" x="-310" y="26" font-size="13" fill="#9ece6a" font-weight="700">31 DRIVERS ACTIVE</text>
+    <text class="mono" x="-180" y="26" font-size="13" fill="#565f89">·</text>
+    <text class="mono" x="-90" y="26" font-size="13" fill="#7aa2f7" font-weight="700">41 CATALOGED</text>
+    <text class="mono" x="20" y="26" font-size="13" fill="#565f89">·</text>
+    <text class="mono" x="120" y="26" font-size="13" fill="#73daca" font-weight="700">0 SHELL=TRUE</text>
+    <text class="mono" x="230" y="26" font-size="13" fill="#565f89">·</text>
+    <text class="mono" x="330" y="26" font-size="13" fill="#ff9e64" font-weight="700">ASAHI + CACHYOS</text>
+  </g>
+
+  <!-- Footer -->
+  <text class="mono" x="640" y="580" text-anchor="middle" font-size="12" fill="#565f89">MIT Licensed · Fedora Asahi Remix (aarch64) &amp; CachyOS (x86_64)</text>
+</svg>

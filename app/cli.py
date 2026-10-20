@@ -28,7 +28,7 @@ EXIT_USAGE = 2
 COMMANDS = (
     "managers", "outdated", "installed", "search", "audit", "repos",
     "upgrade", "install", "remove", "review", "clean", "hooks", "sync", "history", "ignore", "projects", "catalog", "newest", "needs-restart", "system",
-    "self-version", "debug",
+    "self-version", "debug", "mcp",
 )
 
 
@@ -850,6 +850,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tail", type=int, default=0, help="print last N log entries")
     p.add_argument("--state", action="store_true", help="print the state dump (current manager/update/error snapshot)")
     p.add_argument("--clear", action="store_true", help="truncate the debug log")
+
+    add("mcp", cmd_mcp, "run the Model Context Protocol (MCP) stdio server")
     return parser
 
 
@@ -905,6 +907,14 @@ def cmd_debug(args: argparse.Namespace) -> int:
         print("Enable file logging:")
         print("  polyget --debug-file <command>     # one-shot")
         print("  POLYGET_DEBUG_FILE=1 polyget <cmd> # env var")
+    return EXIT_OK
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    """Run the PolyGet Model Context Protocol (MCP) server in stdio mode."""
+    from app.mcp_server import run_server
+
+    run_server()
     return EXIT_OK
 
 

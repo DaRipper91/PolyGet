@@ -28,6 +28,10 @@ python run.py
 are read-only; `upgrade`, `install`, `sync` print a plan and only execute with `--yes`. Use it to
 check real driver output instead of one-off Python snippets. Exit codes: 0 ok, 1 failure, 2 usage.
 
+`python run.py mcp` or `./mcp_server.py` launches the Model Context Protocol (MCP) server over stdio,
+exposing package query, search, audit, and upgrade planning tools to AI agents (`agy`, Claude Code, Cursor).
+Registered via `agy mcp add polyget /path/to/.venv/bin/python /path/to/mcp_server.py`.
+
 Run the full test suite with `QT_QPA_PLATFORM=offscreen pytest`. Use a focused run such as
 `QT_QPA_PLATFORM=offscreen pytest tests/test_npm_driver.py` while iterating. The offscreen
 setting keeps Qt tests usable in headless environments. Pacman and DNF behavior should also be

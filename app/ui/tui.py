@@ -844,6 +844,8 @@ class PolyGetTuiApp(App[None]):
         try:
             with self.suspend():
                 subprocess.run(cmd, check=False)
+        except (KeyboardInterrupt, SystemExit):
+            pass
         except Exception as e:
             self.notify(f"Failed to launch Control Deck: {e}", title="Software Sources", severity="error")
             log.write(f" ❌ [bold red]Control Deck launch error: {escape(str(e))}[/bold red]")

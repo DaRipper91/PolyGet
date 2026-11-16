@@ -1,7 +1,11 @@
 """Main Terminal User Interface (TUI) for the package upgrader."""
 
 import asyncio
+import os
 import shutil
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 from rich.markup import escape
 from textual.app import App, ComposeResult
@@ -14,6 +18,32 @@ from app.core.coordinator import SubprocessCoordinator
 from app.core import sudo_secret
 from app.core.version_scan import cross_manager_newest
 from app.core.settings_store import get_settings
+
+
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
+def find_repo_deck_cmd() -> list[str] | None:
+    """Locate the repo-config-deck executable or script on the system."""
+    which_path = shutil.which("asahi-deck")
+    if which_path and os.access(which_path, os.X_OK):
+        return [which_path]
+
+    candidates = [
+        Path.home() / ".local" / "bin" / "asahi-deck",
+        Path("/usr/local/bin/asahi-deck"),
+        Path("/usr/bin/asahi-deck"),
+        Path.home() / "Projects" / "repo-config-deck" / "asahi-deck.py",
+        Path.home() / "Projects" / "asahi-deck" / "asahi-deck.py",
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            if candidate.suffix == ".py":
+                return [sys.executable, str(candidate)]
+            if os.access(candidate, os.X_OK):
+                return [str(candidate)]
+    return None
 
 
 class HelpModal(ModalScreen[None]):
@@ -37,6 +67,8 @@ class HelpModal(ModalScreen[None]):
                 "[bold #a78bfa]r[/]      - Rescan the system for package managers\n"
                 "[bold #a78bfa]u[/]      - Upgrade selected package managers\n"
                 "[bold #a78bfa]a[/]      - Upgrade all discovered package managers\n"
+                "[bold #a78bfa]v[/]      - Cross-manager newest version check\n"
+                "[bold #a78bfa]s[/]      - Launch Software Sources & Repos Control Deck\n"
                 "[bold #a78bfa]f[/]      - Forget the sudo password saved in your keyring\n"
                 "[bold #a78bfa]? / h[/]  - Show this help menu\n\n"
                 "Press [bold #8b5cf6]ESC[/], [bold #8b5cf6]Enter[/], or [bold #8b5cf6]Space[/] to return to the app."
@@ -267,6 +299,7 @@ class PolyGetTuiApp(App[None]):
         ("u", "upgrade_selected", "Upgrade Selected"),
         ("a", "upgrade_all", "Upgrade All"),
         ("v", "version_check", "Version Check"),
+        ("s", "open_repo_deck", "Sources / Repos"),
         ("f", "forget_password", "Forget Password"),
         ("question_mark", "show_help", "Help"),
         ("h", "show_help", "Help"),
@@ -559,8 +592,10 @@ class PolyGetTuiApp(App[None]):
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL
                 )
-        except Exception:
-            pass
+        except FileNotFoundError as e:
+            _log(f"tui: kdeconnect-cli not found: {e}")
+        except OSError as e:
+            _log(f"tui: phone notification failed: {e}")
 
     async def _upgrade_manager(
         self,
@@ -796,3 +831,32 @@ class PolyGetTuiApp(App[None]):
         # Show interactive modal with suggestions
         settings = get_settings()
         self.push_screen(VersionCheckModal(suggestions, manager_status, settings))
+
+    async def action_open_repo_deck(self) -> None:
+        """Launch the Software Sources & Repositories Control Deck (repo-config-deck)."""
+        log = self.query_one("#terminal-log", RichLog)
+        cmd = find_repo_deck_cmd()
+        if not cmd:
+            log.write("[bold yellow]⚠️ Software Sources Deck (asahi-deck) not found on PATH or standard locations.[/bold yellow]")
+            self.notify(
+                "Control Deck not found. Install repo-config-deck or add asahi-deck to PATH.",
+                title="Software Sources",
+                severity="warning",
+            )
+            return
+
+        cmd_display = " ".join(cmd)
+        log.write(f"[bold #8b5cf6]🚀 Launching Software Sources Control Deck ({escape(cmd_display)})...[/]")
+        try:
+            with self.suspend():
+                subprocess.run(cmd, check=False)
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        except Exception as e:
+            self.notify(f"Failed to launch Control Deck: {e}", title="Software Sources", severity="error")
+            log.write(f" ❌ [bold red]Control Deck launch error: {escape(str(e))}[/bold red]")
+            return
+
+        log.write("[bold green]✅ Returned from Software Sources Control Deck. Rescanning package managers...[/bold green]")
+        self.notify("Returned to PolyGet.", title="Software Sources", severity="information")
+        await self.action_rescan_managers()

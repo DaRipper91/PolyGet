@@ -13,7 +13,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QButtonGroup, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
-    QToolButton, QVBoxLayout, QWidget,
+    QScrollArea, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app.ui.themes import themed
@@ -70,13 +70,24 @@ def _badge_label() -> QLabel:
     return badge
 
 
-class _NavView(QWidget):
-    """Shared button bookkeeping for the grouped and rail views."""
+class _NavView(QScrollArea):
+    """Shared button bookkeeping and scroll container for the grouped and rail views."""
 
     page_selected = Signal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setStyleSheet("background: transparent; border: none;")
+        self.viewport().setStyleSheet("background: transparent;")
+
+        self._content = QWidget()
+        self._content.setStyleSheet("background: transparent;")
+        self.setWidget(self._content)
+
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._group.idClicked.connect(self.page_selected.emit)
@@ -92,6 +103,7 @@ class _NavView(QWidget):
         button = self._group.button(page)
         if button is not None:
             button.setChecked(True)
+            self.ensureWidgetVisible(button)
 
     def current(self) -> int:
         return self._group.checkedId()
@@ -113,7 +125,7 @@ class GroupedNav(_NavView):
                  parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("nav-grouped")
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self._content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
         for title, entries in groups:
@@ -148,7 +160,7 @@ class RailNav(_NavView):
                  parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("nav-rail")
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self._content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         for entry in entries:

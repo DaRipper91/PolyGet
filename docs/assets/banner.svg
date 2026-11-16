@@ -1,0 +1,212 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 440" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#16161e"/>
+      <stop offset="50%" stop-color="#1a1b26"/>
+      <stop offset="100%" stop-color="#13141c"/>
+    </linearGradient>
+    <linearGradient id="mcpGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff9e64" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#e0af68" stop-opacity="0.2"/>
+    </linearGradient>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#24283b" stroke-width="0.75" stroke-opacity="0.6"/>
+    </pattern>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    .mono { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace; }
+    .sans { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    
+    .panel { fill: #1f2335; stroke: #2f354f; stroke-width: 1.5; rx: 8px; }
+    .header-text { fill: #c0caf5; font-weight: 700; letter-spacing: 2px; }
+    .sub-text { fill: #7aa2f7; font-weight: 500; font-size: 13px; letter-spacing: 1px; }
+    .dim { fill: #565f89; }
+    .active-green { fill: #9ece6a; }
+    .active-blue { fill: #7aa2f7; }
+    .active-violet { fill: #bb9af7; }
+    .active-cyan { fill: #73daca; }
+    .active-orange { fill: #ff9e64; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .pulse-beacon {
+        animation: beaconPulse 2.5s infinite ease-in-out;
+      }
+      .scan-line {
+        animation: scanMove 8s infinite linear;
+      }
+      .stream-dash {
+        stroke-dasharray: 6 12;
+        animation: streamFlow 4s infinite linear;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .pulse-beacon, .scan-line, .stream-dash { animation: none !important; }
+    }
+
+    @keyframes beaconPulse {
+      0%, 100% { opacity: 0.35; transform: scale(0.98); }
+      50% { opacity: 1; transform: scale(1.02); }
+    }
+    @keyframes scanMove {
+      0% { transform: translateY(0px); opacity: 0; }
+      10% { opacity: 0.4; }
+      90% { opacity: 0.4; }
+      100% { transform: translateY(380px); opacity: 0; }
+    }
+    @keyframes streamFlow {
+      0% { stroke-dashoffset: 0; }
+      100% { stroke-dashoffset: -36; }
+    }
+
+    @media (prefers-color-scheme: light) {
+      .bg-rect { fill: #e6e7ed !important; }
+      .grid-pattern { stroke: #d5d6db !important; }
+      .panel { fill: #ffffff !important; stroke: #c0caf5 !important; }
+      .header-text { fill: #2e3440 !important; }
+      .sub-text { fill: #2e7de9 !important; }
+      .dim { fill: #8990b3 !important; }
+      .code-bg { fill: #f2f3f7 !important; }
+    }
+  </style>
+
+  <!-- Background Base -->
+  <rect class="bg-rect" width="1200" height="440" fill="url(#bgGrad)" rx="12"/>
+  <rect class="grid-pattern" width="1200" height="440" fill="url(#grid)" rx="12"/>
+
+  <!-- Scanning Sweep Beam -->
+  <line class="scan-line" x1="20" y1="30" x2="1180" y2="30" stroke="#7aa2f7" stroke-width="1.5" stroke-opacity="0.3" filter="url(#glow)"/>
+
+  <!-- ==================== HEADER STRIP ==================== -->
+  <g transform="translate(40, 42)">
+    <!-- Brand Mark Icon -->
+    <rect x="0" y="0" width="38" height="38" rx="8" fill="#24283b" stroke="#7aa2f7" stroke-width="1.5"/>
+    <path d="M 12 19 L 19 12 L 26 19 L 19 26 Z" fill="none" stroke="#7aa2f7" stroke-width="2.5" stroke-linejoin="round"/>
+    <circle cx="19" cy="19" r="3" fill="#ff9e64"/>
+
+    <!-- Title & System Status -->
+    <text class="sans header-text" x="52" y="24" font-size="22">POLYGET</text>
+    <text class="mono sub-text" x="180" y="24">QUAD-CONSOLE TELEMETRY DECK</text>
+
+    <!-- Global Telemetry Chips -->
+    <g transform="translate(620, 2)">
+      <rect x="0" y="0" width="130" height="28" rx="6" fill="#1f2335" stroke="#414868" stroke-width="1"/>
+      <circle class="pulse-beacon" cx="14" cy="14" r="4" fill="#9ece6a"/>
+      <text class="mono" x="26" y="18" font-size="11" fill="#c0caf5">31 DRIVERS</text>
+
+      <rect x="140" y="0" width="140" height="28" rx="6" fill="#1f2335" stroke="#414868" stroke-width="1"/>
+      <circle class="pulse-beacon" cx="154" cy="14" r="4" fill="#73daca"/>
+      <text class="mono" x="166" y="18" font-size="11" fill="#c0caf5">0 SHELL=TRUE</text>
+
+      <rect x="290" y="0" width="190" height="28" rx="6" fill="#1f2335" stroke="#ff9e64" stroke-width="1.2"/>
+      <circle class="pulse-beacon" cx="304" cy="14" r="4" fill="#ff9e64"/>
+      <text class="mono" x="316" y="18" font-size="11" fill="#ff9e64" font-weight="700">MCP SERVER ACTIVE</text>
+    </g>
+  </g>
+
+  <!-- ==================== QUADRANT 1: PySide6 Desktop GUI (Top-Left) ==================== -->
+  <g transform="translate(40, 95)">
+    <rect class="panel" width="545" height="150"/>
+    <path d="M 0 0 L 545 0 L 545 32 L 0 32 Z" fill="#24283b" rx="8"/>
+    <!-- Window controls -->
+    <circle cx="20" cy="16" r="4.5" fill="#f7768e"/>
+    <circle cx="36" cy="16" r="4.5" fill="#e0af68"/>
+    <circle cx="52" cy="16" r="4.5" fill="#9ece6a"/>
+    <text class="mono" x="72" y="20" font-size="12" fill="#7aa2f7" font-weight="700">01 // DESKTOP GUI</text>
+    <text class="mono dim" x="220" y="20" font-size="11">PySide6 · System Updates View</text>
+    <rect x="440" y="7" width="90" height="18" rx="4" fill="#7aa2f7" fill-opacity="0.15" stroke="#7aa2f7" stroke-width="1"/>
+    <text class="mono" x="450" y="20" font-size="10" fill="#7aa2f7">INTERACTIVE</text>
+
+    <!-- Table content -->
+    <g transform="translate(16, 46)">
+      <!-- Row 1 -->
+      <text class="mono" x="0" y="18" font-size="12" fill="#c0caf5">systemd</text>
+      <rect x="80" y="6" width="38" height="16" rx="3" fill="#89b4fa" fill-opacity="0.2"/>
+      <text class="mono" x="85" y="18" font-size="10" fill="#89b4fa">DNF</text>
+      <text class="mono dim" x="130" y="18" font-size="11">259.9-2 ➔</text>
+      <text class="mono active-green" x="200" y="18" font-size="11" font-weight="700">259.10-1</text>
+      <rect x="290" y="6" width="55" height="16" rx="3" fill="#f7768e" fill-opacity="0.2"/>
+      <text class="mono" x="296" y="18" font-size="9" fill="#f7768e">+MAJOR</text>
+      <text class="mono dim" x="370" y="18" font-size="11">reboot needed</text>
+
+      <!-- Row 2 -->
+      <text class="mono" x="0" y="44" font-size="12" fill="#c0caf5">rustup:nightly</text>
+      <rect x="110" y="32" width="52" height="16" rx="3" fill="#fab387" fill-opacity="0.2"/>
+      <text class="mono" x="115" y="44" font-size="10" fill="#fab387">RUSTUP</text>
+      <text class="mono dim" x="175" y="44" font-size="11">2026-10-17 ➔</text>
+      <text class="mono active-green" x="270" y="44" font-size="11" font-weight="700">2026-10-19</text>
+      <rect x="360" y="32" width="48" height="16" rx="3" fill="#9ece6a" fill-opacity="0.2"/>
+      <text class="mono" x="366" y="44" font-size="9" fill="#9ece6a">+PATCH</text>
+
+      <!-- Row 3: Action bar -->
+      <line x1="0" y1="62" x2="513" y2="62" stroke="#2f354f" stroke-width="1"/>
+      <text class="mono dim" x="0" y="82" font-size="11">32 updates selected · 24.7 MiB inbound</text>
+      <rect x="390" y="68" width="123" height="22" rx="4" fill="#7aa2f7"/>
+      <text class="sans" x="408" y="83" font-size="11" fill="#1a1b26" font-weight="700">UPGRADE (32)</text>
+    </g>
+  </g>
+
+  <!-- ==================== QUADRANT 2: Textual TUI (Top-Right) ==================== -->
+  <g transform="translate(615, 95)">
+    <rect class="panel" width="545" height="150"/>
+    <path d="M 0 0 L 545 0 L 545 32 L 0 32 Z" fill="#24283b" rx="8"/>
+    <circle cx="20" cy="16" r="4.5" fill="#bb9af7"/>
+    <text class="mono" x="36" y="20" font-size="12" fill="#bb9af7" font-weight="700">02 // TEXTUAL TUI</text>
+    <text class="mono dim" x="175" y="20" font-size="11">Headless &amp; SSH · Terminal ANSI Grid</text>
+    <rect x="460" y="7" width="70" height="18" rx="4" fill="#bb9af7" fill-opacity="0.15" stroke="#bb9af7" stroke-width="1"/>
+    <text class="mono" x="472" y="20" font-size="10" fill="#bb9af7">--tui</text>
+
+    <!-- ANSI Mockup -->
+    <g transform="translate(16, 44)">
+      <rect class="code-bg" x="0" y="0" width="513" height="90" rx="4" fill="#16161e"/>
+      <text class="mono" x="12" y="22" font-size="11" fill="#bb9af7">┌── PolyGet TUI ────────────────────────────────────┐</text>
+      <text class="mono" x="12" y="40" font-size="11" fill="#c0caf5">│ [●] DNF (32)   [●] Rustup (1)   [✓] Flatpak (0)    │</text>
+      <text class="mono" x="12" y="58" font-size="11" fill="#c0caf5">│ &gt; Upgrade All (Space to toggle, 'u' to execute)   │</text>
+      <text class="mono" x="12" y="76" font-size="11" fill="#565f89">└── [F1] Help   [q] Quit   [Ctrl+U] Sudo Keyring ───┘</text>
+    </g>
+  </g>
+
+  <!-- ==================== QUADRANT 3: Headless CLI (Bottom-Left) ==================== -->
+  <g transform="translate(40, 265)">
+    <rect class="panel" width="545" height="150"/>
+    <path d="M 0 0 L 545 0 L 545 32 L 0 32 Z" fill="#24283b" rx="8"/>
+    <circle cx="20" cy="16" r="4.5" fill="#73daca"/>
+    <text class="mono" x="36" y="20" font-size="12" fill="#73daca" font-weight="700">03 // HEADLESS CLI</text>
+    <text class="mono dim" x="180" y="20" font-size="11">Scripting &amp; Cron · Pure JSON Stdout</text>
+    <rect x="445" y="7" width="85" height="18" rx="4" fill="#73daca" fill-opacity="0.15" stroke="#73daca" stroke-width="1"/>
+    <text class="mono" x="457" y="20" font-size="10" fill="#73daca">EXIT 0</text>
+
+    <!-- JSON Stream Box -->
+    <g transform="translate(16, 44)">
+      <rect class="code-bg" x="0" y="0" width="513" height="90" rx="4" fill="#16161e"/>
+      <text class="mono dim" x="12" y="20" font-size="11">$ polyget outdated --json</text>
+      <text class="mono" x="12" y="38" font-size="11" fill="#c0caf5">{ <tspan fill="#7aa2f7">"updates"</tspan>: [ { <tspan fill="#7aa2f7">"manager"</tspan>: <tspan fill="#9ece6a">"DNF"</tspan>, <tspan fill="#7aa2f7">"count"</tspan>: 32 } ],</text>
+      <text class="mono" x="12" y="56" font-size="11" fill="#c0caf5">  <tspan fill="#7aa2f7">"executed"</tspan>: <tspan fill="#f7768e">false</tspan>, <tspan fill="#7aa2f7">"plan_mode"</tspan>: <tspan fill="#9ece6a">true</tspan> }</text>
+      <text class="mono dim" x="12" y="76" font-size="10"># stderr: progress isolated · stdout: guaranteed 100% parseable JSON</text>
+    </g>
+  </g>
+
+  <!-- ==================== QUADRANT 4: Native MCP Server (Bottom-Right) ==================== -->
+  <g transform="translate(615, 265)">
+    <rect class="panel" width="545" height="150" stroke="#ff9e64" stroke-width="1.8"/>
+    <path d="M 0 0 L 545 0 L 545 32 L 0 32 Z" fill="#24283b" rx="8"/>
+    <circle cx="20" cy="16" r="4.5" fill="#ff9e64"/>
+    <text class="mono" x="36" y="20" font-size="12" fill="#ff9e64" font-weight="700">04 // MODEL CONTEXT PROTOCOL (MCP)</text>
+    <text class="mono dim" x="290" y="20" font-size="11">Autonomous AI Agents · Stdio RPC</text>
+    <rect x="445" y="7" width="85" height="18" rx="4" fill="#ff9e64" fill-opacity="0.2" stroke="#ff9e64" stroke-width="1"/>
+    <text class="mono" x="455" y="20" font-size="10" fill="#ff9e64" font-weight="700">9 TOOLS</text>
+
+    <!-- MCP JSON-RPC Frame -->
+    <g transform="translate(16, 44)">
+      <rect class="code-bg" x="0" y="0" width="513" height="90" rx="4" fill="#16161e"/>
+      <text class="mono active-orange" x="12" y="20" font-size="11">➔ tools/call: polyget_upgrade_plan()</text>
+      <text class="mono" x="12" y="38" font-size="11" fill="#c0caf5">← result: { <tspan fill="#73daca">"executed"</tspan>: false, <tspan fill="#73daca">"steps"</tspan>: [ <tspan fill="#e0af68">"pkexec dnf upgrade -y..."</tspan> ] }</text>
+      <text class="mono active-green" x="12" y="56" font-size="11">✔ agent: Plan generated without elevation side-effects</text>
+      <text class="mono dim" x="12" y="76" font-size="10">Connected to: agy · Claude Code · Cursor · Gemini CLI</text>
+    </g>
+  </g>
+</svg>

@@ -1,9 +1,14 @@
 """Persisted per-package ignore list, keyed by manager name + package name."""
 
 import json
+import threading
 from pathlib import Path
 
 _IGNORE_PATH = Path.home() / ".config" / "polyget" / "ignored_packages.json"
+
+# Serialize writes to ignored_packages.json so concurrent GUI + CLI
+# (or two GUI instances) can't interleave partial writes or lose updates.
+_save_lock = threading.Lock()
 
 
 class IgnoreStore:
@@ -25,7 +30,8 @@ class IgnoreStore:
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = [{"manager": m, "package": p} for m, p in sorted(self._entries)]
-        self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        with _save_lock:
+            self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def is_ignored(self, manager_name: str, package_name: str) -> bool:
         return (manager_name, package_name) in self._entries

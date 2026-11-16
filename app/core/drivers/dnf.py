@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 from pathlib import Path
+import sys
 from typing import Any
 from app.core.janitor import dir_size, target
 from app.core.manager import DriverError, PackageManager, describe_error, register_manager, run_capture
@@ -10,9 +11,11 @@ from app.core.settings_store import get_settings
 DNF_TIMEOUT = 120.0
 
 
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 _ARCHES = {"x86_64", "aarch64", "noarch", "i686", "armv7hl", "ppc64le", "s390x"}
-
-
 @register_manager
 class DnfManager(PackageManager):
     """Package manager driver for DNF (Dandified YUM)."""
@@ -71,7 +74,10 @@ class DnfManager(PackageManager):
                 "--qf", "%{name} %{vendor}\n", *names
             ))
             old_vendor = vendors(await run("rpm", "-q", "--qf", "%{NAME} %{VENDOR}\n", *names))
-        except Exception:
+        except Exception as e:
+            _log(f"dnf: vendor-change detection failed: {describe_error(e)}")
+            for u in updates:
+                u["vendor_change_detection_failed"] = True
             return updates
         for u in updates:
             old, new = old_vendor.get(u["name"]), new_vendor.get(u["name"])

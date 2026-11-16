@@ -1,0 +1,40 @@
+{
+  "name": "Tokyo Night & Cyber HUD",
+  "direction": "Direction C: Quad-Console Telemetry Deck",
+  "dark": {
+    "base": "#1a1b26",
+    "shell": "#24283b",
+    "border": "#414868",
+    "text": "#c0caf5",
+    "muted": "#565f89",
+    "accents": {
+      "gui": "#7aa2f7",
+      "tui": "#bb9af7",
+      "cli": "#73daca",
+      "mcp": "#ff9e64"
+    },
+    "status": {
+      "verified": "#9ece6a",
+      "alert": "#f7768e",
+      "warning": "#e0af68"
+    }
+  },
+  "light": {
+    "base": "#e6e7ed",
+    "shell": "#d5d6db",
+    "border": "#9aa5ce",
+    "text": "#3760bf",
+    "muted": "#8990b3",
+    "accents": {
+      "gui": "#2e7de9",
+      "tui": "#9854f1",
+      "cli": "#007197",
+      "mcp": "#b15c00"
+    },
+    "status": {
+      "verified": "#407927",
+      "alert": "#8c4351",
+      "warning": "#8f5e15"
+    }
+  }
+}

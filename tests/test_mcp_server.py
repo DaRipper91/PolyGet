@@ -35,7 +35,13 @@ async def test_mcp_list_managers_call(mcp_server):
     managers = res.structured_content["result"]
     assert isinstance(managers, list)
     assert len(managers) > 0
-    assert any(m["name"] == "DNF" for m in managers)
+    assert any(m["name"] in ("DNF", "APT", "Pacman", "Flatpak", "Homebrew", "Snap") for m in managers)
+
+    # With all=True, full catalog is returned including DNF regardless of host distro
+    res_all = await mcp_server.call_tool("polyget_list_managers", {"all": True})
+    assert not res_all.is_error
+    catalog = res_all.structured_content["result"]
+    assert any(m["name"] == "DNF" for m in catalog)
 
 
 @pytest.mark.asyncio

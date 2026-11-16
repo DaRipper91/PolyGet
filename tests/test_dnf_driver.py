@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
 import pytest
-from app.core.drivers.dnf import DnfManager
+from app.core.drivers.dnf import DnfManager, _log
 from app.core.manager import DriverError
 
 
@@ -97,17 +97,12 @@ def test_dnf_list_installed_timeout_raises_not_hangs():
 
 
 def test_dnf_check_updates_kills_leaked_json_attempt_before_fallback():
-    """A timed-out `dnf check-update --json` attempt must be killed, not abandoned —
-    otherwise it lingers in the background holding DNF's system-repository lock,
-    which blocks the fallback check right below (and any later upgrade command)
-    from ever acquiring it. This reproduces a real-world lock-contention bug where
-    the leaked --json process was still holding the lock when the user's very next
-    DNF upgrade tried to run."""
+    """A timed-out dnf check-update --json attempt must be killed, not abandoned."""
     async def run_test():
         manager = DnfManager()
 
         mock_json_proc = AsyncMock()
-        mock_json_proc.returncode = None  # still "running" when we give up on it
+        mock_json_proc.returncode = None
 
         mock_fallback_proc = AsyncMock()
         mock_fallback_proc.returncode = 100
@@ -176,9 +171,8 @@ def test_dnf_check_updates_fallback():
 
 
 def test_dnf_check_updates_flags_vendor_change_blocked():
-    """With allow_vendor_change off, `dnf upgrade` silently skips a vendor-changing upgrade and
-    exits 0, so the scan must flag it (not offer it as a normal upgrade) unless the user has
-    allowlisted that package, in which case the upgrade command passes --allow-vendor-change."""
+    """With allow_vendor_change off, dnf upgrade silently skips a vendor-changing upgrade and
+    exits 0, so the scan must flag it unless allowlisted."""
     from unittest.mock import MagicMock
 
     def run_test():
@@ -218,3 +212,87 @@ def test_dnf_check_updates_flags_vendor_change_blocked():
         assert not any("blocked" in u for u in updates)
 
     run_test()
+
+
+def test_dnf_mark_vendor_blocked_allows_vendor_change():
+    """When allow_vendor_change contains the package, detection is skipped."""
+    manager = DnfManager()
+
+    async def run_test():
+        updates = [{"name": "firefox", "current": "1.0", "new": "2.0"}]
+        with patch.object(manager, "_query_updates", return_value=updates):
+            with patch("app.core.drivers.dnf.get_settings") as mock_settings:
+                mock_settings.return_value.get.return_value = ["firefox"]
+                result = await manager.check_updates()
+        assert result == updates
+        assert "blocked" not in result[0]
+        assert "vendor_change_detection_failed" not in result[0]
+
+    asyncio.run(run_test())
+
+
+def test_dnf_mark_vendor_blocked_detects_vendor_change():
+    """When dnf blocks vendor changes and vendors differ, flag as blocked."""
+    manager = DnfManager()
+
+    async def run_test():
+        updates = [{"name": "firefox", "current": "1.0", "new": "2.0"}]
+        with patch.object(manager, "_query_updates", return_value=updates):
+            with patch("app.core.drivers.dnf.get_settings") as mock_settings:
+                mock_settings.return_value.get.return_value = []
+                outputs = iter([
+                    "allow_vendor_change = 0\n",
+                    "firefox Fedora\n",
+                    "firefox RPMFusion\n",
+                ])
+                async def fake_communicate():
+                    return (next(outputs).encode(), b"")
+                mock_proc = AsyncMock()
+                mock_proc.returncode = 0
+                mock_proc.communicate = fake_communicate
+                with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+                    result = await manager.check_updates()
+        assert result[0]["blocked"] == "vendor change: RPMFusion → Fedora"
+
+    asyncio.run(run_test())
+
+
+def test_dnf_mark_vendor_blocked_detection_failure_logged():
+    """When vendor-change detection fails, error is logged and updates returned
+    with vendor_change_detection_failed flag."""
+    manager = DnfManager()
+
+    async def run_test():
+        updates = [{"name": "firefox", "current": "1.0", "new": "2.0"}]
+        with patch.object(manager, "_query_updates", return_value=updates):
+            with patch("app.core.drivers.dnf.get_settings") as mock_settings:
+                mock_settings.return_value.get.return_value = []
+                async def failing_communicate():
+                    raise OSError("dnf not found")
+                mock_proc = AsyncMock()
+                mock_proc.returncode = 1
+                mock_proc.communicate = failing_communicate
+                with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+                    logged = []
+                    with patch("app.core.drivers.dnf._log", side_effect=lambda msg: logged.append(msg)):
+                        result = await manager.check_updates()
+        assert result == updates
+        assert result[0]["vendor_change_detection_failed"] is True
+        assert any("vendor-change detection failed" in msg for msg in logged)
+
+    asyncio.run(run_test())
+
+
+def test_dnf_mark_vendor_blocked_empty_names():
+    """When all packages are in allow_vendor_change, returns early."""
+    manager = DnfManager()
+
+    async def run_test():
+        updates = [{"name": "firefox", "current": "1.0", "new": "2.0"}]
+        with patch.object(manager, "_query_updates", return_value=updates):
+            with patch("app.core.drivers.dnf.get_settings") as mock_settings:
+                mock_settings.return_value.get.return_value = ["firefox"]
+                result = await manager.check_updates()
+        assert result == updates
+
+    asyncio.run(run_test())

@@ -20,6 +20,10 @@ from app.core.version_scan import cross_manager_newest
 from app.core.settings_store import get_settings
 
 
+def _log(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 def find_repo_deck_cmd() -> list[str] | None:
     """Locate the repo-config-deck executable or script on the system."""
     which_path = shutil.which("asahi-deck")
@@ -588,8 +592,10 @@ class PolyGetTuiApp(App[None]):
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL
                 )
-        except Exception:
-            pass
+        except FileNotFoundError as e:
+            _log(f"tui: kdeconnect-cli not found: {e}")
+        except OSError as e:
+            _log(f"tui: phone notification failed: {e}")
 
     async def _upgrade_manager(
         self,

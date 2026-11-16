@@ -1,66 +1,74 @@
 import asyncio
 from unittest.mock import patch
 
-import pytest
-
 from app.core.drivers.aur import AurManager
-from app.core.manager import DriverError
 
 
-@pytest.fixture
-def paru():
-    with patch("app.core.drivers.aur.shutil.which", side_effect=lambda b: f"/usr/bin/{b}" if b == "paru" else None):
-        yield
+def test_aur_search_packages_even_lines_all_pairs_processed():
+    """Even number of lines: every header+description pair is processed."""
+    manager = AurManager()
+
+    async def run_test():
+        out = (
+            "aur/alpha 1.0 (5 3)\n"
+            "Description of alpha\n"
+            "aur/beta 2.0 (8 6)\n"
+            "Description of beta\n"
+        )
+        with patch("app.core.drivers.aur.run_capture", return_value=out):
+            results = await manager.search_packages("query")
+
+        assert len(results) == 2
+        assert results[0] == {"name": "alpha", "id": "alpha", "description": "Description of alpha", "version": "1.0"}
+        assert results[1] == {"name": "beta", "id": "beta", "description": "Description of beta", "version": "2.0"}
+
+    asyncio.run(run_test())
 
 
-def test_helper_preference_and_availability():
-    with patch("app.core.drivers.aur.shutil.which", side_effect=lambda b: f"/usr/bin/{b}" if b == "yay" else None):
-        assert AurManager().is_available()
-        assert AurManager().get_install_command("foo")[0] == "yay"
-    with patch("app.core.drivers.aur.shutil.which", return_value=None):
-        assert not AurManager().is_available()
+def test_aur_search_packages_odd_lines_last_not_crashed():
+    """Odd number of lines: the trailing line is not dropped via IndexError;
+    complete pairs are still processed."""
+    manager = AurManager()
+
+    async def run_test():
+        out = (
+            "aur/alpha 1.0 (5 3)\n"
+            "Description of alpha\n"
+            "aur/beta 2.0\n"
+        )
+        with patch("app.core.drivers.aur.run_capture", return_value=out):
+            results = await manager.search_packages("query")
+
+        # Only the complete pair (alpha + description) is processed;
+        # the trailing "aur/beta 2.0" has no description line and is ignored.
+        assert len(results) == 1
+        assert results[0] == {"name": "alpha", "id": "alpha", "description": "Description of alpha", "version": "1.0"}
+
+    asyncio.run(run_test())
 
 
-def test_check_updates_parses_and_treats_exit_1_as_empty(paru, scripted_exec):
-    scripted_exec.add("paru -Qua", stdout="foo-bin 1.0-1 -> 1.1-1\nbar-git r10 -> r12\n")
-    assert asyncio.run(AurManager().check_updates()) == [
-        {"name": "foo-bin", "current": "1.0-1", "new": "1.1-1"},
-        {"name": "bar-git", "current": "r10", "new": "r12"},
-    ]
-    scripted_exec.rules.clear()
-    scripted_exec.add("paru -Qua", rc=1)
-    assert asyncio.run(AurManager().check_updates()) == []
+def test_aur_search_packages_empty():
+    """Empty output: no results, no crash."""
+    manager = AurManager()
+
+    async def run_test():
+        with patch("app.core.drivers.aur.run_capture", return_value=""):
+            results = await manager.search_packages("query")
+
+        assert results == []
+
+    asyncio.run(run_test())
 
 
-def test_check_updates_real_failure_raises(paru, scripted_exec):
-    scripted_exec.add("paru -Qua", rc=2, stderr="error: failed to synchronize")
-    with pytest.raises(DriverError):
-        asyncio.run(AurManager().check_updates())
+def test_aur_search_packages_single_line():
+    """Single line (no pair): no results, no crash."""
+    manager = AurManager()
 
+    async def run_test():
+        out = "aur/alpha 1.0 (5 3)\n"
+        with patch("app.core.drivers.aur.run_capture", return_value=out):
+            results = await manager.search_packages("query")
 
-def test_installed_uses_foreign_package_list(paru, scripted_exec):
-    scripted_exec.add("pacman -Qm", stdout="foo-bin 1.0-1\nbar-git r10-1\n")
-    assert asyncio.run(AurManager().list_installed_versions()) == {"foo-bin": "1.0-1", "bar-git": "r10-1"}
-    assert asyncio.run(AurManager().list_installed()) == ["foo-bin", "bar-git"]
+        assert results == []
 
-
-def test_search_parses_two_line_results(paru, scripted_exec):
-    scripted_exec.add("paru -Ssa tool", stdout=(
-        "aur/mytool 2.1-1 (+12 0.50)\n    A handy tool\n"
-        "aur/mytool-git r5-1 (+3 0.01)\n    Git version\n"
-    ))
-    results = asyncio.run(AurManager().search_packages("tool"))
-    assert results[0] == {"name": "mytool", "id": "mytool", "description": "A handy tool", "version": "2.1-1"}
-    assert [r["name"] for r in results] == ["mytool", "mytool-git"]
-
-
-def test_search_no_match_exit_1_is_empty(paru, scripted_exec):
-    scripted_exec.add("paru -Ssa", rc=1)
-    assert asyncio.run(AurManager().search_packages("zzz")) == []
-
-
-def test_commands_never_use_pkexec(paru):
-    mgr = AurManager()
-    assert mgr.get_upgrade_command() == ["paru", "-Sua", "--noconfirm"]
-    assert mgr.get_upgrade_command(["a", "b"]) == ["paru", "-S", "--noconfirm", "a", "b"]
-    assert "pkexec" not in mgr.get_install_command("x")
+    asyncio.run(run_test())

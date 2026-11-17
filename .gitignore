@@ -21,3 +21,7 @@ VIEW-CHAIN/
 
 # Local Claude Code settings (personal overrides, not shared)
 .claude/settings.local.json
+
+# Packaging artefacts
+build/
+dist/

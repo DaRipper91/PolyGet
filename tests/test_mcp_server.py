@@ -1,6 +1,8 @@
 """Tests for PolyGet Model Context Protocol (MCP) server."""
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock
+import app.mcp_server as server_module
 from app.mcp_server import create_server
 
 
@@ -45,18 +47,34 @@ async def test_mcp_list_managers_call(mcp_server):
 
 
 @pytest.mark.asyncio
-async def test_mcp_needs_restart_call(mcp_server):
+async def test_mcp_needs_restart_call(mcp_server, monkeypatch):
+    expected = {"needed": True, "method": "test probe", "reasons": ["kernel"]}
+    probe = AsyncMock(return_value=expected)
+    monkeypatch.setattr(server_module, "check_restart_needed", probe)
     res = await mcp_server.call_tool("polyget_needs_restart", {})
     assert not res.is_error
     data = res.structured_content
     assert "needed" in data
     assert "method" in data
+    assert data == expected
+    probe.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
-async def test_mcp_upgrade_plan_dry_run(mcp_server):
+async def test_mcp_upgrade_plan_dry_run(mcp_server, monkeypatch):
+    manager = MagicMock()
+    manager.name = "test-manager"
+    manager.get_upgrade_command.return_value = ["test-manager", "upgrade", "example"]
+    monkeypatch.setattr(server_module, "_select_managers", lambda _: [manager])
+    scan = AsyncMock(return_value=({}, [{"manager": manager.name, "name": "example"}]))
+    monkeypatch.setattr(server_module, "_scan_outdated", scan)
+    monkeypatch.setattr(server_module, "_with_hooks", lambda steps, _: steps)
     res = await mcp_server.call_tool("polyget_upgrade_plan", {})
     assert not res.is_error
     plan = res.structured_content
     assert plan["executed"] is False
     assert "steps" in plan
+    assert plan["steps"] == [{"manager": "test-manager", "packages": ["example"],
+                              "command": ["test-manager", "upgrade", "example"]}]
+    scan.assert_awaited_once_with([manager], include_ignored=False)
+    manager.get_upgrade_command.assert_called_once_with(["example"])

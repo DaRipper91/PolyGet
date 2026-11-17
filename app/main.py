@@ -43,7 +43,7 @@ def main() -> int:
     # Create the application instance
     app = QApplication(sys.argv)
     app.setApplicationName("PolyGet")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion("1.1.0")
     app.setDesktopFileName("polyget")
 
     for icon_path in _icon_candidates():

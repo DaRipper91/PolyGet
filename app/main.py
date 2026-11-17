@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+from app._version import __version__
+
 
 def _icon_candidates() -> list[Path]:
     """Icon files to try, best first.
@@ -43,7 +45,7 @@ def main() -> int:
     # Create the application instance
     app = QApplication(sys.argv)
     app.setApplicationName("PolyGet")
-    app.setApplicationVersion("1.1.0")
+    app.setApplicationVersion(__version__)
     app.setDesktopFileName("polyget")
 
     for icon_path in _icon_candidates():

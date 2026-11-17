@@ -20,7 +20,7 @@ from app.core.manager import DriverError, PackageManager, describe_error, discov
 from app.core.version_scan import cmd_newest
 from app.core.debug_log import debug_log, subscribe, unsubscribe, _enable_file_logging
 
-VERSION = "1.1.0"
+from app._version import __version__ as VERSION
 EXIT_OK = 0
 EXIT_FAILED = 1
 EXIT_USAGE = 2

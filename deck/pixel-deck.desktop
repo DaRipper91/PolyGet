@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Pixel Control Deck
+GenericName=APT Package Manager Configuration
+Comment=Repository & APT Package Control Deck for Google Pixel 10 Pro (Termux)
+Exec=pixel-deck
+TryExec=pixel-deck
+Icon=pixel-deck
+Terminal=true
+Categories=System;Settings;PackageManager;
+Keywords=termux;apt;pkg;pixel;deck;repository;
+StartupNotify=false

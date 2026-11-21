@@ -26,7 +26,7 @@ EXIT_FAILED = 1
 EXIT_USAGE = 2
 
 COMMANDS = (
-    "managers", "outdated", "installed", "search", "audit", "repos",
+    "managers", "outdated", "installed", "search", "audit", "repos", "repo-deck",
     "upgrade", "install", "remove", "review", "clean", "hooks", "sync", "history", "ignore", "projects", "catalog", "newest", "needs-restart", "system",
     "self-version", "debug", "mcp",
 )
@@ -367,7 +367,22 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return EXIT_FAILED if errors else EXIT_OK
 
 
+def cmd_repo_deck(args: argparse.Namespace) -> int:
+    from app.ui.tui import find_repo_deck_cmd
+    cmd = find_repo_deck_cmd()
+    if not cmd:
+        _log("Error: repo-config-deck not found.")
+        return EXIT_FAILED
+    try:
+        res = subprocess.run(cmd)
+        return res.returncode
+    except KeyboardInterrupt:
+        return EXIT_OK
+
+
 def cmd_repos(args: argparse.Namespace) -> int:
+    if getattr(args, "deck", False):
+        return cmd_repo_deck(args)
     managers = [m for m in _select_managers(args.manager) if m.supports_repos]
     results = asyncio.run(_gather_per_manager(managers, "list_repos"))
     # Managers with no repo concept are expected, not failures — distinguish like cmd_audit.
@@ -784,6 +799,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("repos", cmd_repos, "list configured repositories/remotes")
     manager_filter(p)
+    p.add_argument("--deck", action="store_true", help="launch the interactive Repository Control Deck")
+
+    add("repo-deck", cmd_repo_deck, "launch the interactive Software Sources and Repository Control Deck")
 
     p = add("upgrade", cmd_upgrade, "upgrade outdated packages (skips ignored ones)")
     manager_filter(p)

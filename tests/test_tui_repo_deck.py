@@ -35,6 +35,20 @@ def test_find_repo_deck_cmd_not_found(monkeypatch):
     assert cmd is None
 
 
+def test_find_repo_deck_cmd_bundled(monkeypatch):
+    monkeypatch.setattr("app.ui.tui.shutil.which", lambda name: None)
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    def fake_is_file(self):
+        return str(self).endswith("deck/asahi-deck.py")
+
+    monkeypatch.setattr(Path, "is_file", fake_is_file)
+    cmd = find_repo_deck_cmd()
+    assert cmd is not None
+    assert cmd[0] == sys.executable
+    assert cmd[1].endswith("asahi-deck.py")
+
+
 def test_action_open_repo_deck_not_found_notifies():
     async def run_test():
         with patch("app.ui.tui.discover_managers", return_value=[]), \

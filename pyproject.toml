@@ -35,3 +35,7 @@ include = ["app*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "app._version.__version__" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

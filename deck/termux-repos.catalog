@@ -1,0 +1,284 @@
+# termux-repos.catalog — Extended Repository Catalog for Google Pixel 10 Pro (Termux / aarch64)
+#
+# kinds:
+#   builtin   Main repository in sources.list; toggled via mirror/source config
+#   pkg       Termux repository package installed via pkg/apt (e.g., x11-repo, root-repo, tur-repo)
+#   listfile  Custom .list entry in sources.list.d/
+#   mirror    Termux mirror source switch
+# ids:   Unique package or repository identifiers that signify "this repo is ON"
+# {PREFIX} is expanded to /data/data/com.termux/files/usr (or /usr in proot) at runtime.
+
+# ============================================================ OFFICIAL & CORE ===
+
+[termux-main]
+cat: Official & Core Overlays
+kind: builtin
+ids: termux-main
+required: yes
+top: python, fish, git, clang, openssh, neovim, curl
+info: Core Termux package repository (Bionic libc userland, base utilities)
+
+[termux-main-cf]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-cloudflare
+top: (Cloudflare edge CDN cached package stream)
+info: Cloudflare-cached global CDN mirror (packages-cf.termux.dev) — fastest default
+
+[termux-main-direct]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-direct
+top: (Direct origin package stream)
+info: Direct origin server (packages.termux.dev) without edge CDN caching
+
+[grimler-mirror]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-grimler
+top: (European primary mirror hosted by lead dev Henrik Grimler)
+info: Henrik Grimler's official European mirror (grimler.se)
+
+[fcix-mirror]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-fcix
+top: (Fremont Cabal Internet Exchange high-bandwidth US mirror)
+info: Fremont Cabal Internet Exchange US mirror (mirror.fcix.net)
+
+[bfsu-mirror]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-bfsu
+top: (Beijing Foreign Studies University high-speed mirror)
+info: BFSU official Asian mirror (mirrors.bfsu.edu.cn)
+
+[tuna-mirror]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-tuna
+top: (Tsinghua University TUNA mirror)
+info: Tsinghua University TUNA mirror (mirrors.tuna.tsinghua.edu.cn)
+
+[librehat-mirror]
+cat: Official & Core Overlays
+kind: mirror
+ids: mirror-librehat
+top: (Librehat community Termux mirror)
+info: Librehat community Termux mirror (termux.librehat.com)
+
+[termux-x11]
+cat: Official & Core Overlays
+kind: pkg
+pkg: x11-repo
+ids: x11-repo x11
+top: termux-x11-nightly, xfce4, pulseaudio, virglrenderer-android, mesa, firefox
+info: Official Termux X11 & Wayland GUI repository for desktop environments
+
+[termux-root]
+cat: Official & Core Overlays
+kind: pkg
+pkg: root-repo
+ids: root-repo root
+needs-root: yes
+top: tsu, tcpdump, gdb, iptables, ethtool, cryptsetup
+warn: Requires root or Shizuku/rish privileges. Da-pixel-10-pro runs non-root userland!
+info: Privileged packages requiring root or rish access to device interfaces
+
+[termux-api]
+cat: Official & Core Overlays
+kind: pkg
+pkg: termux-api
+ids: termux-api
+top: termux-battery-status, termux-camera-photo, termux-notification, termux-vibrate, termux-wifi-scaninfo
+info: Native Termux Android API client bindings for device hardware access
+
+# ============================================================ COMMUNITY & TUR ===
+
+[tur-repo]
+cat: Community & User Repos (TUR)
+kind: pkg
+pkg: tur-repo
+ids: tur-repo tur
+top: code-server, ripgrep-all, zellij, uv, ollama-termux, btop
+info: Termux User Repository — community build repository for modern CLI & dev tools
+
+[tur-continuous]
+cat: Community & User Repos (TUR)
+kind: listfile
+url: deb https://tur.kcubeterm.com tur-packages tur-continuous
+ids: tur-continuous
+needs: tur-repo
+top: bleeding-edge continuous automated package builds
+info: TUR Continuous integration builds for rapidly evolving open-source tools
+
+[tur-nightly]
+cat: Community & User Repos (TUR)
+kind: listfile
+url: deb https://tur.kcubeterm.com tur-packages tur-nightly
+ids: tur-nightly
+needs: tur-repo
+testing: yes
+top: nightly automated builds from upstream source trees
+info: TUR Nightly automated package builds for experimental testing
+
+[tur-on-device]
+cat: Community & User Repos (TUR)
+kind: builtin
+ids: tur-on-device
+needs: tur-repo
+testing: yes
+top: on-device compilation toolchains, rust nightly, gcc-14-termux
+info: Bleeding-edge packages compiled directly on-device (bundled component of tur-repo)
+
+[glibc-repo]
+cat: Community & User Repos (TUR)
+kind: pkg
+pkg: glibc-repo
+ids: glibc-repo glibc
+top: glibc, glibc-runner, patchelf
+info: Glibc compatibility runtime allowing standard Linux glibc binaries in Termux
+
+[termux-gui-repo]
+cat: Community & User Repos (TUR)
+kind: pkg
+pkg: termux-gui-package
+ids: termux-gui-package termux-gui-repo termux-gui
+top: termux-gui-package, termux-gui-pm, termux-gui-c, termux-gui-bash
+info: Native Android UI binding repository & tools for Termux applications (Jetpack/Compose)
+
+[nerd-fonts]
+cat: Community & User Repos (TUR)
+kind: pkg
+pkg: nerd-fonts
+ids: nerd-fonts
+top: FiraCode, JetBrainsMono, Hack, Meslo Nerd Fonts
+info: Complete patched developer typography collection with glyphs and powerline symbols
+
+# ============================================================ SECURITY & NETWORK ===
+
+[tur-hacking]
+cat: Security & Infrastructure
+kind: listfile
+url: deb https://tur.kcubeterm.com tur-packages tur-hacking
+ids: tur-hacking
+needs: tur-repo
+top: nmap, sqlmap, nikto, hydra, radare2
+info: Penetration testing, network exploration, and security auditing tools hosted in TUR
+
+[tor]
+cat: Security & Infrastructure
+kind: pkg
+pkg: tor
+ids: tor
+top: tor, torsocks
+info: Native Termux onion routing daemon and torsocks proxy (official Bionic build)
+
+[tor-repo]
+cat: Security & Infrastructure
+kind: listfile
+url: deb [trusted=yes] https://deb.torproject.org/torproject.org stable main
+ids: tor-arm64
+top: tor, torsocks, deb.torproject.org-keyring
+warn: Raw Debian upstream Tor repo. Binaries require glibc runtime! Use native 'tor' package for standard Termux.
+info: Debian Tor Project upstream repository (glibc runner required)
+
+[tailscale]
+cat: Security & Infrastructure
+kind: builtin
+ids: tailscale
+top: tailscale, tailscaled
+info: Tailscale mesh VPN daemon (operates via Android system VPN or userspace Go binary)
+
+[wireguard-tools]
+cat: Security & Infrastructure
+kind: pkg
+pkg: wireguard-tools
+ids: wireguard-tools
+needs-root: yes
+top: wg, wg-quick
+warn: Requires root/kernel WireGuard support or userspace wireguard-go
+info: Fast modern VPN tunnel management utilities
+
+[metasploit]
+cat: Security & Infrastructure
+kind: pkg
+pkg: metasploit
+ids: metasploit
+top: msfconsole, msfvenom, msfdb
+warn: High memory usage (~1.2 GB load footprint). Monitor Tensor G5 userland ceiling!
+info: Metasploit Framework penetration testing suite packaged for Termux
+
+# ============================================================ DEV & RUNTIMES ===
+
+[science-repo]
+cat: Dev, Toolchains & Scientific
+kind: pkg
+pkg: science-repo
+ids: science-repo science
+top: python-scipy, python-numpy, gfortran, fftw, openblas
+info: Scientific computing and linear algebra libraries optimized for aarch64
+
+[game-repo]
+cat: Dev, Toolchains & Scientific
+kind: pkg
+pkg: game-repo
+ids: game-repo game
+top: dosbox, retroarch, frotz, bsd-games
+info: Native terminal and X11 gaming engines, emulators, and text adventures
+
+[its-pointless]
+cat: Dev, Toolchains & Scientific
+kind: listfile
+url: deb [trusted=yes] https://its-pointless.github.io/files/24 termux extras
+ids: its-pointless pointless
+top: gfortran-11, r-base, octave, scipy-legacy
+warn: Community scientific repository maintained by its-pointless
+info: Pointless community repository for gfortran, SciPy, NumPy, and R language toolchains
+
+[termux-pacman-glibc]
+cat: Dev, Toolchains & Scientific
+kind: listfile
+url: deb [trusted=yes] https://termux-pacman.dev/glibc/ stable main
+ids: termux-pacman-glibc pacman-glibc
+top: pacman, glibc-runner, standard GNU toolchains
+warn: Experimental GNU glibc environment from the termux-pacman project
+info: Native GNU C Library runner and packaging environment for unmodified Linux binaries
+
+[proot-distro]
+cat: Dev, Toolchains & Scientific
+kind: pkg
+pkg: proot-distro
+ids: proot-distro
+top: debian, ubuntu, archlinux, fedora, alpine, void
+info: PRoot distribution manager for complete guest Linux userlands alongside Termux
+
+[android-tools]
+cat: Dev, Toolchains & Scientific
+kind: pkg
+pkg: android-tools
+ids: android-tools adb fastboot
+top: adb, fastboot, mke2fs.android
+info: Android SDK platform tools for local device debugging and Shizuku/rish pairing
+
+# ============================================================ EXPERIMENTAL & HARDWARE ===
+
+[tur-multilib]
+cat: Experimental & Hardware Overlays
+kind: listfile
+url: deb https://tur.kcubeterm.com tur-packages tur-multilib
+ids: tur-multilib
+needs: tur-repo
+top: box64, fex-emu, 32-bit compatibility binaries
+warn: Google Tensor G5 (blazer) CPU lacks 32-bit hardware execution. Requires Box64/FEX-Emu emulation layer!
+info: 32-bit ARM multilib overlay (Emulation required on pure 64-bit Tensor G5)
+
+[debian-raw-ppa]
+cat: Experimental & Hardware Overlays
+kind: listfile
+url: deb [trusted=yes] http://ppa.launchpad.net/ubuntu-toolchain-r/test/ubuntu jammy main
+ids: ppa-launchpad debian-raw-ppa
+top: raw gcc, raw toolchain debs
+warn: Ubuntu PPAs link against GNU C Library (glibc) and hardcode /usr paths incompatible with Android Bionic libc. Use glibc-repo or PRoot Debian instead.
+info: Raw Launchpad Ubuntu PPA repositories (Glibc / Android bionic mismatch)
+

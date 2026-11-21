@@ -30,6 +30,11 @@ def find_repo_deck_cmd() -> list[str] | None:
     if which_path and os.access(which_path, os.X_OK):
         return [which_path]
 
+    deck_name = "pixel-deck.py" if Path("/data/data/com.termux").exists() else "asahi-deck.py"
+    bundled = Path(__file__).resolve().parents[2] / "deck" / deck_name
+    if bundled.is_file():
+        return [sys.executable, str(bundled)]
+
     candidates = [
         Path.home() / ".local" / "bin" / "asahi-deck",
         Path("/usr/local/bin/asahi-deck"),

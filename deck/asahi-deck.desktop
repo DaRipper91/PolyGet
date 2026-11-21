@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Asahi Control Deck
+GenericName=Package Manager Configuration
+Comment=Configure dnf5 options and repositories for Fedora Asahi Remix with a reviewed diff
+Exec=konsole -e asahi-deck
+TryExec=konsole
+Icon=asahi-deck
+Terminal=false
+Categories=System;PackageManager;
+Keywords=dnf;dnf5;packages;repositories;Asahi;configuration;Fedora;
+StartupNotify=false

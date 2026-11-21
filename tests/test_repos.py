@@ -173,3 +173,16 @@ def test_base_class_list_repos_is_unsupported_not_failed():
             await manager.list_repos()
 
     asyncio.run(run_test())
+
+def test_cmd_repo_deck_invokes_find_repo_deck(monkeypatch):
+    import argparse
+    from app.cli import cmd_repo_deck, cmd_repos
+    from unittest.mock import MagicMock, patch
+
+    called = []
+    with patch("app.ui.tui.find_repo_deck_cmd", return_value=["/usr/bin/asahi-deck"]), \
+         patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+        args = argparse.Namespace(deck=True)
+        ret = cmd_repos(args)
+        assert ret == 0
+        mock_run.assert_called_once_with(["/usr/bin/asahi-deck"])

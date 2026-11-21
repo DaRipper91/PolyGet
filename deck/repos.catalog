@@ -1,0 +1,304 @@
+# repos.catalog — every repo configure-dnf.sh knows for Fedora Asahi Remix (aarch64)
+#
+# kinds:
+#   builtin   ships with Fedora/Asahi; toggled with dnf config-manager setopt <id>.enabled=0/1
+#   copr      dnf copr enable/disable <copr>
+#   rpm       a *-release package: enable = install URL, disable = remove package
+#   repofile  vendor .repo file: enable = dnf config-manager addrepo --from-repofile=URL
+#   terra     Fyra Labs Terra bootstrap (dnf install --repofrompath …)
+#   flatpak   a Flatpak remote (not dnf) — flatpak remote-add/remote-delete
+# ids:   repo ids (from `dnf repo list`) that mean "this repo is ON"
+# {SUDO} and {FEDORA} are filled in at run time.
+# Repos marked REFUSED have no aarch64 build, would replace Asahi's own
+# graphics/kernel stack, or conflict with another repo here.
+
+# ============================================================ OFFICIAL ===
+
+[fedora]
+cat: Official & Core Overlays
+kind: builtin
+ids: fedora
+required: yes
+top: plasma-desktop, firefox, dnf5
+info: Fedora base release repository (frozen at release)
+
+[updates]
+cat: Official & Core Overlays
+kind: builtin
+ids: updates
+required: yes
+top: firefox, mesa-vulkan-drivers, plasma-workspace
+info: Fedora updates for the current release
+
+[updates-testing]
+cat: Official & Core Overlays
+kind: builtin
+ids: updates-testing
+testing: yes
+top: (pre-release builds of any Fedora package)
+info: Fedora updates waiting for karma before reaching [updates]
+
+[fedora-cisco-openh264]
+cat: Official & Core Overlays
+kind: builtin
+ids: fedora-cisco-openh264
+top: openh264, mozilla-openh264, gstreamer1-plugin-openh264
+info: Cisco's prebuilt OpenH264 codec (H.264 in Firefox / WebRTC)
+
+[asahi-kernel]
+cat: Official & Core Overlays
+kind: copr
+copr: @asahi/kernel
+ids: copr:copr.fedorainfracloud.org:group_asahi:kernel
+required: yes
+top: kernel-16k (Asahi kernel), (run --live for the rest)
+info: Asahi SIG kernel for Apple Silicon (16K pages). Disabling it stops kernel updates
+
+[asahi-u-boot]
+cat: Official & Core Overlays
+kind: copr
+copr: @asahi/u-boot
+ids: copr:copr.fedorainfracloud.org:group_asahi:u-boot
+required: yes
+top: (run --live)
+info: U-Boot bootloader stage used by the Asahi boot chain
+
+[asahi-branding]
+cat: Official & Core Overlays
+kind: copr
+copr: @asahi/fedora-remix-branding
+ids: copr:copr.fedorainfracloud.org:group_asahi:fedora-remix-branding
+required: yes
+top: fedora-asahi-remix-release-common, fedora-asahi-remix-release-identity-kde-desktop, fedora-asahi-remix-release-kde-mobile
+info: Remix release/branding packages (they carry the repo definitions themselves)
+
+[asahi-scripts]
+cat: Official & Core Overlays
+kind: copr
+copr: @asahi/fedora-remix-scripts
+ids: copr:copr.fedorainfracloud.org:group_asahi:fedora-remix-scripts
+top: asahi-scripts, (run --live for the rest)
+info: Asahi utility packages (firmware, m1n1 and boot helpers)
+
+[asahi-steam]
+cat: Desktop, Apps & Pro Audio
+kind: copr
+copr: @asahi/steam
+ids: copr:copr.fedorainfracloud.org:group_asahi:steam
+top: steam (runs x86 Steam via FEX + muvm)
+info: Steam wrapper for Fedora Asahi Remix. The ONLY way to run Steam on Apple Silicon
+
+# ===================================================== PREBUILT / MEDIA ===
+
+[rpmfusion-free]
+cat: Prebuilt AUR & Convenience
+kind: rpm
+url: https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-{FEDORA}.noarch.rpm
+pkg: rpmfusion-free-release
+ids: rpmfusion-free rpmfusion-free-updates
+top: ffmpeg, vlc, gstreamer1-plugins-ugly
+info: Free software Fedora can't ship (patents): full ffmpeg, codecs, VLC. Builds aarch64
+warn: Use `dnf swap ffmpeg-free ffmpeg --allowerasing` after enabling. Never swap Mesa: Asahi's GPU driver lives in Fedora's mesa
+
+[rpmfusion-nonfree]
+cat: Prebuilt AUR & Convenience
+kind: rpm
+url: https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-{FEDORA}.noarch.rpm
+pkg: rpmfusion-nonfree-release
+ids: rpmfusion-nonfree rpmfusion-nonfree-updates
+top: unrar, (small on aarch64 — NVIDIA/Steam bits are x86_64 only)
+info: Non-free redistributable software. Much smaller on aarch64; enable free first
+
+[rpmfusion-free-tainted]
+cat: Prebuilt AUR & Convenience
+kind: builtin
+ids: rpmfusion-free-tainted
+needs: rpmfusion-free
+top: libdvdcss
+info: Legally grey packages (DVD decryption). Ships disabled inside rpmfusion-free-release
+warn: Legality depends on your country
+
+[terra]
+cat: Prebuilt AUR & Convenience
+kind: terra
+pkg: terra-release
+ids: terra
+top: (run --live for current flagships)
+info: Fyra Labs' rolling repo of apps Fedora doesn't package; builds x86_64 AND aarch64
+warn: Rolling repo: newer versions can replace Fedora's. Only the main subrepo here — the Mesa/NVIDIA subrepos are refused below
+
+[flathub]
+cat: Prebuilt AUR & Convenience
+kind: flatpak
+remote: flathub
+url: https://dl.flathub.org/repo/flathub.flatpakrepo
+top: org.kde.krita, com.obsproject.Studio, org.signal.Signal
+info: Flatpak apps (sandboxed). Only apps with aarch64 builds install; many 4K-page-only apps are fixed by Flathub's runtime
+warn: Some x86-only apps show up but fail to install on aarch64
+
+# ====================================================== DEV / TOOLCHAINS ===
+
+[vscode]
+cat: Dev, Toolchains & Scientific
+kind: repofile-inline
+file: /etc/yum.repos.d/vscode.repo
+ids: code
+key: https://packages.microsoft.com/keys/microsoft.asc
+content: [code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\nautorefresh=1\ntype=rpm-md\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc
+top: code, code-insiders
+info: Microsoft's VS Code repo (aarch64 builds available)
+
+[docker-ce]
+cat: Dev, Toolchains & Scientific
+kind: repofile
+url: https://download.docker.com/linux/fedora/docker-ce.repo
+file: /etc/yum.repos.d/docker-ce.repo
+ids: docker-ce-stable
+top: docker-ce, docker-compose-plugin, containerd.io
+info: Docker's official engine (aarch64). Fedora's podman is the native alternative
+
+[gh-cli]
+cat: Dev, Toolchains & Scientific
+kind: repofile
+url: https://cli.github.com/packages/rpm/gh-cli.repo
+file: /etc/yum.repos.d/gh-cli.repo
+ids: gh-cli
+top: gh
+info: GitHub's own gh builds (newer than Fedora's gh package)
+
+[copr-starship]
+cat: Dev, Toolchains & Scientific
+kind: copr
+copr: atim/starship
+ids: copr:copr.fedorainfracloud.org:atim:starship
+top: starship
+info: Starship prompt builds (your fish + starship setup)
+
+[copr-lazygit]
+cat: Dev, Toolchains & Scientific
+kind: copr
+copr: atim/lazygit
+ids: copr:copr.fedorainfracloud.org:atim:lazygit
+top: lazygit
+info: lazygit terminal UI for git
+
+[copr-nerd-fonts]
+cat: Desktop, Apps & Pro Audio
+kind: copr
+copr: che/nerd-fonts
+ids: copr:copr.fedorainfracloud.org:che:nerd-fonts
+top: nerd-fonts
+info: Nerd Fonts (icons for starship/eza)
+
+# ======================================================== DESKTOP / APPS ===
+
+[brave-browser]
+cat: Desktop, Apps & Pro Audio
+kind: repofile
+url: https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+file: /etc/yum.repos.d/brave-browser.repo
+ids: brave-browser
+top: brave-browser
+info: Brave browser vendor repo
+warn: Check the live card: confirm Brave still publishes aarch64 RPMs before relying on it
+
+[vivaldi]
+cat: Desktop, Apps & Pro Audio
+kind: repofile
+url: https://repo.vivaldi.com/archive/vivaldi-fedora.repo
+file: /etc/yum.repos.d/vivaldi-fedora.repo
+ids: vivaldi
+top: vivaldi-stable
+info: Vivaldi browser vendor repo (Vivaldi publishes ARM64 Linux builds)
+
+[1password]
+cat: Security & Infrastructure
+kind: repofile-inline
+file: /etc/yum.repos.d/1password.repo
+ids: 1password
+key: https://downloads.1password.com/linux/keys/1password.asc
+content: [1password]\nname=1Password Stable Channel\nbaseurl=https://downloads.1password.com/linux/rpm/stable/$basearch\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://downloads.1password.com/linux/keys/1password.asc
+top: 1password, 1password-cli
+info: 1Password desktop + CLI
+warn: Check the live card: confirm the repo has aarch64 packages for your release
+
+[tailscale]
+cat: Security & Infrastructure
+kind: repofile
+url: https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+file: /etc/yum.repos.d/tailscale.repo
+ids: tailscale-stable
+top: tailscale
+info: Tailscale's stable repo — keeps "asahi" on the daripper91 tailnet up to date
+
+# ========================================================== BLEEDING EDGE ===
+
+[asahi-alpha]
+cat: Kernels & Graphics Bleeding-Edge
+kind: copr
+copr: noisycoil/asahi-alpha
+ids: copr:copr.fedorainfracloud.org:noisycoil:asahi-alpha
+testing: yes
+top: (testing packages for Fedora Asahi)
+info: Personal testing repo for Asahi packages. Its author says everybody else should avoid it
+
+# ================================================================ REFUSED ===
+
+[terra-mesa]
+cat: Refused / Incompatible
+kind: rpm
+pkg: terra-release-mesa
+ids: terra-mesa
+setup: REFUSED — replaces Fedora's Mesa, which carries the Asahi GPU driver
+top: mesa (patched)
+info: Terra's patched Mesa stream
+
+[terra-nvidia]
+cat: Refused / Incompatible
+kind: rpm
+pkg: terra-release-nvidia
+ids: terra-nvidia
+setup: REFUSED — no NVIDIA GPU in an Apple Silicon Mac
+top: nvidia-driver
+info: Terra's NVIDIA stream
+
+[rpmfusion-nonfree-nvidia]
+cat: Refused / Incompatible
+kind: builtin
+ids: rpmfusion-nonfree-nvidia-driver
+setup: REFUSED — no NVIDIA GPU in an Apple Silicon Mac
+top: akmod-nvidia
+info: RPM Fusion NVIDIA driver repo
+
+[rpmfusion-nonfree-steam]
+cat: Refused / Incompatible
+kind: builtin
+ids: rpmfusion-nonfree-steam
+setup: REFUSED — x86_64-only Steam; use [asahi-steam] (FEX + muvm) instead
+top: steam
+info: RPM Fusion's native Steam repo
+
+[negativo17-multimedia]
+cat: Refused / Incompatible
+kind: repofile
+url: https://negativo17.org/repos/fedora-multimedia.repo
+ids: fedora-multimedia
+setup: REFUSED — conflicts with RPM Fusion's ffmpeg/codecs; pick one source (RPM Fusion here)
+top: ffmpeg, libdvdcss
+info: negativo17 multimedia repo
+
+[google-chrome]
+cat: Refused / Incompatible
+kind: builtin
+ids: google-chrome
+setup: REFUSED — Google ships no aarch64 Linux build of Chrome (use Chromium from Fedora, or Brave/Vivaldi)
+top: google-chrome-stable
+info: Google Chrome repo
+
+[microsoft-edge]
+cat: Refused / Incompatible
+kind: builtin
+ids: microsoft-edge
+setup: REFUSED — no aarch64 Linux build
+top: microsoft-edge-stable
+info: Microsoft Edge repo

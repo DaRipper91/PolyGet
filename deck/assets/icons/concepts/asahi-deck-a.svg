@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Concept A: Shield with dnf checkmark + package box -->
+  <defs>
+    <linearGradient id="a-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6095EB"/>
+      <stop offset="100%" stop-color="#3C6EA5"/>
+    </linearGradient>
+    <linearGradient id="a-box" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E0E0E0"/>
+    </linearGradient>
+  </defs>
+  <!-- Shield background -->
+  <path d="M20 20 L108 20 Q122 20 122 34 L122 94 Q122 108 108 108 L20 108 Q6 108 6 94 L6 34 Q6 20 20 20 Z" fill="url(#a-bg)"/>
+  <!-- dnf checkmark -->
+  <path d="M42 62 L52 72 L78 52" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Package box -->
+  <rect x="56" y="50" width="26" height="18" rx="3" ry="3" fill="url(#a-box)" stroke="#FFFFFF" stroke-width="4"/>
+  <line x1="56" y1="59" x2="82" y2="59" stroke="#6095EB" stroke-width="4"/>
+  <line x1="56" y1="63" x2="82" y2="63" stroke="#6095EB" stroke-width="4"/>
+  <line x1="56" y1="67" x2="82" y2="67" stroke="#6095EB" stroke-width="4"/>
+</svg>

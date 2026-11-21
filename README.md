@@ -226,7 +226,8 @@ python run.py mcp                       # Start the stdio MCP server
 | `installed` | List packages currently installed |
 | `search QUERY` | Query package registries concurrently |
 | `audit` | Scan installed packages for known security vulnerabilities |
-| `repos` | View configured software repositories and mirrors |
+| `repos` | View configured software repositories and mirrors (`--deck` launches TUI) |
+| `repo-deck` | Launch the interactive Software Sources & Repository Control Deck (curses TUI) |
 | `upgrade` | Upgrade outdated packages (plan mode default; requires `--yes` to run) |
 | `install` | Install packages through a specified manager |
 | `remove` | Uninstall packages with dependency preview |
@@ -265,6 +266,7 @@ QT_QPA_PLATFORM=offscreen pytest tests/test_cli.py
 
 ## ❖ Companion Documentation
 
+- [**Repository Control Deck (deck/)**](deck/README.md): Hardware-guarded repository configuration & DNF5 tuning for Fedora Asahi & Termux.
 - [**Model Context Protocol (MCP) Guide**](docs/mcp-server.md): Integration guide for `agy`, Claude Code, and Cursor.
 - [**System Architecture & Invariants**](docs/architecture.md): Subprocess invariants, coordination, and elevation rules.
 - [**Adding a Driver Guide**](docs/guides/adding-a-driver.md): Step-by-step instructions for adding new backends.
